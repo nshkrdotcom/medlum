@@ -2,6 +2,10 @@ defmodule Lumainus.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Lumainus.Tenancy.Tenant
+
+  @roles ~w(guest doctor admin system_administrator)
+
   schema "users" do
     field(:email, :string)
     field(:password, :string, virtual: true, redact: true)
@@ -10,6 +14,10 @@ defmodule Lumainus.Accounts.User do
     field(:authenticated_at, :utc_datetime, virtual: true)
     field(:role, :string, default: "guest")
     field(:name, :string)
+    field(:locale, :string)
+    field(:timezone, :string)
+
+    belongs_to(:tenant, Tenant, type: :binary_id)
 
     timestamps(type: :utc_datetime)
   end
@@ -27,8 +35,10 @@ defmodule Lumainus.Accounts.User do
   """
   def email_changeset(user, attrs, opts \\ []) do
     user
-    |> cast(attrs, [:email])
+    |> cast(attrs, [:email, :tenant_id, :role, :name, :locale, :timezone])
     |> validate_email(opts)
+    |> ensure_tenant_present()
+    |> validate_inclusion(:role, @roles)
   end
 
   defp validate_email(changeset, opts) do
@@ -55,6 +65,14 @@ defmodule Lumainus.Accounts.User do
       add_error(changeset, :email, "did not change")
     else
       changeset
+    end
+  end
+
+  defp ensure_tenant_present(changeset) do
+    if get_field(changeset, :tenant_id) do
+      changeset
+    else
+      add_error(changeset, :tenant_id, "can't be blank")
     end
   end
 

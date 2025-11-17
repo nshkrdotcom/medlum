@@ -1,6 +1,6 @@
 # Lumainus Web – Development Guide
 
-This repo hosts the full Phoenix LiveView application for Lumainus. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView still renders from an in-memory mock dataset (`LumainusWeb.Medical.MockDocuments`) until the ingestion/LLM pipeline is completed.
+This repo hosts the full Phoenix LiveView application for Lumainus. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView now renders from the ingestion/LLM pipeline (PDF uploads persisted in Postgres + ReqLLM markdown conversion).
 
 ## Quick start
 
@@ -30,8 +30,8 @@ Override via `LUMAINUS_ADMIN_*` env vars before running `mix setup`.
 | Password & magic-link login                  | ✅     | `/users/log-in`, `Accounts.login_user_by_magic_link/1` |
 | Invitations & role assignment                | ✅     | `/admin/invitations`, roles: doctor/admin/system_admin |
 | Role-based routing                           | ✅     | `LumainusWeb.UserAuth` plugs guard doctor/admin scopes |
-| `/reports` LiveView UI                       | ✅     | Uses `MockDocuments` for all data |
-| Real ingestion / LLM summarization           | 🚧     | Replace `MockDocuments` with persisted documents |
+| `/reports` LiveView UI                       | ✅     | Driven by persisted uploads + ingestion jobs |
+| Real ingestion / LLM summarization           | ✅     | PDF uploads -> ReqLLM markdown parser |
 | Multi-agent critic pipeline & attribution    | 🚧     | See `docs/20251116/001_LUMAINUS_claude.md` |
 
 ## Architecture overview
@@ -64,13 +64,13 @@ priv/
 
 ### Reports LiveView
 
-`lib/lumainus_web/live/reports_live.ex` reads from `LumainusWeb.Medical.MockDocuments` on mount and renders:
+`lib/lumainus_web/live/reports_live.ex` now reads from the persisted ingestion tables and renders:
 
 - Left sidebar of mock documents.
 - Detailed clinical summary sections with inline provenance badges.
 - Document modal with Summary / Cleaned / Raw tabs (wired via `handle_event/3`).
 
-To prototype new sections, update `MockDocuments.Report` struct + data, then add components in `ReportsLive`.
+To prototype new sections, update the section prompt in `/prompts`, adjust the output schema (`report_section_templates.output_schema`), then add components in `ReportsLive`.
 
 ## Developer workflows
 
@@ -103,7 +103,7 @@ Derived from `docs/`:
 
 1. **Document ingestion pipeline**
    - File uploads (PDF, DOCX) with classification.
-   - Persistence (Ecto schemas) replacing `MockDocuments`.
+    - Persistence (Ecto schemas) replacing legacy mocks.
 2. **LLM summarization + provenance**
    - Section-specific prompts via Gemini (or HIPAA-covered providers).
    - Emit structured outputs with evidence IDs.
@@ -130,4 +130,4 @@ Derived from `docs/`:
 - `docs/20251114/*` – HIPAA + FDA strategies.
 - `docs/20251116/001_LUMAINUS_claude.md` – target architecture for traceable AI runtime.
 
-Stay within the serene/clinical aesthetic described in `AGENTS.md`, keep LiveView best practices (Layouts.app, `current_scope`, `to_form/2`), and keep mocking contained to `MockDocuments` until the real pipeline ships.
+Stay within the serene/clinical aesthetic described in `AGENTS.md`, keep LiveView best practices (Layouts.app, `current_scope`, `to_form/2`), and lean on the ingestion context for real data instead of ad-hoc mocks.

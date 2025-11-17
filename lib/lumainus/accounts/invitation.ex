@@ -3,6 +3,7 @@ defmodule Lumainus.Accounts.Invitation do
   import Ecto.Changeset
 
   alias Lumainus.Accounts.User
+  alias Lumainus.Tenancy.Tenant
 
   schema "invitations" do
     field(:token, :string)
@@ -10,6 +11,7 @@ defmodule Lumainus.Accounts.Invitation do
     field(:email, :string)
     field(:used_at, :utc_datetime)
 
+    belongs_to(:tenant, Tenant, type: :binary_id)
     belongs_to(:created_by, User)
 
     timestamps(type: :utc_datetime)
@@ -20,8 +22,8 @@ defmodule Lumainus.Accounts.Invitation do
   @doc false
   def changeset(invitation, attrs) do
     invitation
-    |> cast(attrs, [:token, :role, :email, :created_by_id])
-    |> validate_required([:token, :role])
+    |> cast(attrs, [:token, :role, :email, :created_by_id, :tenant_id])
+    |> validate_required([:token, :role, :tenant_id])
     |> validate_inclusion(:role, @valid_roles)
     |> validate_format(:email, ~r/@/, message: "must be a valid email")
     |> unique_constraint(:token)

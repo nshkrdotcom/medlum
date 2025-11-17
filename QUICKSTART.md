@@ -66,9 +66,9 @@ Report styling lives in `lib/lumainus_web/live/reports_live.ex`; the mock data i
 | Role-based routing & invitations | ✅   |
 | Admin console (/admin/invitations) | ✅ |
 | `/reports` UI experience       | ✅ (mock data) |
-| Real ingestion / LLM pipeline  | 🚧 (feeds still `MockDocuments`) |
+| Real ingestion / LLM pipeline  | ✅ (PDF ➜ ingestion jobs ➜ markdown) |
 
-Use `MockDocuments` to tweak the medical narratives while the ingestion pipeline is being built.
+Upload PDFs directly in `/reports` to generate new markdown narratives; the prompts are editable at `/prompts`.
 
 ## 🔜 Next steps
 

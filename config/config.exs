@@ -24,6 +24,13 @@ config :lumainus,
   ecto_repos: [Lumainus.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :lumainus, :llm,
+  default_provider: "google",
+  default_model: "gemini-flash-lite-latest",
+  client: Lumainus.AI.ReqLLMClient,
+  enabled: true,
+  default_options: [temperature: 0.2, max_output_tokens: 2048]
+
 # Configures the endpoint
 config :lumainus, LumainusWeb.Endpoint,
   url: [host: "localhost"],

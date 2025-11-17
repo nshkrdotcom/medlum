@@ -77,6 +77,7 @@ defmodule LumainusWeb.Router do
     live_session :doctor_routes,
       on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}] do
       live "/reports", ReportsLive
+      live "/prompts", PromptsLive
     end
   end
 

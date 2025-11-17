@@ -18,7 +18,7 @@ defmodule Lumainus.Accounts.Scope do
 
   alias Lumainus.Accounts.User
 
-  defstruct user: nil
+  defstruct user: nil, tenant: nil, tenant_id: nil
 
   @doc """
   Creates a scope for the given user.
@@ -26,7 +26,7 @@ defmodule Lumainus.Accounts.Scope do
   Returns nil if no user is given.
   """
   def for_user(%User{} = user) do
-    %__MODULE__{user: user}
+    %__MODULE__{user: user, tenant: Map.get(user, :tenant), tenant_id: user.tenant_id}
   end
 
   def for_user(nil), do: nil

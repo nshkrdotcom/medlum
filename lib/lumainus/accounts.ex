@@ -7,6 +7,7 @@ defmodule Lumainus.Accounts do
   alias Lumainus.Repo
 
   alias Lumainus.Accounts.{User, UserToken, UserNotifier, Invitation}
+  alias Lumainus.Tenancy.Tenant
 
   ## Database getters
 
@@ -75,6 +76,8 @@ defmodule Lumainus.Accounts do
 
   """
   def register_user(attrs) do
+    attrs = ensure_tenant_id(attrs)
+
     %User{}
     |> User.email_changeset(attrs)
     |> Repo.insert()
@@ -97,8 +100,20 @@ defmodule Lumainus.Accounts do
   def create_invitation(attrs, created_by_user) do
     token = Invitation.generate_token()
 
+    tenant_id =
+      attrs[:tenant_id] ||
+        attrs["tenant_id"] ||
+        created_by_user.tenant_id ||
+        ensure_tenant_id(%{})[:tenant_id]
+
     %Invitation{}
-    |> Invitation.changeset(Map.merge(attrs, %{token: token, created_by_id: created_by_user.id}))
+    |> Invitation.changeset(
+      Map.merge(attrs, %{
+        token: token,
+        created_by_id: created_by_user.id,
+        tenant_id: tenant_id
+      })
+    )
     |> Repo.insert()
   end
 
@@ -142,7 +157,8 @@ defmodule Lumainus.Accounts do
         attrs =
           Map.merge(string_attrs, %{
             "role" => invitation.role,
-            "email" => invitation.email || string_attrs["email"]
+            "email" => invitation.email || string_attrs["email"],
+            "tenant_id" => invitation.tenant_id
           })
 
         with {:ok, user} <- register_user(attrs),
@@ -187,6 +203,41 @@ defmodule Lumainus.Accounts do
       end
 
     Repo.all(query) |> Repo.preload(:created_by)
+  end
+
+  defp ensure_tenant_id(attrs) do
+    existing =
+      Map.get(attrs, :tenant_id) ||
+        Map.get(attrs, "tenant_id")
+
+    if existing do
+      attrs
+    else
+      tenant_id = default_tenant_id()
+
+      case key_type(attrs) do
+        :string -> Map.put(attrs, "tenant_id", tenant_id)
+        _ -> Map.put(attrs, :tenant_id, tenant_id)
+      end
+    end
+  end
+
+  defp default_tenant_id do
+    Tenant
+    |> select([t], t.id)
+    |> limit(1)
+    |> Repo.one() ||
+      raise "No tenants present; run tenant migrations"
+  end
+
+  defp key_type(map) do
+    keys = Map.keys(map)
+
+    cond do
+      Enum.all?(keys, &is_binary/1) -> :string
+      Enum.all?(keys, &is_atom/1) -> :atom
+      true -> :atom
+    end
   end
 
   @doc """
