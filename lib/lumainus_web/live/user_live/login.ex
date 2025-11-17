@@ -7,20 +7,6 @@ defmodule LumainusWeb.UserLive.Login do
   @impl true
   def render(assigns) do
     ~H"""
-    <style>
-      /* Hide the root layout menu on login page */
-      body > ul.menu {
-        display: none !important;
-      }
-
-      /* Make body full height and remove default styling */
-      body {
-        margin: 0;
-        padding: 0;
-        min-height: 100vh;
-      }
-    </style>
-
     <div class="lumainus-login-page">
       <style>
         .lumainus-login-page {
@@ -427,7 +413,7 @@ defmodule LumainusWeb.UserLive.Login do
             <h2 class="form-section-title">Welcome</h2>
             <p class="form-section-subtitle">
               <%= if @current_scope do %>
-                Re-authenticate to perform sensitive actions on your account.
+                You need to reauthenticate to perform sensitive actions on your account.
               <% else %>
                 Enter your credentials to access the platform.
               <% end %>
@@ -507,7 +493,14 @@ defmodule LumainusWeb.UserLive.Login do
           </.form>
         </div>
       </div>
-
+      <div class="mt-10 text-center text-sm text-slate-300">
+        <.link
+          navigate={~p"/"}
+          class="inline-flex items-center gap-2 text-slate-300 transition hover:text-white"
+        >
+          <.icon name="hero-arrow-left" class="size-4" /> Return to sanctuary home
+        </.link>
+      </div>
       <Layouts.flash_group flash={@flash} />
     </div>
     """

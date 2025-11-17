@@ -10,48 +10,54 @@
 # We recommend using the bang functions (`insert!`, `update!`
 # and so on) as they will fail if something goes wrong.
 
-import Ecto.Query
-
-alias Lumainus.Repo
+alias Ecto.Changeset
+alias Lumainus.Accounts
 alias Lumainus.Accounts.User
+alias Lumainus.Repo
 
-# Create initial system administrator if one doesn't exist
-unless Repo.exists?(from(u in User, where: u.role == "system_administrator")) do
-  # Create the system administrator
-  # Note: This will send a magic link email. In development, check http://localhost:4000/dev/mailbox
-  {:ok, admin} =
-    Lumainus.Accounts.register_user(%{
-      email: "admin@lumainus.local",
-      name: "System Administrator"
+admin_email = System.get_env("LUMAINUS_ADMIN_EMAIL") || "admin@lumainus.local"
+admin_name = System.get_env("LUMAINUS_ADMIN_NAME") || "System Administrator"
+admin_password = System.get_env("LUMAINUS_ADMIN_PASSWORD") || "LumainusAdmin!reset"
+
+Repo.transaction(fn ->
+  admin =
+    case Repo.get_by(User, email: admin_email) do
+      nil ->
+        {:ok, user} =
+          Accounts.register_user(%{
+            email: admin_email,
+            name: admin_name
+          })
+
+        user
+
+      user ->
+        user
+    end
+
+  admin =
+    admin
+    |> Changeset.change(%{
+      role: "system_administrator",
+      confirmed_at: admin.confirmed_at || DateTime.utc_now(:second)
     })
+    |> Repo.update!()
 
-  # Update role to system_administrator and confirm the user immediately
-  admin
-  |> Ecto.Changeset.change(%{
-    role: "system_administrator",
-    confirmed_at: DateTime.utc_now(:second)
-  })
-  |> Repo.update!()
+  {:ok, {_updated_admin, _tokens}} =
+    Accounts.update_user_password(admin, %{password: admin_password})
 
   IO.puts("""
 
   ========================================
-  Initial System Administrator Created!
+  System Administrator Ready
   ========================================
-  Email: admin@lumainus.local
+  Email: #{admin_email}
+  Temp Password: #{admin_password}
 
-  To log in:
-  1. Start the server: mix phx.server
-  2. Visit: http://localhost:4000/users/log-in
-  3. Enter the email: admin@lumainus.local
-  4. Check the mailbox: http://localhost:4000/dev/mailbox
-  5. Click the login link in the email
-
-  After logging in, you can:
-  - Access the admin panel: http://localhost:4000/admin/invitations
-  - Create invitation links for doctors and other admins
+  Next steps:
+  1. Log in at /users/log-in using the password form.
+  2. Visit /users/settings to change the password immediately.
+  3. Use /admin/invitations to invite additional users.
   ========================================
   """)
-else
-  IO.puts("System administrator already exists. Skipping seed.")
-end
+end)

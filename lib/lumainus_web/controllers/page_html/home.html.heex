@@ -1,11 +1,7 @@
 <style>
   /* Serene Medical Waiting Room - Calm, Simple, Breathable */
 
-  /* Reset and hide menu */
-  body:has(.lumainus-sanctuary) > ul.menu {
-    display: none !important;
-  }
-
+  /* Reset body styles for immersive layout */
   body:has(.lumainus-sanctuary) {
     margin: 0;
     padding: 0;
@@ -283,6 +279,7 @@
   
 <!-- Main content -->
   <div class="sanctuary-content">
+    <span class="sr-only">Welcome to Lumainus</span>
     <!-- Central logo - the peaceful focal point -->
     <div class="logo-centerpiece">
       <img src={~p"/images/lumainus-logo-enhanced.svg"} alt="Lumainus" />
