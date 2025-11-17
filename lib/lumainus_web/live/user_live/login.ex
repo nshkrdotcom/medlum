@@ -7,6 +7,20 @@ defmodule LumainusWeb.UserLive.Login do
   @impl true
   def render(assigns) do
     ~H"""
+    <style>
+      /* Hide the root layout menu on login page */
+      body > ul.menu {
+        display: none !important;
+      }
+
+      /* Make body full height and remove default styling */
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+      }
+    </style>
+
     <div class="lumainus-login-page">
       <style>
         .lumainus-login-page {
