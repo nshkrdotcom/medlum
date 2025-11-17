@@ -175,13 +175,13 @@ defmodule LumainusWeb.PromptsLive do
   defp section_form(nil), do: to_form(%{"prompt_template" => ""}, as: :section)
 
   defp section_form(section) do
-    data = %{prompt_template: section && section.prompt_template}
+    data = %{"prompt_template" => section && section.prompt_template}
     to_form(data, as: :section)
   end
 
   defp ingestion_form(template) do
     data = %{
-      ingestion_prompt_template:
+      "ingestion_prompt_template" =>
         template.ingestion_prompt_template || Reports.ingestion_prompt(template)
     }
 
