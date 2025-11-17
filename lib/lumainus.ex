@@ -1,6 +1,6 @@
-defmodule Luminous do
+defmodule Lumainus do
   @moduledoc """
-  Documentation for `Luminous`.
+  Documentation for `Lumainus`.
   """
 
   @doc """
@@ -8,7 +8,7 @@ defmodule Luminous do
 
   ## Examples
 
-      iex> Luminous.hello()
+      iex> Lumainus.hello()
       :world
 
   """

@@ -1,0 +1,83 @@
+for the intake
+
+Where the data comes from:
+- doctors notes from various visits, incl'g specialist notes
+- radiology reports
+- hospital notes
+- nursing reports
+- lab reports
+- specialist notes e.g. cardiology
+- infectious disease e.g. microbiology reports
+
+===============================================================
+
+
+
+auto classify based on these cats, with an 'unclassified' fallback
+
+so we wANT TO CREATE SYNTHETIC DATA FOR THE INTAKE VARIATIONS
+
+report:
+
+Chief Complaint
+================================
+
+(the Medical Assistant could put this in as the one typed-in field; the rest is all unstructured documents being uploaded in bulk)
+
+
+HPI - History of Present Illness
+================================
+
+- what is their problem and chronology
+
+- Past History - 
+-- medical history/
+-- surgical/
+-- social[married, smoker, drinker, drugs, job] (each is just a list)
+
+
+Medications
+================================
+
+
+Past Physical Exam Findings
+================================
+
+
+Past Review of System Results
+================================
+
+
+Lab Review (this is the most difficult)
+================================
+
+
+Imaging Review
+================================
+- radiology reports
+
+Pathology Review
+================================
+- any prior pathology results for cancer, etc
+
+
+Assessment
+================================
+
+
+Plan
+================================
+
+
+
+
+
+
+- nice way of summarizing page and pages of reports in every type of format
+
+
+- Take all the labs and make them easy to read
+
+- Take the image reports and make them easy to read
+you want ot bea ble to click on them to link abck to the original document
+
