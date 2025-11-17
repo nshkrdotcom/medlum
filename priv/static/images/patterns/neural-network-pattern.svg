@@ -1,0 +1,191 @@
+<!-- Neural Network Grid Pattern - Animated Version
+     Subtle interconnected nodes with data pulses traveling through the network
+     Use as: background-image: url('...neural-network-pattern.svg')
+     Tileable: Yes
+     Theme: Neural pathways and AI decision-making
+-->
+<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradient for node glow effect -->
+    <radialGradient id="nodeGlow">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.8"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.4"/>
+      <stop offset="100%" style="stop-color:#1e40af;stop-opacity:0"/>
+    </radialGradient>
+
+    <!-- Gradient for connection lines -->
+    <linearGradient id="connectionGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.1"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.25"/>
+      <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0.1"/>
+    </linearGradient>
+
+    <!-- Pulsing animation for data traveling through network -->
+    <linearGradient id="pulseGradient">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0">
+        <animate attributeName="stop-opacity"
+                 values="0;0;0.6;0;0"
+                 dur="4s"
+                 repeatCount="indefinite"/>
+      </stop>
+      <stop offset="50%" style="stop-color:#60a5fa;stop-opacity:0">
+        <animate attributeName="stop-opacity"
+                 values="0;0.8;0.4;0.8;0"
+                 dur="4s"
+                 repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0">
+        <animate attributeName="stop-opacity"
+                 values="0;0;0.6;0;0"
+                 dur="4s"
+                 repeatCount="indefinite"/>
+      </stop>
+
+      <!-- Animate gradient position for traveling effect -->
+      <animateTransform attributeName="gradientTransform"
+                        type="translate"
+                        values="0 0; 1 0; 0 0"
+                        dur="4s"
+                        repeatCount="indefinite"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="400" height="400" fill="#0f172a" opacity="0.02"/>
+
+  <!-- Neural Network Grid (5x5 nodes) -->
+  <!-- Horizontal connections -->
+  <g id="horizontalConnections" stroke="url(#connectionGradient)" stroke-width="0.5" fill="none" opacity="0.3">
+    <line x1="50" y1="50" x2="150" y2="50"/>
+    <line x1="150" y1="50" x2="250" y2="50"/>
+    <line x1="250" y1="50" x2="350" y2="50"/>
+
+    <line x1="50" y1="150" x2="150" y2="150"/>
+    <line x1="150" y1="150" x2="250" y2="150"/>
+    <line x1="250" y1="150" x2="350" y2="150"/>
+
+    <line x1="50" y1="250" x2="150" y2="250"/>
+    <line x1="150" y1="250" x2="250" y2="250"/>
+    <line x1="250" y1="250" x2="350" y2="250"/>
+
+    <line x1="50" y1="350" x2="150" y2="350"/>
+    <line x1="150" y1="350" x2="250" y2="350"/>
+    <line x1="250" y1="350" x2="350" y2="350"/>
+  </g>
+
+  <!-- Vertical connections -->
+  <g id="verticalConnections" stroke="url(#connectionGradient)" stroke-width="0.5" fill="none" opacity="0.3">
+    <line x1="50" y1="50" x2="50" y2="150"/>
+    <line x1="50" y1="150" x2="50" y2="250"/>
+    <line x1="50" y1="250" x2="50" y2="350"/>
+
+    <line x1="150" y1="50" x2="150" y2="150"/>
+    <line x1="150" y1="150" x2="150" y2="250"/>
+    <line x1="150" y1="250" x2="150" y2="350"/>
+
+    <line x1="250" y1="50" x2="250" y2="150"/>
+    <line x1="250" y1="150" x2="250" y2="250"/>
+    <line x1="250" y1="250" x2="250" y2="350"/>
+
+    <line x1="350" y1="50" x2="350" y2="150"/>
+    <line x1="350" y1="150" x2="350" y2="250"/>
+    <line x1="350" y1="250" x2="350" y2="350"/>
+  </g>
+
+  <!-- Diagonal connections for neural network complexity -->
+  <g id="diagonalConnections" stroke="#3b82f6" stroke-width="0.3" fill="none" opacity="0.15">
+    <line x1="50" y1="50" x2="150" y2="150"/>
+    <line x1="150" y1="50" x2="250" y2="150"/>
+    <line x1="250" y1="50" x2="350" y2="150"/>
+
+    <line x1="50" y1="150" x2="150" y2="250"/>
+    <line x1="150" y1="150" x2="250" y2="250"/>
+    <line x1="250" y1="150" x2="350" y2="250"/>
+
+    <line x1="50" y1="250" x2="150" y2="350"/>
+    <line x1="150" y1="250" x2="250" y2="350"/>
+    <line x1="250" y1="250" x2="350" y2="350"/>
+  </g>
+
+  <!-- Animated pulse lines (data traveling through specific paths) -->
+  <g id="pulseLines" stroke="url(#pulseGradient)" stroke-width="1.5" fill="none">
+    <line x1="50" y1="50" x2="350" y2="50">
+      <animate attributeName="x2" values="50;350;350" dur="4s" repeatCount="indefinite"/>
+    </line>
+    <line x1="150" y1="50" x2="150" y2="350">
+      <animate attributeName="y2" values="50;350;350" dur="4s" begin="1s" repeatCount="indefinite"/>
+    </line>
+    <line x1="50" y1="150" x2="350" y2="150">
+      <animate attributeName="x2" values="50;350;350" dur="4s" begin="2s" repeatCount="indefinite"/>
+    </line>
+  </g>
+
+  <!-- Network nodes -->
+  <g id="nodes">
+    <!-- Row 1 -->
+    <circle cx="50" cy="50" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="150" cy="50" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="250" cy="50" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="350" cy="50" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.5s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Row 2 -->
+    <circle cx="50" cy="150" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="0.3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="150" cy="150" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="0.8s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="250" cy="150" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="350" cy="150" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.8s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Row 3 -->
+    <circle cx="50" cy="250" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="0.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="150" cy="250" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.1s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="250" cy="250" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="350" cy="250" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="2.1s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Row 4 -->
+    <circle cx="50" cy="350" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="0.9s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="150" cy="350" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="250" cy="350" r="3" fill="#3b82f6" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="1.9s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="350" cy="350" r="3" fill="#60a5fa" opacity="0.4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" begin="2.4s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Subtle node glow effects on key nodes -->
+  <g id="nodeGlows" opacity="0.2">
+    <circle cx="150" cy="150" r="8" fill="url(#nodeGlow)">
+      <animate attributeName="r" values="8;12;8" dur="4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="250" cy="250" r="8" fill="url(#nodeGlow)">
+      <animate attributeName="r" values="8;12;8" dur="4s" begin="2s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>

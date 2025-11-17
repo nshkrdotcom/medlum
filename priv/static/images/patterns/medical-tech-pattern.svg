@@ -1,0 +1,226 @@
+<!-- Medical Tech Pattern - Hexagonal Molecular Grid
+     Clean, scientific hexagonal grid with molecular/cellular feel
+     Use as: background-image: url('...medical-tech-pattern.svg')
+     Tileable: Yes
+     Theme: Medical precision, molecular structures, scientific accuracy
+-->
+<svg width="400" height="346.41" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 346.41">
+  <defs>
+    <!-- Gradient for hexagon borders -->
+    <linearGradient id="hexGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0.2"/>
+      <stop offset="50%" style="stop-color:#6366f1;stop-opacity:0.35"/>
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:0.2"/>
+    </linearGradient>
+
+    <!-- Radial gradient for molecular centers -->
+    <radialGradient id="molecularGlow">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.6"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:0"/>
+    </radialGradient>
+
+    <!-- Pulse gradient for active hexagons -->
+    <radialGradient id="pulseGlow">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:0.4">
+        <animate attributeName="stop-opacity"
+                 values="0.4;0.8;0.4"
+                 dur="3s"
+                 repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" style="stop-color:#6366f1;stop-opacity:0"/>
+    </radialGradient>
+
+    <!-- Hexagon path for reuse -->
+    <polygon id="hexagon"
+             points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25"
+             stroke="url(#hexGradient)"
+             stroke-width="0.8"
+             fill="none"/>
+  </defs>
+
+  <!-- Background -->
+  <rect width="400" height="346.41" fill="#0f172a" opacity="0.01"/>
+
+  <!-- Hexagonal grid pattern -->
+  <g id="hexGrid" opacity="0.4">
+    <!-- Row 1 -->
+    <use href="#hexagon" x="0" y="0"/>
+    <use href="#hexagon" x="87" y="0"/>
+    <use href="#hexagon" x="174" y="0"/>
+    <use href="#hexagon" x="261" y="0"/>
+
+    <!-- Row 2 (offset) -->
+    <use href="#hexagon" x="43.5" y="75"/>
+    <use href="#hexagon" x="130.5" y="75"/>
+    <use href="#hexagon" x="217.5" y="75"/>
+    <use href="#hexagon" x="304.5" y="75"/>
+
+    <!-- Row 3 -->
+    <use href="#hexagon" x="0" y="150"/>
+    <use href="#hexagon" x="87" y="150"/>
+    <use href="#hexagon" x="174" y="150"/>
+    <use href="#hexagon" x="261" y="150"/>
+
+    <!-- Row 4 (offset) -->
+    <use href="#hexagon" x="43.5" y="225"/>
+    <use href="#hexagon" x="130.5" y="225"/>
+    <use href="#hexagon" x="217.5" y="225"/>
+    <use href="#hexagon" x="304.5" y="225"/>
+  </g>
+
+  <!-- Molecular connection lines (bonds between hexagons) -->
+  <g id="molecularBonds" opacity="0.15">
+    <!-- Horizontal bonds -->
+    <line x1="93.3" y1="50" x2="93.7" y2="50" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="180.3" y1="50" x2="180.7" y2="50" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="267.3" y1="50" x2="267.7" y2="50" stroke="#3b82f6" stroke-width="1"/>
+
+    <line x1="136.8" y1="125" x2="137.2" y2="125" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="223.8" y1="125" x2="224.2" y2="125" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="310.8" y1="125" x2="311.2" y2="125" stroke="#3b82f6" stroke-width="1"/>
+
+    <line x1="93.3" y1="200" x2="93.7" y2="200" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="180.3" y1="200" x2="180.7" y2="200" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="267.3" y1="200" x2="267.7" y2="200" stroke="#3b82f6" stroke-width="1"/>
+
+    <!-- Diagonal bonds -->
+    <line x1="93.3" y1="75" x2="93.7" y2="100" stroke="#6366f1" stroke-width="0.8"/>
+    <line x1="180.3" y1="75" x2="180.7" y2="100" stroke="#6366f1" stroke-width="0.8"/>
+    <line x1="267.3" y1="75" x2="267.7" y2="100" stroke="#6366f1" stroke-width="0.8"/>
+  </g>
+
+  <!-- Molecular centers (atoms at hexagon centers) -->
+  <g id="molecularCenters">
+    <!-- Row 1 -->
+    <circle cx="50" cy="50" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.5;0.8;0.5" dur="4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="137" cy="50" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="1s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.5;0.8;0.5" dur="4s" begin="1s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="224" cy="50" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.5;0.8;0.5" dur="4s" begin="2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="311" cy="50" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="3s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.5;0.8;0.5" dur="4s" begin="3s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Row 2 -->
+    <circle cx="93.5" cy="125" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="0.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="180.5" cy="125" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="1.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="267.5" cy="125" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="2.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="354.5" cy="125" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="3.5s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Row 3 -->
+    <circle cx="50" cy="200" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="0.8s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="137" cy="200" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="1.8s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="224" cy="200" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="2.8s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="311" cy="200" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="3.8s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Row 4 -->
+    <circle cx="93.5" cy="275" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="1.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="180.5" cy="275" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="2.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="267.5" cy="275" r="2.5" fill="#3b82f6" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="3.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="354.5" cy="275" r="2.5" fill="#60a5fa" opacity="0.5">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="4s" begin="0.2s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Active hexagon highlights (breathing effect) -->
+  <g id="activeHexagons" opacity="0.2">
+    <circle cx="137" cy="50" r="30" fill="url(#pulseGlow)">
+      <animate attributeName="r" values="30;45;30" dur="5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="224" cy="200" r="30" fill="url(#pulseGlow)">
+      <animate attributeName="r" values="30;45;30" dur="5s" begin="2.5s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Electron orbit paths (subtle circles around key molecules) -->
+  <g id="electronOrbits" opacity="0.15">
+    <circle cx="137" cy="50" r="20" stroke="#60a5fa" stroke-width="0.5" fill="none" stroke-dasharray="3,3">
+      <animateTransform attributeName="transform"
+                        type="rotate"
+                        from="0 137 50"
+                        to="360 137 50"
+                        dur="20s"
+                        repeatCount="indefinite"/>
+    </circle>
+    <circle cx="224" cy="200" r="20" stroke="#3b82f6" stroke-width="0.5" fill="none" stroke-dasharray="3,3">
+      <animateTransform attributeName="transform"
+                        type="rotate"
+                        from="0 224 200"
+                        to="360 224 200"
+                        dur="15s"
+                        repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Electrons on orbits -->
+    <circle cx="157" cy="50" r="1.5" fill="#60a5fa">
+      <animateTransform attributeName="transform"
+                        type="rotate"
+                        from="0 137 50"
+                        to="360 137 50"
+                        dur="20s"
+                        repeatCount="indefinite"/>
+    </circle>
+    <circle cx="244" cy="200" r="1.5" fill="#3b82f6">
+      <animateTransform attributeName="transform"
+                        type="rotate"
+                        from="0 224 200"
+                        to="360 224 200"
+                        dur="15s"
+                        repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Subtle molecular glow effects -->
+  <g id="molecularGlows" opacity="0.1">
+    <circle cx="50" cy="50" r="12" fill="url(#molecularGlow)">
+      <animate attributeName="r" values="12;18;12" dur="6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="137" cy="50" r="12" fill="url(#molecularGlow)">
+      <animate attributeName="r" values="12;18;12" dur="6s" begin="2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="224" cy="200" r="12" fill="url(#molecularGlow)">
+      <animate attributeName="r" values="12;18;12" dur="6s" begin="4s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Fine detail lines (measurement/precision indicators) -->
+  <g id="precisionLines" opacity="0.08">
+    <line x1="30" y1="50" x2="70" y2="50" stroke="#3b82f6" stroke-width="0.3"/>
+    <line x1="50" y1="30" x2="50" y2="70" stroke="#3b82f6" stroke-width="0.3"/>
+    <line x1="117" y1="50" x2="157" y2="50" stroke="#6366f1" stroke-width="0.3"/>
+    <line x1="137" y1="30" x2="137" y2="70" stroke="#6366f1" stroke-width="0.3"/>
+    <line x1="204" y1="200" x2="244" y2="200" stroke="#3b82f6" stroke-width="0.3"/>
+    <line x1="224" y1="180" x2="224" y2="220" stroke="#3b82f6" stroke-width="0.3"/>
+  </g>
+</svg>

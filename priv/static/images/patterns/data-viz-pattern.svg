@@ -1,0 +1,282 @@
+<!-- Data Visualization Pattern - Statistical Elements Texture
+     Abstract bar charts, confidence intervals, and statistical elements
+     Use as: background-image: url('...data-viz-pattern.svg')
+     Tileable: Yes
+     Theme: Data-driven decisions, statistical confidence, analytics
+-->
+<svg width="500" height="400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradient for bars -->
+    <linearGradient id="barGradient1" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0.25"/>
+      <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0.4"/>
+    </linearGradient>
+
+    <linearGradient id="barGradient2" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:0.2"/>
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:0.35"/>
+    </linearGradient>
+
+    <linearGradient id="barGradient3" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#6366f1;stop-opacity:0.3"/>
+    </linearGradient>
+
+    <!-- Gradient for confidence intervals -->
+    <linearGradient id="confidenceGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0"/>
+      <stop offset="50%" style="stop-color:#60a5fa;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0"/>
+    </linearGradient>
+
+    <!-- Glow for data points -->
+    <radialGradient id="dataPointGlow">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.8"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.4"/>
+      <stop offset="100%" style="stop-color:#1e40af;stop-opacity:0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="500" height="400" fill="#0f172a" opacity="0.01"/>
+
+  <!-- Grid lines (like chart grid) -->
+  <g id="chartGrid" opacity="0.08">
+    <!-- Horizontal grid lines -->
+    <line x1="0" y1="100" x2="500" y2="100" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="0" y1="150" x2="500" y2="150" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="0" y1="200" x2="500" y2="200" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="0" y1="250" x2="500" y2="250" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="0" y1="300" x2="500" y2="300" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+
+    <!-- Vertical grid lines -->
+    <line x1="100" y1="0" x2="100" y2="400" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="200" y1="0" x2="200" y2="400" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="300" y1="0" x2="300" y2="400" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+    <line x1="400" y1="0" x2="400" y2="400" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="5,5"/>
+  </g>
+
+  <!-- Bar chart set 1 (left side) -->
+  <g id="barChart1" opacity="0.4">
+    <!-- Bars with animation -->
+    <rect x="30" y="180" width="20" height="0" fill="url(#barGradient1)" rx="2">
+      <animate attributeName="height" values="0;120;120" dur="2s" fill="freeze"/>
+      <animate attributeName="y" values="300;180;180" dur="2s" fill="freeze"/>
+    </rect>
+    <rect x="60" y="140" width="20" height="0" fill="url(#barGradient2)" rx="2">
+      <animate attributeName="height" values="0;160;160" dur="2s" begin="0.2s" fill="freeze"/>
+      <animate attributeName="y" values="300;140;140" dur="2s" begin="0.2s" fill="freeze"/>
+    </rect>
+    <rect x="90" y="200" width="20" height="0" fill="url(#barGradient3)" rx="2">
+      <animate attributeName="height" values="0;100;100" dur="2s" begin="0.4s" fill="freeze"/>
+      <animate attributeName="y" values="300;200;200" dur="2s" begin="0.4s" fill="freeze"/>
+    </rect>
+    <rect x="120" y="160" width="20" height="0" fill="url(#barGradient1)" rx="2">
+      <animate attributeName="height" values="0;140;140" dur="2s" begin="0.6s" fill="freeze"/>
+      <animate attributeName="y" values="300;160;160" dur="2s" begin="0.6s" fill="freeze"/>
+    </rect>
+    <rect x="150" y="190" width="20" height="0" fill="url(#barGradient2)" rx="2">
+      <animate attributeName="height" values="0;110;110" dur="2s" begin="0.8s" fill="freeze"/>
+      <animate attributeName="y" values="300;190;190" dur="2s" begin="0.8s" fill="freeze"/>
+    </rect>
+  </g>
+
+  <!-- Bar chart set 2 (center-right) -->
+  <g id="barChart2" opacity="0.35">
+    <rect x="250" y="170" width="18" height="0" fill="url(#barGradient2)" rx="2">
+      <animate attributeName="height" values="0;130;130" dur="2s" begin="0.3s" fill="freeze"/>
+      <animate attributeName="y" values="300;170;170" dur="2s" begin="0.3s" fill="freeze"/>
+    </rect>
+    <rect x="275" y="150" width="18" height="0" fill="url(#barGradient3)" rx="2">
+      <animate attributeName="height" values="0;150;150" dur="2s" begin="0.5s" fill="freeze"/>
+      <animate attributeName="y" values="300;150;150" dur="2s" begin="0.5s" fill="freeze"/>
+    </rect>
+    <rect x="300" y="210" width="18" height="0" fill="url(#barGradient1)" rx="2">
+      <animate attributeName="height" values="0;90;90" dur="2s" begin="0.7s" fill="freeze"/>
+      <animate attributeName="y" values="300;210;210" dur="2s" begin="0.7s" fill="freeze"/>
+    </rect>
+    <rect x="325" y="180" width="18" height="0" fill="url(#barGradient2)" rx="2">
+      <animate attributeName="height" values="0;120;120" dur="2s" begin="0.9s" fill="freeze"/>
+      <animate attributeName="y" values="300;180;180" dur="2s" begin="0.9s" fill="freeze"/>
+    </rect>
+  </g>
+
+  <!-- Confidence interval bands -->
+  <g id="confidenceIntervals" opacity="0.25">
+    <!-- Upper confidence bound -->
+    <path d="M 30 110 Q 60 95 90 105 T 150 100 T 210 110"
+          stroke="#60a5fa"
+          stroke-width="1"
+          fill="none"
+          opacity="0.5"
+          stroke-dasharray="3,3"/>
+
+    <!-- Main trend line -->
+    <path d="M 30 130 Q 60 115 90 125 T 150 120 T 210 130"
+          stroke="#3b82f6"
+          stroke-width="1.5"
+          fill="none">
+      <animate attributeName="stroke-dasharray"
+               values="0,500;500,0"
+               dur="3s"
+               fill="freeze"/>
+    </path>
+
+    <!-- Lower confidence bound -->
+    <path d="M 30 150 Q 60 135 90 145 T 150 140 T 210 150"
+          stroke="#60a5fa"
+          stroke-width="1"
+          fill="none"
+          opacity="0.5"
+          stroke-dasharray="3,3"/>
+
+    <!-- Filled confidence area -->
+    <path d="M 30 110 Q 60 95 90 105 T 150 100 T 210 110 L 210 150 Q 180 140 150 140 T 90 145 Q 60 135 30 150 Z"
+          fill="url(#confidenceGradient)"
+          opacity="0.3"/>
+  </g>
+
+  <!-- Scatter plot data points -->
+  <g id="scatterPlot" opacity="0.4">
+    <!-- Data points with subtle animation -->
+    <circle cx="40" cy="130" r="2.5" fill="#60a5fa">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="3s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;1;0.6" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="70" cy="115" r="2.5" fill="#3b82f6">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;1;0.6" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="100" cy="125" r="2.5" fill="#60a5fa">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="3s" begin="1s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;1;0.6" dur="3s" begin="1s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="130" cy="120" r="2.5" fill="#3b82f6">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="3s" begin="1.5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;1;0.6" dur="3s" begin="1.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="160" cy="132" r="2.5" fill="#60a5fa">
+      <animate attributeName="r" values="2.5;3.5;2.5" dur="3s" begin="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.6;1;0.6" dur="3s" begin="2s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Additional scatter points (upper right) -->
+    <circle cx="380" cy="90" r="2" fill="#6366f1" opacity="0.5"/>
+    <circle cx="410" cy="85" r="2" fill="#3b82f6" opacity="0.5"/>
+    <circle cx="440" cy="95" r="2" fill="#60a5fa" opacity="0.5"/>
+    <circle cx="470" cy="88" r="2" fill="#6366f1" opacity="0.5"/>
+  </g>
+
+  <!-- Line chart (right side) -->
+  <g id="lineChart" opacity="0.3">
+    <path d="M 370 120 L 400 90 L 430 110 L 460 80 L 490 100"
+          stroke="#6366f1"
+          stroke-width="2"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round">
+      <animate attributeName="stroke-dasharray"
+               values="0,300;300,0"
+               dur="3s"
+               begin="1s"
+               fill="freeze"/>
+    </path>
+
+    <!-- Data points on line -->
+    <circle cx="370" cy="120" r="3" fill="#8b5cf6" opacity="0.6"/>
+    <circle cx="400" cy="90" r="3" fill="#6366f1" opacity="0.6"/>
+    <circle cx="430" cy="110" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="460" cy="80" r="3" fill="#6366f1" opacity="0.6"/>
+    <circle cx="490" cy="100" r="3" fill="#8b5cf6" opacity="0.6"/>
+  </g>
+
+  <!-- Error bars / confidence indicators -->
+  <g id="errorBars" opacity="0.25">
+    <!-- Vertical error bars on bar chart -->
+    <line x1="40" y1="175" x2="40" y2="185" stroke="#60a5fa" stroke-width="1.5"/>
+    <line x1="37" y1="175" x2="43" y2="175" stroke="#60a5fa" stroke-width="1"/>
+    <line x1="37" y1="185" x2="43" y2="185" stroke="#60a5fa" stroke-width="1"/>
+
+    <line x1="70" y1="135" x2="70" y2="145" stroke="#60a5fa" stroke-width="1.5"/>
+    <line x1="67" y1="135" x2="73" y2="135" stroke="#60a5fa" stroke-width="1"/>
+    <line x1="67" y1="145" x2="73" y2="145" stroke="#60a5fa" stroke-width="1"/>
+
+    <line x1="100" y1="195" x2="100" y2="205" stroke="#60a5fa" stroke-width="1.5"/>
+    <line x1="97" y1="195" x2="103" y2="195" stroke="#60a5fa" stroke-width="1"/>
+    <line x1="97" y1="205" x2="103" y2="205" stroke="#60a5fa" stroke-width="1"/>
+  </g>
+
+  <!-- Statistical annotations (subtle percentage/value indicators) -->
+  <g id="annotations" opacity="0.15">
+    <text x="45" y="175" font-family="monospace" font-size="8" fill="#60a5fa">87%</text>
+    <text x="75" y="135" font-family="monospace" font-size="8" fill="#60a5fa">94%</text>
+    <text x="105" y="195" font-family="monospace" font-size="8" fill="#60a5fa">76%</text>
+    <text x="135" y="155" font-family="monospace" font-size="8" fill="#60a5fa">91%</text>
+
+    <!-- Axis labels -->
+    <text x="10" y="105" font-family="monospace" font-size="7" fill="#3b82f6" opacity="0.5">100</text>
+    <text x="10" y="205" font-family="monospace" font-size="7" fill="#3b82f6" opacity="0.5">50</text>
+    <text x="10" y="305" font-family="monospace" font-size="7" fill="#3b82f6" opacity="0.5">0</text>
+  </g>
+
+  <!-- Trend indicators (arrows) -->
+  <g id="trendIndicators" opacity="0.2">
+    <!-- Upward trend arrow -->
+    <path d="M 220 140 L 240 120 L 240 130 L 220 150 Z"
+          fill="#60a5fa">
+      <animate attributeName="opacity"
+               values="0.3;0.7;0.3"
+               dur="2s"
+               repeatCount="indefinite"/>
+    </path>
+
+    <!-- Horizontal stability indicator -->
+    <path d="M 220 200 L 240 200 L 238 197 M 240 200 L 238 203"
+          stroke="#6366f1"
+          stroke-width="2"
+          fill="none">
+      <animate attributeName="opacity"
+               values="0.3;0.7;0.3"
+               dur="2s"
+               begin="1s"
+               repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- Data point glows (highlight key metrics) -->
+  <g id="dataGlows" opacity="0.15">
+    <circle cx="70" cy="115" r="15" fill="url(#dataPointGlow)">
+      <animate attributeName="r" values="15;20;15" dur="4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="130" cy="120" r="15" fill="url(#dataPointGlow)">
+      <animate attributeName="r" values="15;20;15" dur="4s" begin="2s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- Box plot elements (right bottom) -->
+  <g id="boxPlot" opacity="0.25">
+    <!-- Box -->
+    <rect x="360" y="260" width="40" height="60" fill="none" stroke="#6366f1" stroke-width="1.5" rx="2"/>
+    <!-- Median line -->
+    <line x1="360" y1="285" x2="400" y2="285" stroke="#60a5fa" stroke-width="2"/>
+    <!-- Whiskers -->
+    <line x1="380" y1="240" x2="380" y2="260" stroke="#6366f1" stroke-width="1.5"/>
+    <line x1="380" y1="320" x2="380" y2="340" stroke="#6366f1" stroke-width="1.5"/>
+    <!-- Whisker caps -->
+    <line x1="370" y1="240" x2="390" y2="240" stroke="#6366f1" stroke-width="1.5"/>
+    <line x1="370" y1="340" x2="390" y2="340" stroke="#6366f1" stroke-width="1.5"/>
+    <!-- Outliers -->
+    <circle cx="380" cy="230" r="2" fill="#3b82f6"/>
+    <circle cx="375" cy="350" r="2" fill="#3b82f6"/>
+  </g>
+
+  <!-- Histogram bins (top right) -->
+  <g id="histogram" opacity="0.2">
+    <rect x="360" y="40" width="15" height="30" fill="#6366f1" rx="1"/>
+    <rect x="380" y="25" width="15" height="45" fill="#3b82f6" rx="1"/>
+    <rect x="400" y="35" width="15" height="35" fill="#60a5fa" rx="1"/>
+    <rect x="420" y="30" width="15" height="40" fill="#6366f1" rx="1"/>
+    <rect x="440" y="45" width="15" height="25" fill="#3b82f6" rx="1"/>
+    <rect x="460" y="50" width="15" height="20" fill="#60a5fa" rx="1"/>
+  </g>
+</svg>

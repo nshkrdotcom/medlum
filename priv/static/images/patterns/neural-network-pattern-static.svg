@@ -1,0 +1,89 @@
+<!-- Neural Network Grid Pattern - Static Version
+     Subtle interconnected nodes without animation (better performance)
+     Use as: background-image: url('...neural-network-pattern-static.svg')
+     Tileable: Yes
+     Theme: Neural pathways and AI decision-making
+-->
+<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="nodeGlow">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.6"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#1e40af;stop-opacity:0"/>
+    </radialGradient>
+
+    <linearGradient id="connectionGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.1"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.25"/>
+      <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0.1"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="400" height="400" fill="#0f172a" opacity="0.02"/>
+
+  <g id="horizontalConnections" stroke="url(#connectionGradient)" stroke-width="0.5" fill="none" opacity="0.3">
+    <line x1="50" y1="50" x2="150" y2="50"/>
+    <line x1="150" y1="50" x2="250" y2="50"/>
+    <line x1="250" y1="50" x2="350" y2="50"/>
+    <line x1="50" y1="150" x2="150" y2="150"/>
+    <line x1="150" y1="150" x2="250" y2="150"/>
+    <line x1="250" y1="150" x2="350" y2="150"/>
+    <line x1="50" y1="250" x2="150" y2="250"/>
+    <line x1="150" y1="250" x2="250" y2="250"/>
+    <line x1="250" y1="250" x2="350" y2="250"/>
+    <line x1="50" y1="350" x2="150" y2="350"/>
+    <line x1="150" y1="350" x2="250" y2="350"/>
+    <line x1="250" y1="350" x2="350" y2="350"/>
+  </g>
+
+  <g id="verticalConnections" stroke="url(#connectionGradient)" stroke-width="0.5" fill="none" opacity="0.3">
+    <line x1="50" y1="50" x2="50" y2="150"/>
+    <line x1="50" y1="150" x2="50" y2="250"/>
+    <line x1="50" y1="250" x2="50" y2="350"/>
+    <line x1="150" y1="50" x2="150" y2="150"/>
+    <line x1="150" y1="150" x2="150" y2="250"/>
+    <line x1="150" y1="250" x2="150" y2="350"/>
+    <line x1="250" y1="50" x2="250" y2="150"/>
+    <line x1="250" y1="150" x2="250" y2="250"/>
+    <line x1="250" y1="250" x2="250" y2="350"/>
+    <line x1="350" y1="50" x2="350" y2="150"/>
+    <line x1="350" y1="150" x2="350" y2="250"/>
+    <line x1="350" y1="250" x2="350" y2="350"/>
+  </g>
+
+  <g id="diagonalConnections" stroke="#3b82f6" stroke-width="0.3" fill="none" opacity="0.15">
+    <line x1="50" y1="50" x2="150" y2="150"/>
+    <line x1="150" y1="50" x2="250" y2="150"/>
+    <line x1="250" y1="50" x2="350" y2="150"/>
+    <line x1="50" y1="150" x2="150" y2="250"/>
+    <line x1="150" y1="150" x2="250" y2="250"/>
+    <line x1="250" y1="150" x2="350" y2="250"/>
+    <line x1="50" y1="250" x2="150" y2="350"/>
+    <line x1="150" y1="250" x2="250" y2="350"/>
+    <line x1="250" y1="250" x2="350" y2="350"/>
+  </g>
+
+  <g id="nodes">
+    <circle cx="50" cy="50" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="150" cy="50" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="250" cy="50" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="350" cy="50" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="50" cy="150" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="150" cy="150" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="250" cy="150" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="350" cy="150" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="50" cy="250" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="150" cy="250" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="250" cy="250" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="350" cy="250" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="50" cy="350" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="150" cy="350" r="3" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="250" cy="350" r="3" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="350" cy="350" r="3" fill="#60a5fa" opacity="0.6"/>
+  </g>
+
+  <g id="nodeGlows" opacity="0.2">
+    <circle cx="150" cy="150" r="10" fill="url(#nodeGlow)"/>
+    <circle cx="250" cy="250" r="10" fill="url(#nodeGlow)"/>
+  </g>
+</svg>

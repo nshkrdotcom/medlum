@@ -1,0 +1,97 @@
+<!-- Medical Tech Pattern - Static Version
+     Clean, scientific hexagonal grid without animation
+     Use as: background-image: url('...medical-tech-pattern-static.svg')
+     Tileable: Yes
+     Theme: Medical precision, molecular structures, scientific accuracy
+-->
+<svg width="400" height="346.41" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 346.41">
+  <defs>
+    <linearGradient id="hexGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0.2"/>
+      <stop offset="50%" style="stop-color:#6366f1;stop-opacity:0.35"/>
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:0.2"/>
+    </linearGradient>
+
+    <radialGradient id="molecularGlow">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.4"/>
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.2"/>
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:0"/>
+    </radialGradient>
+
+    <polygon id="hexagon"
+             points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25"
+             stroke="url(#hexGradient)"
+             stroke-width="0.8"
+             fill="none"/>
+  </defs>
+
+  <rect width="400" height="346.41" fill="#0f172a" opacity="0.01"/>
+
+  <g id="hexGrid" opacity="0.4">
+    <use href="#hexagon" x="0" y="0"/>
+    <use href="#hexagon" x="87" y="0"/>
+    <use href="#hexagon" x="174" y="0"/>
+    <use href="#hexagon" x="261" y="0"/>
+    <use href="#hexagon" x="43.5" y="75"/>
+    <use href="#hexagon" x="130.5" y="75"/>
+    <use href="#hexagon" x="217.5" y="75"/>
+    <use href="#hexagon" x="304.5" y="75"/>
+    <use href="#hexagon" x="0" y="150"/>
+    <use href="#hexagon" x="87" y="150"/>
+    <use href="#hexagon" x="174" y="150"/>
+    <use href="#hexagon" x="261" y="150"/>
+    <use href="#hexagon" x="43.5" y="225"/>
+    <use href="#hexagon" x="130.5" y="225"/>
+    <use href="#hexagon" x="217.5" y="225"/>
+    <use href="#hexagon" x="304.5" y="225"/>
+  </g>
+
+  <g id="molecularBonds" opacity="0.15">
+    <line x1="93.3" y1="50" x2="93.7" y2="50" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="180.3" y1="50" x2="180.7" y2="50" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="267.3" y1="50" x2="267.7" y2="50" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="136.8" y1="125" x2="137.2" y2="125" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="223.8" y1="125" x2="224.2" y2="125" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="310.8" y1="125" x2="311.2" y2="125" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="93.3" y1="200" x2="93.7" y2="200" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="180.3" y1="200" x2="180.7" y2="200" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="267.3" y1="200" x2="267.7" y2="200" stroke="#3b82f6" stroke-width="1"/>
+    <line x1="93.3" y1="75" x2="93.7" y2="100" stroke="#6366f1" stroke-width="0.8"/>
+    <line x1="180.3" y1="75" x2="180.7" y2="100" stroke="#6366f1" stroke-width="0.8"/>
+    <line x1="267.3" y1="75" x2="267.7" y2="100" stroke="#6366f1" stroke-width="0.8"/>
+  </g>
+
+  <g id="molecularCenters">
+    <circle cx="50" cy="50" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="137" cy="50" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="224" cy="50" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="311" cy="50" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="93.5" cy="125" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="180.5" cy="125" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="267.5" cy="125" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="354.5" cy="125" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="50" cy="200" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="137" cy="200" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="224" cy="200" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="311" cy="200" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="93.5" cy="275" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="180.5" cy="275" r="2.5" fill="#60a5fa" opacity="0.6"/>
+    <circle cx="267.5" cy="275" r="2.5" fill="#3b82f6" opacity="0.6"/>
+    <circle cx="354.5" cy="275" r="2.5" fill="#60a5fa" opacity="0.6"/>
+  </g>
+
+  <g id="molecularGlows" opacity="0.1">
+    <circle cx="50" cy="50" r="15" fill="url(#molecularGlow)"/>
+    <circle cx="137" cy="50" r="15" fill="url(#molecularGlow)"/>
+    <circle cx="224" cy="200" r="15" fill="url(#molecularGlow)"/>
+  </g>
+
+  <g id="precisionLines" opacity="0.08">
+    <line x1="30" y1="50" x2="70" y2="50" stroke="#3b82f6" stroke-width="0.3"/>
+    <line x1="50" y1="30" x2="50" y2="70" stroke="#3b82f6" stroke-width="0.3"/>
+    <line x1="117" y1="50" x2="157" y2="50" stroke="#6366f1" stroke-width="0.3"/>
+    <line x1="137" y1="30" x2="137" y2="70" stroke="#6366f1" stroke-width="0.3"/>
+    <line x1="204" y1="200" x2="244" y2="200" stroke="#3b82f6" stroke-width="0.3"/>
+    <line x1="224" y1="180" x2="224" y2="220" stroke="#3b82f6" stroke-width="0.3"/>
+  </g>
+</svg>
