@@ -1,384 +1,692 @@
-This is a web application written using the Phoenix web framework.
-
-## Project guidelines
-
-- Use `mix precommit` alias when you are done with all changes and fix any pending issues
-- Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
-
-### Phoenix v1.8 guidelines
-
-- **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
-- The `MyAppWeb.Layouts` module is aliased in the `my_app_web.ex` file, so you can use it without needing to alias it again
-- Anytime you run into errors with no `current_scope` assign:
-  - You failed to follow the Authenticated Routes guidelines, or you failed to pass `current_scope` to `<Layouts.app>`
-  - **Always** fix the `current_scope` error by moving your routes to the proper `live_session` and ensure you pass `current_scope` as needed
-- Phoenix v1.8 moved the `<.flash_group>` component to the `Layouts` module. You are **forbidden** from calling `<.flash_group>` outside of the `layouts.ex` module
-- Out of the box, `core_components.ex` imports an `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for for hero icons. **Always** use the `<.icon>` component for icons, **never** use `Heroicons` modules or similar
-- **Always** use the imported `<.input>` component for form inputs from `core_components.ex` when available. `<.input>` is imported and using it will will save steps and prevent errors
-- If you override the default input classes (`<.input class="myclass px-2 py-1 rounded-lg">)`) class with your own values, no default classes are inherited, so your
-custom classes must fully style the input
-
-### JS and CSS guidelines
-
-- **Use Tailwind CSS classes and custom CSS rules** to create polished, responsive, and visually stunning interfaces.
-- Tailwindcss v4 **no longer needs a tailwind.config.js** and uses a new import syntax in `app.css`:
-
-      @import "tailwindcss" source(none);
-      @source "../css";
-      @source "../js";
-      @source "../../lib/my_app_web";
-
-- **Always use and maintain this import syntax** in the app.css file for projects generated with `phx.new`
-- **Never** use `@apply` when writing raw css
-- **Always** manually write your own tailwind-based components instead of using daisyUI for a unique, world-class design
-- Out of the box **only the app.js and app.css bundles are supported**
-  - You cannot reference an external vendor'd script `src` or link `href` in the layouts
-  - You must import the vendor deps into app.js and app.css to use them
-  - **Never write inline <script>custom js</script> tags within templates**
-
-### UI/UX & design guidelines
-
-- **Produce world-class UI designs** with a focus on usability, aesthetics, and modern design principles
-- Implement **subtle micro-interactions** (e.g., button hover effects, and smooth transitions)
-- Ensure **clean typography, spacing, and layout balance** for a refined, premium look
-- Focus on **delightful details** like hover effects, loading states, and smooth page transitions
-
-
-<!-- phoenix-gen-auth-start -->
-## Authentication
-
-- **Always** handle authentication flow at the router level with proper redirects
-- **Always** be mindful of where to place routes. `phx.gen.auth` creates multiple router plugs and `live_session` scopes:
-  - A plug `:fetch_current_scope_for_user` that is included in the default browser pipeline
-  - A plug `:require_authenticated_user` that redirects to the log in page when the user is not authenticated
-  - A `live_session :current_user` scope - for routes that need the current user but don't require authentication, similar to `:fetch_current_scope_for_user`
-  - A `live_session :require_authenticated_user` scope - for routes that require authentication, similar to the plug with the same name
-  - In both cases, a `@current_scope` is assigned to the Plug connection and LiveView socket
-  - A plug `redirect_if_user_is_authenticated` that redirects to a default path in case the user is authenticated - useful for a registration page that should only be shown to unauthenticated users
-- **Always let the user know in which router scopes, `live_session`, and pipeline you are placing the route, AND SAY WHY**
-- `phx.gen.auth` assigns the `current_scope` assign - it **does not assign a `current_user` assign**
-- Always pass the assign `current_scope` to context modules as first argument. When performing queries, use `current_scope.user` to filter the query results
-- To derive/access `current_user` in templates, **always use the `@current_scope.user`**, never use **`@current_user`** in templates or LiveViews
-- **Never** duplicate `live_session` names. A `live_session :current_user` can only be defined __once__ in the router, so all routes for the `live_session :current_user`  must be grouped in a single block
-- Anytime you hit `current_scope` errors or the logged in session isn't displaying the right content, **always double check the router and ensure you are using the correct plug and `live_session` as described below**
-
-### Routes that require authentication
-
-LiveViews that require login should **always be placed inside the __existing__ `live_session :require_authenticated_user` block**:
-
-    scope "/", AppWeb do
-      pipe_through [:browser, :require_authenticated_user]
-
-      live_session :require_authenticated_user,
-        on_mount: [{LumainusWeb.UserAuth, :require_authenticated}] do
-        # phx.gen.auth generated routes
-        live "/users/settings", UserLive.Settings, :edit
-        live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
-        # our own routes that require logged in user
-        live "/", MyLiveThatRequiresAuth, :index
-      end
-    end
-
-Controller routes must be placed in a scope that sets the `:require_authenticated_user` plug:
-
-    scope "/", AppWeb do
-      pipe_through [:browser, :require_authenticated_user]
-
-      get "/", MyControllerThatRequiresAuth, :index
-    end
-
-### Routes that work with or without authentication
-
-LiveViews that can work with or without authentication, **always use the __existing__ `:current_user` scope**, ie:
-
-    scope "/", MyAppWeb do
-      pipe_through [:browser]
-
-      live_session :current_user,
-        on_mount: [{LumainusWeb.UserAuth, :mount_current_scope}] do
-        # our own routes that work with or without authentication
-        live "/", PublicLive
-      end
-    end
-
-Controllers automatically have the `current_scope` available if they use the `:browser` pipeline.
-
-<!-- phoenix-gen-auth-end -->
-
-<!-- usage-rules-start -->
-
-<!-- phoenix:elixir-start -->
-## Elixir guidelines
-
-- Elixir lists **do not support index based access via the access syntax**
-
-  **Never do this (invalid)**:
-
-      i = 0
-      mylist = ["blue", "green"]
-      mylist[i]
-
-  Instead, **always** use `Enum.at`, pattern matching, or `List` for index based list access, ie:
-
-      i = 0
-      mylist = ["blue", "green"]
-      Enum.at(mylist, i)
-
-- Elixir variables are immutable, but can be rebound, so for block expressions like `if`, `case`, `cond`, etc
-  you *must* bind the result of the expression to a variable if you want to use it and you CANNOT rebind the result inside the expression, ie:
-
-      # INVALID: we are rebinding inside the `if` and the result never gets assigned
-      if connected?(socket) do
-        socket = assign(socket, :val, val)
-      end
-
-      # VALID: we rebind the result of the `if` to a new variable
-      socket =
-        if connected?(socket) do
-          assign(socket, :val, val)
-        end
-
-- **Never** nest multiple modules in the same file as it can cause cyclic dependencies and compilation errors
-- **Never** use map access syntax (`changeset[:field]`) on structs as they do not implement the Access behaviour by default. For regular structs, you **must** access the fields directly, such as `my_struct.field` or use higher level APIs that are available on the struct if they exist, `Ecto.Changeset.get_field/2` for changesets
-- Elixir's standard library has everything necessary for date and time manipulation. Familiarize yourself with the common `Time`, `Date`, `DateTime`, and `Calendar` interfaces by accessing their documentation as necessary. **Never** install additional dependencies unless asked or for date/time parsing (which you can use the `date_time_parser` package)
-- Don't use `String.to_atom/1` on user input (memory leak risk)
-- Predicate function names should not start with `is_` and should end in a question mark. Names like `is_thing` should be reserved for guards
-- Elixir's builtin OTP primitives like `DynamicSupervisor` and `Registry`, require names in the child spec, such as `{DynamicSupervisor, name: MyApp.MyDynamicSup}`, then you can use `DynamicSupervisor.start_child(MyApp.MyDynamicSup, child_spec)`
-- Use `Task.async_stream(collection, callback, options)` for concurrent enumeration with back-pressure. The majority of times you will want to pass `timeout: :infinity` as option
-
-## Mix guidelines
-
-- Read the docs and options before using tasks (by using `mix help task_name`)
-- To debug test failures, run tests in a specific file with `mix test test/my_test.exs` or run all previously failed tests with `mix test --failed`
-- `mix deps.clean --all` is **almost never needed**. **Avoid** using it unless you have good reason
-<!-- phoenix:elixir-end -->
-
-<!-- phoenix:phoenix-start -->
-## Phoenix guidelines
-
-- Remember Phoenix router `scope` blocks include an optional alias which is prefixed for all routes within the scope. **Always** be mindful of this when creating routes within a scope to avoid duplicate module prefixes.
-
-- You **never** need to create your own `alias` for route definitions! The `scope` provides the alias, ie:
-
-      scope "/admin", AppWeb.Admin do
-        pipe_through :browser
-
-        live "/users", UserLive, :index
-      end
-
-  the UserLive route would point to the `AppWeb.Admin.UserLive` module
-
-- `Phoenix.View` no longer is needed or included with Phoenix, don't use it
-<!-- phoenix:phoenix-end -->
-
-<!-- phoenix:html-start -->
-## Phoenix HTML guidelines
-
-- Phoenix templates **always** use `~H` or .html.heex files (known as HEEx), **never** use `~E`
-- **Always** use the imported `Phoenix.Component.form/1` and `Phoenix.Component.inputs_for/1` function to build forms. **Never** use `Phoenix.HTML.form_for` or `Phoenix.HTML.inputs_for` as they are outdated
-- When building forms **always** use the already imported `Phoenix.Component.to_form/2` (`assign(socket, form: to_form(...))` and `<.form for={@form} id="msg-form">`), then access those forms in the template via `@form[:field]`
-- **Always** add unique DOM IDs to key elements (like forms, buttons, etc) when writing templates, these IDs can later be used in tests (`<.form for={@form} id="product-form">`)
-- For "app wide" template imports, you can import/alias into the `my_app_web.ex`'s `html_helpers` block, so they will be available to all LiveViews, LiveComponent's, and all modules that do `use MyAppWeb, :html` (replace "my_app" by the actual app name)
-
-- Elixir supports `if/else` but **does NOT support `if/else if` or `if/elsif`. **Never use `else if` or `elseif` in Elixir**, **always** use `cond` or `case` for multiple conditionals.
-
-  **Never do this (invalid)**:
-
-      <%= if condition do %>
-        ...
-      <% else if other_condition %>
-        ...
-      <% end %>
-
-  Instead **always** do this:
-
-      <%= cond do %>
-        <% condition -> %>
-          ...
-        <% condition2 -> %>
-          ...
-        <% true -> %>
-          ...
-      <% end %>
-
-- HEEx require special tag annotation if you want to insert literal curly's like `{` or `}`. If you want to show a textual code snippet on the page in a `<pre>` or `<code>` block you *must* annotate the parent tag with `phx-no-curly-interpolation`:
-
-      <code phx-no-curly-interpolation>
-        let obj = {key: "val"}
-      </code>
-
-  Within `phx-no-curly-interpolation` annotated tags, you can use `{` and `}` without escaping them, and dynamic Elixir expressions can still be used with `<%= ... %>` syntax
-
-- HEEx class attrs support lists, but you must **always** use list `[...]` syntax. You can use the class list syntax to conditionally add classes, **always do this for multiple class values**:
-
-      <a class={[
-        "px-2 text-white",
-        @some_flag && "py-5",
-        if(@other_condition, do: "border-red-500", else: "border-blue-100"),
-        ...
-      ]}>Text</a>
-
-  and **always** wrap `if`'s inside `{...}` expressions with parens, like done above (`if(@other_condition, do: "...", else: "...")`)
-
-  and **never** do this, since it's invalid (note the missing `[` and `]`):
-
-      <a class={
-        "px-2 text-white",
-        @some_flag && "py-5"
-      }> ...
-      => Raises compile syntax error on invalid HEEx attr syntax
-
-- **Never** use `<% Enum.each %>` or non-for comprehensions for generating template content, instead **always** use `<%= for item <- @collection do %>`
-- HEEx HTML comments use `<%!-- comment --%>`. **Always** use the HEEx HTML comment syntax for template comments (`<%!-- comment --%>`)
-- HEEx allows interpolation via `{...}` and `<%= ... %>`, but the `<%= %>` **only** works within tag bodies. **Always** use the `{...}` syntax for interpolation within tag attributes, and for interpolation of values within tag bodies. **Always** interpolate block constructs (if, cond, case, for) within tag bodies using `<%= ... %>`.
-
-  **Always** do this:
-
-      <div id={@id}>
-        {@my_assign}
-        <%= if @some_block_condition do %>
-          {@another_assign}
-        <% end %>
-      </div>
-
-  and **Never** do this – the program will terminate with a syntax error:
-
-      <%!-- THIS IS INVALID NEVER EVER DO THIS --%>
-      <div id="<%= @invalid_interpolation %>">
-        {if @invalid_block_construct do}
-        {end}
-      </div>
-<!-- phoenix:html-end -->
-
-<!-- phoenix:liveview-start -->
-## Phoenix LiveView guidelines
-
-- **Never** use the deprecated `live_redirect` and `live_patch` functions, instead **always** use the `<.link navigate={href}>` and  `<.link patch={href}>` in templates, and `push_navigate` and `push_patch` functions LiveViews
-- **Avoid LiveComponent's** unless you have a strong, specific need for them
-- LiveViews should be named like `AppWeb.WeatherLive`, with a `Live` suffix. When you go to add LiveView routes to the router, the default `:browser` scope is **already aliased** with the `AppWeb` module, so you can just do `live "/weather", WeatherLive`
-- Remember anytime you use `phx-hook="MyHook"` and that js hook manages its own DOM, you **must** also set the `phx-update="ignore"` attribute
-- **Never** write embedded `<script>` tags in HEEx. Instead always write your scripts and hooks in the `assets/js` directory and integrate them with the `assets/js/app.js` file
-
-### LiveView streams
-
-- **Always** use LiveView streams for collections for assigning regular lists to avoid memory ballooning and runtime termination with the following operations:
-  - basic append of N items - `stream(socket, :messages, [new_msg])`
-  - resetting stream with new items - `stream(socket, :messages, [new_msg], reset: true)` (e.g. for filtering items)
-  - prepend to stream - `stream(socket, :messages, [new_msg], at: -1)`
-  - deleting items - `stream_delete(socket, :messages, msg)`
-
-- When using the `stream/3` interfaces in the LiveView, the LiveView template must 1) always set `phx-update="stream"` on the parent element, with a DOM id on the parent element like `id="messages"` and 2) consume the `@streams.stream_name` collection and use the id as the DOM id for each child. For a call like `stream(socket, :messages, [new_msg])` in the LiveView, the template would be:
-
-      <div id="messages" phx-update="stream">
-        <div :for={{id, msg} <- @streams.messages} id={id}>
-          {msg.text}
-        </div>
-      </div>
-
-- LiveView streams are *not* enumerable, so you cannot use `Enum.filter/2` or `Enum.reject/2` on them. Instead, if you want to filter, prune, or refresh a list of items on the UI, you **must refetch the data and re-stream the entire stream collection, passing reset: true**:
-
-      def handle_event("filter", %{"filter" => filter}, socket) do
-        # re-fetch the messages based on the filter
-        messages = list_messages(filter)
-
-        {:noreply,
-        socket
-        |> assign(:messages_empty?, messages == [])
-        # reset the stream with the new messages
-        |> stream(:messages, messages, reset: true)}
-      end
-
-- LiveView streams *do not support counting or empty states*. If you need to display a count, you must track it using a separate assign. For empty states, you can use Tailwind classes:
-
-      <div id="tasks" phx-update="stream">
-        <div class="hidden only:block">No tasks yet</div>
-        <div :for={{id, task} <- @stream.tasks} id={id}>
-          {task.name}
-        </div>
-      </div>
-
-  The above only works if the empty state is the only HTML block alongside the stream for-comprehension.
-
-- **Never** use the deprecated `phx-update="append"` or `phx-update="prepend"` for collections
-
-### LiveView tests
-
-- `Phoenix.LiveViewTest` module and `LazyHTML` (included) for making your assertions
-- Form tests are driven by `Phoenix.LiveViewTest`'s `render_submit/2` and `render_change/2` functions
-- Come up with a step-by-step test plan that splits major test cases into small, isolated files. You may start with simpler tests that verify content exists, gradually add interaction tests
-- **Always reference the key element IDs you added in the LiveView templates in your tests** for `Phoenix.LiveViewTest` functions like `element/2`, `has_element/2`, selectors, etc
-- **Never** tests again raw HTML, **always** use `element/2`, `has_element/2`, and similar: `assert has_element?(view, "#my-form")`
-- Instead of relying on testing text content, which can change, favor testing for the presence of key elements
-- Focus on testing outcomes rather than implementation details
-- Be aware that `Phoenix.Component` functions like `<.form>` might produce different HTML than expected. Test against the output HTML structure, not your mental model of what you expect it to be
-- When facing test failures with element selectors, add debug statements to print the actual HTML, but use `LazyHTML` selectors to limit the output, ie:
-
-      html = render(view)
-      document = LazyHTML.from_fragment(html)
-      matches = LazyHTML.filter(document, "your-complex-selector")
-      IO.inspect(matches, label: "Matches")
-
-### Form handling
-
-#### Creating a form from params
-
-If you want to create a form based on `handle_event` params:
-
-    def handle_event("submitted", params, socket) do
-      {:noreply, assign(socket, form: to_form(params))}
-    end
-
-When you pass a map to `to_form/1`, it assumes said map contains the form params, which are expected to have string keys.
-
-You can also specify a name to nest the params:
-
-    def handle_event("submitted", %{"user" => user_params}, socket) do
-      {:noreply, assign(socket, form: to_form(user_params, as: :user))}
-    end
-
-#### Creating a form from changesets
-
-When using changesets, the underlying data, form params, and errors are retrieved from it. The `:as` option is automatically computed too. E.g. if you have a user schema:
-
-    defmodule MyApp.Users.User do
-      use Ecto.Schema
-      ...
-    end
-
-And then you create a changeset that you pass to `to_form`:
-
-    %MyApp.Users.User{}
-    |> Ecto.Changeset.change()
-    |> to_form()
-
-Once the form is submitted, the params will be available under `%{"user" => user_params}`.
-
-In the template, the form form assign can be passed to the `<.form>` function component:
-
-    <.form for={@form} id="todo-form" phx-change="validate" phx-submit="save">
-      <.input field={@form[:field]} type="text" />
-    </.form>
-
-Always give the form an explicit, unique DOM ID, like `id="todo-form"`.
-
-#### Avoiding form errors
-
-**Always** use a form assigned via `to_form/2` in the LiveView, and the `<.input>` component in the template. In the template **always access forms this**:
-
-    <%!-- ALWAYS do this (valid) --%>
-    <.form for={@form} id="my-form">
-      <.input field={@form[:field]} type="text" />
-    </.form>
-
-And **never** do this:
-
-    <%!-- NEVER do this (invalid) --%>
-    <.form for={@changeset} id="my-form">
-      <.input field={@changeset[:field]} type="text" />
-    </.form>
-
-- You are FORBIDDEN from accessing the changeset in the template as it will cause errors
-- **Never** use `<.form let={f} ...>` in the template, instead **always use `<.form for={@form} ...>`**, then drive all form references from the form assign as in `@form[:field]`. The UI should **always** be driven by a `to_form/2` assigned in the LiveView module that is derived from a changeset
-<!-- phoenix:liveview-end -->
-
-<!-- usage-rules-end -->
+# AI Agents Guide - Lumainus Project
+
+**Last Updated:** November 16, 2025
+**Project:** Lumainus - Traceable AI Intelligence Platform
+**Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
+
+---
+
+## Project Overview
+
+Lumainus is a **self-aware LLM runtime** and **advanced medical reporting platform** built with Phoenix LiveView. The core mission is providing **fully traceable, auditable AI intelligence** for healthcare applications.
+
+**Brand Tagline:**
+*"Every token has a traceable decision path. Every claim has attributable evidence. Every response has measurable confidence."*
+
+### Core Domains
+- 🏥 **Healthcare/Medical AI** - HIPAA compliant, FDA considerations
+- 🔍 **Traceable Intelligence** - Full transparency in AI decision-making
+- 📊 **Multi-Agent Verification** - Ensemble voting, critic evaluation
+- 📝 **Evidence Attribution** - Every claim links to sources
+- 🔒 **Secure Authentication** - Passwordless magic links, role-based access
+
+---
+
+## Project Structure
+
+```
+lumainus/
+├── lib/
+│   ├── lumainus/              # Core business logic
+│   │   ├── accounts/          # User auth, roles, invitations
+│   │   │   ├── user.ex        # User schema (guest, doctor, admin, system_administrator)
+│   │   │   └── invitation.ex  # Invitation system
+│   │   └── repo.ex            # Database repository
+│   │
+│   └── lumainus_web/          # Web interface (Phoenix)
+│       ├── components/        # Reusable components
+│       │   └── layouts/       # Layout templates
+│       │       ├── root.html.heex      # HTML shell (favicon, meta tags)
+│       │       └── layouts.ex          # Layout components
+│       │
+│       ├── controllers/       # HTTP controllers
+│       │   └── page_html/     # Homepage templates
+│       │       └── home.html.heex      # Main landing page
+│       │
+│       ├── live/              # LiveView modules
+│       │   └── user_live/     # User authentication LiveViews
+│       │       ├── login.ex            # Login page (passwordless + password)
+│       │       ├── registration.ex     # User registration
+│       │       └── settings.ex         # User settings
+│       │
+│       ├── router.ex          # Route definitions
+│       └── endpoint.ex        # Phoenix endpoint
+│
+├── assets/                    # Frontend assets
+│   ├── css/
+│   │   └── app.css            # Tailwind 4 entry point
+│   ├── js/
+│   │   └── app.js             # JavaScript entry point
+│   └── vendor/                # Third-party assets
+│
+├── priv/
+│   ├── repo/
+│   │   ├── migrations/        # Database migrations
+│   │   └── seeds.exs          # Seed data (admin user)
+│   │
+│   └── static/                # Static assets (compiled)
+│       ├── images/            # SVG logos, icons, patterns
+│       │   ├── lumainus-logo-enhanced.svg    # Main logo (animated)
+│       │   ├── icon-*.svg                    # Feature icons
+│       │   └── patterns/                     # Background patterns
+│       └── favicon.ico/.svg   # Favicons
+│
+├── config/                    # Configuration
+│   ├── config.exs             # General config
+│   ├── dev.exs                # Development config
+│   ├── prod.exs               # Production config
+│   └── runtime.exs            # Runtime config
+│
+├── test/                      # Test files
+├── docs/                      # Documentation (HIPAA, FDA, etc.)
+└── scripts/                   # Utility scripts
+```
+
+---
+
+## Key Concepts & Architecture
+
+### Authentication System
+- **Passwordless Magic Links** - Primary authentication method
+- **Password Auth** - Fallback option with "remember me"
+- **Invitation System** - Admin-generated secure tokens for registration
+- **Role Hierarchy:**
+  1. `guest` - Read-only, basic access
+  2. `doctor` - Medical professional, create/edit reports
+  3. `admin` - User management, invitations, settings
+  4. `system_administrator` - Full system control
+
+### Phoenix LiveView Guidelines
+- **Always use `Layouts.app`** for authenticated pages
+- **Pass `current_scope` assign** (not `current_user`)
+- **Access user via `@current_scope.user`** in templates
+- **Use `live_session` scopes** properly:
+  - `:current_user` - Pages that work with/without auth
+  - `:require_authenticated_user` - Auth required
+- **Never duplicate `live_session` names** - group all routes in one block
+
+### CSS & Styling
+- **Tailwind CSS 4** - New import syntax (no config file)
+- **DaisyUI 5** - Component library (custom themes)
+- **NO `@apply`** - Write manual Tailwind classes
+- **Custom components over DaisyUI** - For unique branding
+- **Embedded styles in templates** - For page-specific CSS
+
+### Design Philosophy
+- ✅ **Calm, serene, minimal** - Medical waiting room aesthetic
+- ✅ **Huge whitespace** - Breathing room, no clutter
+- ✅ **Soft animations** - Gentle, reassuring movements
+- ✅ **Light backgrounds** - Not dark/technical
+- ✅ **Simple actions** - Low cognitive load
+- ❌ **NO technical dashboards** - Doctors don't want to think
+- ❌ **NO busy layouts** - One focal point at a time
+- ❌ **NO software aesthetic** - Think spa, not SaaS
+
+---
+
+## File Modification Guidelines
+
+### When Editing Templates (`.html.heex`)
+
+**Good Practices:**
+```elixir
+# ✅ Use assigns with curly braces in attributes
+<div id={@id} class={@class}>
+
+# ✅ Use <%= %> for block constructs in tag bodies
+<%= if @condition do %>
+  <p>{@message}</p>
+<% end %>
+
+# ✅ Use list syntax for conditional classes
+<a class={[
+  "base-class",
+  @active && "active-class",
+  if(@highlight, do: "highlight", else: "normal")
+]}>
+
+# ✅ Use Phoenix.Component.form/1
+<.form for={@form} id="my-form" phx-submit="save">
+  <.input field={@form[:email]} type="email" />
+</.form>
+```
+
+**Bad Practices:**
+```elixir
+# ❌ NEVER use <%= %> in attributes
+<div id="<%= @invalid %>">
+
+# ❌ NEVER use if/elsif (doesn't exist in Elixir)
+<%= if condition do %>
+<% elsif other_condition %>  # INVALID!
+<% end %>
+
+# ❌ Use cond for multiple conditions
+<%= cond do %>
+  <% condition1 -> %> ...
+  <% condition2 -> %> ...
+  <% true -> %> ...
+<% end %>
+```
+
+### When Editing LiveViews (`.ex`)
+
+**Always:**
+1. **Import Layouts** - `alias LumainusWeb.Layouts`
+2. **Use `to_form/2`** - Never pass changesets directly to templates
+3. **Return socket** - All `handle_*` callbacks return `{:noreply, socket}`
+4. **Use streams** - For collections (not regular lists)
+5. **Pass `current_scope`** - To all context functions
+
+**Example:**
+```elixir
+defmodule LumainusWeb.MyLive do
+  use LumainusWeb, :live_view
+  alias LumainusWeb.Layouts
+
+  def mount(_params, _session, socket) do
+    form = to_form(%{}, as: :my_form)
+    {:ok, assign(socket, form: form)}
+  end
+
+  def handle_event("save", %{"my_form" => params}, socket) do
+    # Process params
+    {:noreply, socket}
+  end
+end
+```
+
+### When Editing Routes
+
+**Important:**
+- Check which `live_session` scope is appropriate
+- Never duplicate `live_session` names
+- Use existing scopes, don't create new ones
+- Be explicit about pipeline (`:browser`, `:require_authenticated_user`)
+
+**Example:**
+```elixir
+scope "/", LumainusWeb do
+  pipe_through [:browser, :require_authenticated_user]
+
+  live_session :require_authenticated_user,
+    on_mount: [{LumainusWeb.UserAuth, :require_authenticated}] do
+    live "/dashboard", DashboardLive, :index
+    # Add more authenticated routes here
+  end
+end
+```
+
+---
+
+## Common Tasks
+
+### 1. Creating a New Page
+
+**For Public Pages:**
+```bash
+# 1. Create the LiveView module
+# lib/lumainus_web/live/my_page_live.ex
+
+# 2. Add route to router.ex (in :current_user scope)
+live "/my-page", MyPageLive, :index
+
+# 3. Create template if needed (or use inline ~H"""""")
+```
+
+**For Authenticated Pages:**
+```bash
+# Add to :require_authenticated_user scope instead
+```
+
+### 2. Adding Static Assets
+
+**SVG Icons/Images:**
+```bash
+# Place in: priv/static/images/
+# Reference as: ~p"/images/my-icon.svg"
+```
+
+**Background Patterns:**
+```bash
+# Place in: priv/static/images/patterns/
+# Use in CSS: background-image: url('/images/patterns/my-pattern.svg');
+```
+
+### 3. Running the Application
+
+```bash
+# Install dependencies
+mix setup
+
+# Start server
+mix phx.server
+
+# Access at:
+http://localhost:4000
+
+# Dev mailbox (for magic links):
+http://localhost:4000/dev/mailbox
+```
+
+### 4. Database Operations
+
+```bash
+# Create migration
+mix ecto.gen.migration migration_name
+
+# Run migrations
+mix ecto.migrate
+
+# Reset database
+mix ecto.reset
+
+# Seed admin user
+mix run priv/repo/seeds.exs
+```
+
+### 5. Code Quality
+
+```bash
+# Format code
+mix format
+
+# Run precommit checks
+mix precommit
+
+# Run tests
+mix test
+```
+
+---
+
+## Design System
+
+### Color Palette
+
+**Primary Blues:**
+- `#3b82f6` - Primary blue (buttons, links)
+- `#60a5fa` - Light blue (highlights, hover)
+- `#2563eb` - Dark blue (gradients)
+- `#1e40af` - Deep blue (depth)
+
+**Accent Colors:**
+- `#8b5cf6` - Purple (innovation, AI)
+- `#6366f1` - Indigo (secondary actions)
+- `#06b6d4` - Cyan (info, alerts)
+- `#10b981` - Green (success, positive metrics)
+- `#f59e0b` - Amber (warnings, moderate confidence)
+
+**Neutrals (Light Mode - Preferred):**
+- `#f8fafc` - Lightest gray (backgrounds)
+- `#f1f5f9` - Very light gray
+- `#e2e8f0` - Light gray
+- `#cbd5e1` - Medium light (secondary text)
+- `#94a3b8` - Medium (muted text)
+- `#64748b` - Medium dark (labels)
+- `#1e293b` - Almost black (primary text)
+
+### Typography
+
+**Font Stack:**
+```css
+-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
+```
+
+**Scale:**
+- Display: 2.5rem - 4rem (clamp for responsive)
+- Heading 1: 2rem - 2.5rem
+- Heading 2: 1.5rem - 2rem
+- Body: 1rem - 1.125rem
+- Small: 0.875rem
+- Tiny: 0.75rem
+
+**Weights:**
+- Light: 300 (display text)
+- Regular: 400 (body)
+- Medium: 500 (emphasis)
+- Semibold: 600 (headings)
+- Bold: 700 (strong emphasis)
+
+### Spacing
+
+Use Tailwind spacing scale, but prefer **larger gaps** for calm aesthetic:
+- Sections: `4rem` - `6rem` vertical spacing
+- Components: `2rem` - `3rem` between elements
+- Content: `1rem` - `1.5rem` standard padding
+
+### Animation Principles
+
+**Timing:**
+- **Fast**: 0.15s - 0.3s (micro-interactions)
+- **Medium**: 0.4s - 0.8s (page transitions)
+- **Slow**: 1s - 3s (ambient animations)
+- **Very Slow**: 8s+ (background breathing)
+
+**Easing:**
+- Standard: `ease-in-out`
+- Exits: `ease-in`
+- Entrances: `ease-out`
+- Special: `cubic-bezier(0.4, 0, 0.2, 1)`
+
+**Examples:**
+```css
+/* Breathing effect for backgrounds */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+/* Gentle float for logos */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-15px); }
+}
+```
+
+**Always respect `prefers-reduced-motion`:**
+```css
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+```
+
+---
+
+## SVG Assets
+
+### Logo Variants
+
+**Primary Logo:**
+- `lumainus-logo-enhanced.svg` - Animated, multi-layer effects
+- Use for: Homepage, login page, main branding
+- Size: 120px - 200px typically
+
+**Icon Logo:**
+- `favicon.svg` / `favicon.ico` - Compact version
+- Use for: Favicon, small spaces
+- Size: 32px - 64px
+
+### Feature Icons
+
+- `icon-transparency.svg` - Full transparency feature
+- `icon-audit.svg` - 6-year audit trails
+- `icon-network.svg` - Multi-agent verification
+
+Usage: 32px - 48px, can be tinted with CSS filters
+
+### Background Patterns
+
+**Location:** `priv/static/images/patterns/`
+
+1. **Neural Network Pattern** (`neural-network-pattern.svg`)
+   - Interconnected nodes, data pulses
+   - Use: Technical backgrounds, AI themes
+   - Opacity: 0.1 - 0.3
+
+2. **Traceable Pathways** (`traceable-pathways-pattern.svg`)
+   - Decision trees, flowing branches
+   - Use: Decision-making contexts
+   - Opacity: 0.15 - 0.35
+
+3. **Medical Tech** (`medical-tech-pattern.svg`)
+   - Hexagonal molecular grid
+   - Use: Clinical/medical pages
+   - Opacity: 0.02 - 0.25 (very subtle)
+
+4. **Data Visualization** (`data-viz-pattern.svg`)
+   - Charts, confidence intervals
+   - Use: Analytics, metrics pages
+   - Opacity: 0.2 - 0.3
+
+**Usage Example:**
+```css
+.background {
+  background-image: url('/images/patterns/medical-tech-pattern.svg');
+  background-size: 800px 800px;
+  opacity: 0.02;
+}
+```
+
+---
+
+## Page-Specific Guidelines
+
+### Homepage (`home.html.heex`)
+
+**Theme:** "Serene Medical Sanctuary"
+
+**Key Requirements:**
+- ✅ Light gradient background (grays, soft blues)
+- ✅ Single central focal point (logo)
+- ✅ Minimal text (3-4 lines max)
+- ✅ One clear CTA button ("Enter")
+- ✅ Soft organic shapes (breathing animations)
+- ✅ Lots of whitespace
+- ❌ NO panels, columns, grids
+- ❌ NO technical metrics or data
+- ❌ NO dark mode aesthetic
+
+**Structure:**
+```heex
+<div class="lumainus-sanctuary">
+  <!-- Soft background shapes -->
+  <!-- Floating logo (centerpiece) -->
+  <!-- Brand name (elegant typography) -->
+  <!-- Simple tagline (reassuring) -->
+  <!-- Single CTA button -->
+  <!-- Minimal trust indicators -->
+  <!-- Subtle footer -->
+</div>
+```
+
+### Login Page (`login.ex`)
+
+**Theme:** "Medical AI Waiting Room"
+
+**Key Requirements:**
+- ✅ Full-screen immersive experience
+- ✅ Animated background (neural patterns)
+- ✅ Glass morphism card (frosted blur)
+- ✅ Floating logo with animations
+- ✅ Brand tagline visible
+- ✅ Hide root layout menu (via CSS)
+- ❌ NO default layout wrapper
+
+**Structure:**
+```elixir
+# Standalone page, not wrapped in Layouts.app
+# Embedded <style> tags for page-specific CSS
+# Hide menu: body:has(.lumainus-login-page) > ul.menu { display: none; }
+```
+
+### Dashboard Pages (Future)
+
+**Theme:** TBD - Will blend calm aesthetic with necessary data
+
+**Considerations:**
+- Show metrics without overwhelming
+- Use cards sparingly
+- Emphasize critical information
+- Maintain breathing room
+
+---
+
+## Development Workflows
+
+### Pre-Commit Checklist
+
+Before committing code:
+```bash
+# 1. Format code
+mix format
+
+# 2. Run precommit checks
+mix precommit
+
+# 3. Run tests (if applicable)
+mix test
+
+# 4. Check for compilation warnings
+mix compile --warnings-as-errors
+
+# 5. Verify changes
+git diff
+```
+
+### Deployment Process
+
+```bash
+# 1. Ensure all changes committed
+git status
+
+# 2. Push to main
+git push origin main
+
+# 3. Deployment happens automatically via scripts/deploy.sh
+# Or manually:
+./scripts/deploy.sh
+```
+
+### Testing Authentication
+
+```bash
+# 1. Seed admin user
+mix run priv/repo/seeds.exs
+
+# 2. Visit login page
+open http://localhost:4000/users/log-in
+
+# 3. Enter: admin@lumainus.local
+
+# 4. Check mailbox for magic link
+open http://localhost:4000/dev/mailbox
+
+# 5. Click link to log in
+```
+
+---
+
+## Common Pitfalls & Solutions
+
+### Issue: Flash messages not displaying
+
+**Problem:** Using `<.flash_group>` outside Layouts module
+**Solution:** Use `<Layouts.flash_group flash={@flash} />`
+
+### Issue: `current_user` undefined
+
+**Problem:** Trying to access `@current_user` in templates
+**Solution:** Use `@current_scope.user` instead
+
+### Issue: Form not submitting
+
+**Problem:** Not using `to_form/2` or passing changeset directly
+**Solution:** Always use `to_form(changeset)` and pass to template
+
+### Issue: Animations not working
+
+**Problem:** User has `prefers-reduced-motion` enabled
+**Solution:** This is intentional, respect accessibility preferences
+
+### Issue: Favicon showing blank
+
+**Problem:** Old digested version cached
+**Solution:** Delete `priv/static/favicon-*.ico` and rebuild
+
+### Issue: CSS not applying
+
+**Problem:** Tailwind not finding classes in template
+**Solution:** Ensure `@source` paths in `app.css` include your template directory
+
+---
+
+## Security Considerations
+
+### Authentication
+- **NEVER** skip CSRF protection
+- **ALWAYS** use Phoenix.Token for magic links
+- **NEVER** log passwords or tokens
+- **ALWAYS** use prepared statements (Ecto does this)
+
+### Authorization
+- **ALWAYS** pass `current_scope` to context functions
+- **NEVER** trust client-side role checks
+- **ALWAYS** filter queries by `current_scope.user`
+
+### HIPAA Compliance
+- **NEVER** log PHI (Protected Health Information)
+- **ALWAYS** use secure sessions
+- **NEVER** expose patient data in URLs
+- **ALWAYS** implement audit trails
+
+---
+
+## Resources & References
+
+### Documentation
+- **Phoenix Framework:** https://hexdocs.pm/phoenix
+- **Phoenix LiveView:** https://hexdocs.pm/phoenix_live_view
+- **Ecto:** https://hexdocs.pm/ecto
+- **Tailwind CSS:** https://tailwindcss.com
+- **DaisyUI:** https://daisyui.com
+
+### Project Docs
+- `README.md` - Setup and installation
+- `DEVELOPMENT.md` - Development guidelines
+- `DEPLOYMENT.md` - Deployment instructions
+- `docs/` - HIPAA, FDA, compliance documentation
+
+### Internal Docs
+- `docs/20251116/001_LUMAINUS_claude.md` - AI architecture vision
+- Design concepts documented in `LUMAINUS_LOGIN_REDESIGN.md`
+
+---
+
+## Agent Instructions Summary
+
+When working with this codebase:
+
+1. **Read First:**
+   - This file (AGENTS.md)
+   - README.md
+   - Any existing page templates you're modifying
+
+2. **Design Philosophy:**
+   - CALM over clever
+   - SIMPLE over sophisticated
+   - BREATHABLE over busy
+   - LIGHT over dark
+   - MINIMAL over maximal
+
+3. **Code Style:**
+   - Follow Phoenix 1.8 conventions
+   - Use LiveView best practices
+   - Respect Elixir idioms
+   - Write readable, simple code
+
+4. **Communication:**
+   - Ask before making architectural changes
+   - Explain design decisions
+   - Show before/after for UI changes
+   - Document non-obvious code
+
+5. **Testing:**
+   - Run `mix precommit` before committing
+   - Test authentication flows
+   - Verify responsive design
+   - Check accessibility
+
+---
+
+**For Questions or Issues:**
+- Check this file first
+- Review Phoenix/LiveView docs
+- Search existing code for patterns
+- Ask user for clarification on design decisions
+
+**Last Updated:** November 16, 2025
+**Maintainer:** AI Agents working on Lumainus project
