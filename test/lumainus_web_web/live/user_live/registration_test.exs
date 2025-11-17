@@ -2,7 +2,7 @@ defmodule LumainusWeb.UserLive.RegistrationTest do
   use LumainusWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
-  import LumainusWeb.AccountsFixtures
+  import Lumainus.AccountsFixtures
 
   describe "Registration page" do
     test "renders registration page", %{conn: conn} do
@@ -13,17 +13,20 @@ defmodule LumainusWeb.UserLive.RegistrationTest do
     end
 
     test "redirects if already logged in", %{conn: conn} do
+      invitation = invitation_fixture(%{email: nil})
+
       result =
         conn
         |> log_in_user(user_fixture())
-        |> live(~p"/users/register")
+        |> live(~p"/users/register/#{invitation.token}")
         |> follow_redirect(conn, ~p"/")
 
       assert {:ok, _conn} = result
     end
 
     test "renders errors for invalid data", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/register")
+      invitation = invitation_fixture(%{email: nil})
+      {:ok, lv, _html} = live(conn, ~p"/users/register/#{invitation.token}")
 
       result =
         lv
@@ -37,7 +40,8 @@ defmodule LumainusWeb.UserLive.RegistrationTest do
 
   describe "register user" do
     test "creates account but does not log in", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/register")
+      invitation = invitation_fixture(%{email: nil})
+      {:ok, lv, _html} = live(conn, ~p"/users/register/#{invitation.token}")
 
       email = unique_user_email()
       form = form(lv, "#registration_form", user: valid_user_attributes(email: email))
@@ -51,7 +55,8 @@ defmodule LumainusWeb.UserLive.RegistrationTest do
     end
 
     test "renders errors for duplicated email", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/register")
+      invitation = invitation_fixture(%{email: nil})
+      {:ok, lv, _html} = live(conn, ~p"/users/register/#{invitation.token}")
 
       user = user_fixture(%{email: "test@email.com"})
 

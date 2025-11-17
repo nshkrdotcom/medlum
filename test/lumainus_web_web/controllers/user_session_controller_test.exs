@@ -1,8 +1,8 @@
 defmodule LumainusWeb.UserSessionControllerTest do
   use LumainusWeb.ConnCase, async: true
 
-  import LumainusWeb.AccountsFixtures
-  alias LumainusWeb.Accounts
+  import Lumainus.AccountsFixtures
+  alias Lumainus.Accounts
 
   setup do
     %{unconfirmed_user: unconfirmed_user_fixture(), user: user_fixture()}

@@ -1,9 +1,9 @@
 defmodule LumainusWeb.UserLive.SettingsTest do
   use LumainusWeb.ConnCase, async: true
 
-  alias LumainusWeb.Accounts
+  alias Lumainus.Accounts
   import Phoenix.LiveViewTest
-  import LumainusWeb.AccountsFixtures
+  import Lumainus.AccountsFixtures
 
   describe "Settings page" do
     test "renders settings page", %{conn: conn} do

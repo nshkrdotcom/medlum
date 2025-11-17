@@ -132,11 +132,17 @@ defmodule Lumainus.Accounts do
   def use_invitation(%Invitation{} = invitation, user_attrs) do
     if Invitation.valid?(invitation) do
       Repo.transact(fn ->
+        string_attrs =
+          Map.new(user_attrs, fn
+            {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+            {key, value} -> {key, value}
+          end)
+
         # Register the user with the role from the invitation
         attrs =
-          Map.merge(user_attrs, %{
-            role: invitation.role,
-            email: invitation.email || user_attrs[:email]
+          Map.merge(string_attrs, %{
+            "role" => invitation.role,
+            "email" => invitation.email || string_attrs["email"]
           })
 
         with {:ok, user} <- register_user(attrs),

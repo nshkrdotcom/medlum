@@ -2,11 +2,11 @@ defmodule LumainusWeb.UserAuthTest do
   use LumainusWeb.ConnCase, async: true
 
   alias Phoenix.LiveView
-  alias LumainusWeb.Accounts
-  alias LumainusWeb.Accounts.Scope
+  alias Lumainus.Accounts
+  alias Lumainus.Accounts.Scope
   alias LumainusWeb.UserAuth
 
-  import LumainusWeb.AccountsFixtures
+  import Lumainus.AccountsFixtures
 
   @remember_me_cookie "_lumainus_web_user_remember_me"
   @remember_me_cookie_max_age 60 * 60 * 24 * 14

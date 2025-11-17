@@ -1,10 +1,11 @@
-defmodule LumainusWeb.AccountsTest do
-  use LumainusWeb.DataCase
+defmodule Lumainus.AccountsTest do
+  use Lumainus.DataCase
 
-  alias LumainusWeb.Accounts
+  alias Lumainus.Accounts
+  alias Lumainus.Accounts.{User, UserToken}
+  alias Lumainus.Repo
 
-  import LumainusWeb.AccountsFixtures
-  alias LumainusWeb.Accounts.{User, UserToken}
+  import Lumainus.AccountsFixtures
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do

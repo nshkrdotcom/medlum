@@ -122,6 +122,6 @@ defmodule LumainusWeb.UserLive.Login do
   end
 
   defp local_mail_adapter? do
-    Application.get_env(:lumainus_web, LumainusWeb.Mailer)[:adapter] == Swoosh.Adapters.Local
+    Application.get_env(:lumainus, Lumainus.Mailer)[:adapter] == Swoosh.Adapters.Local
   end
 end

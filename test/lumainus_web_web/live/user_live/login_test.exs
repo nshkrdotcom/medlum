@@ -2,15 +2,15 @@ defmodule LumainusWeb.UserLive.LoginTest do
   use LumainusWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
-  import LumainusWeb.AccountsFixtures
+  import Lumainus.AccountsFixtures
 
   describe "login page" do
     test "renders login page", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/users/log-in")
 
       assert html =~ "Log in"
-      assert html =~ "Register"
       assert html =~ "Log in with email"
+      refute html =~ "Register"
     end
   end
 
@@ -27,7 +27,7 @@ defmodule LumainusWeb.UserLive.LoginTest do
 
       assert html =~ "If your email is in our system"
 
-      assert LumainusWeb.Repo.get_by!(LumainusWeb.Accounts.UserToken, user_id: user.id).context ==
+      assert Lumainus.Repo.get_by!(Lumainus.Accounts.UserToken, user_id: user.id).context ==
                "login"
     end
 
@@ -72,20 +72,6 @@ defmodule LumainusWeb.UserLive.LoginTest do
       conn = follow_trigger_action(form, conn)
       assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
       assert redirected_to(conn) == ~p"/users/log-in"
-    end
-  end
-
-  describe "login navigation" do
-    test "redirects to registration page when the Register button is clicked", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
-
-      {:ok, _login_live, login_html} =
-        lv
-        |> element("main a", "Sign up")
-        |> render_click()
-        |> follow_redirect(conn, ~p"/users/register")
-
-      assert login_html =~ "Register"
     end
   end
 

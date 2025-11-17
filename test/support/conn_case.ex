@@ -31,7 +31,8 @@ defmodule LumainusWeb.ConnCase do
     end
   end
 
-  setup _tags do
+  setup tags do
+    Lumainus.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
@@ -44,8 +45,8 @@ defmodule LumainusWeb.ConnCase do
   test context.
   """
   def register_and_log_in_user(%{conn: conn} = context) do
-    user = LumainusWeb.AccountsFixtures.user_fixture()
-    scope = LumainusWeb.Accounts.Scope.for_user(user)
+    user = Lumainus.AccountsFixtures.user_fixture()
+    scope = Lumainus.Accounts.Scope.for_user(user)
 
     opts =
       context
@@ -61,7 +62,7 @@ defmodule LumainusWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_user(conn, user, opts \\ []) do
-    token = LumainusWeb.Accounts.generate_user_session_token(user)
+    token = Lumainus.Accounts.generate_user_session_token(user)
 
     maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
 
@@ -73,6 +74,6 @@ defmodule LumainusWeb.ConnCase do
   defp maybe_set_token_authenticated_at(_token, nil), do: nil
 
   defp maybe_set_token_authenticated_at(token, authenticated_at) do
-    LumainusWeb.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
+    Lumainus.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
   end
 end

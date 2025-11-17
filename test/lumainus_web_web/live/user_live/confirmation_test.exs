@@ -2,9 +2,9 @@ defmodule LumainusWeb.UserLive.ConfirmationTest do
   use LumainusWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
-  import LumainusWeb.AccountsFixtures
+  import Lumainus.AccountsFixtures
 
-  alias LumainusWeb.Accounts
+  alias Lumainus.Accounts
 
   setup do
     %{unconfirmed_user: unconfirmed_user_fixture(), confirmed_user: user_fixture()}

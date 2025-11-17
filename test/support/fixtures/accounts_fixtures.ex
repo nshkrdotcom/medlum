@@ -1,13 +1,14 @@
-defmodule LumainusWeb.AccountsFixtures do
+defmodule Lumainus.AccountsFixtures do
   @moduledoc """
   This module defines test helpers for creating
-  entities via the `LumainusWeb.Accounts` context.
+  entities via the `Lumainus.Accounts` context.
   """
 
   import Ecto.Query
 
-  alias LumainusWeb.Accounts
-  alias LumainusWeb.Accounts.Scope
+  alias Lumainus.Accounts
+  alias Lumainus.Accounts.Scope
+  alias Lumainus.Repo
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"
@@ -50,6 +51,18 @@ defmodule LumainusWeb.AccountsFixtures do
     Scope.for_user(user)
   end
 
+  def invitation_fixture(attrs \\ %{}) do
+    created_by = Map.get(attrs, :created_by) || unconfirmed_user_fixture()
+
+    attrs =
+      attrs
+      |> Map.delete(:created_by)
+      |> Enum.into(%{role: "doctor", email: unique_user_email()})
+
+    {:ok, invitation} = Accounts.create_invitation(attrs, created_by)
+    invitation
+  end
+
   def set_password(user) do
     {:ok, {user, _expired_tokens}} =
       Accounts.update_user_password(user, %{password: valid_user_password()})
@@ -64,7 +77,7 @@ defmodule LumainusWeb.AccountsFixtures do
   end
 
   def override_token_authenticated_at(token, authenticated_at) when is_binary(token) do
-    LumainusWeb.Repo.update_all(
+    Repo.update_all(
       from(t in Accounts.UserToken,
         where: t.token == ^token
       ),
@@ -74,14 +87,14 @@ defmodule LumainusWeb.AccountsFixtures do
 
   def generate_user_magic_link_token(user) do
     {encoded_token, user_token} = Accounts.UserToken.build_email_token(user, "login")
-    LumainusWeb.Repo.insert!(user_token)
+    Repo.insert!(user_token)
     {encoded_token, user_token.token}
   end
 
   def offset_user_token(token, amount_to_add, unit) do
     dt = DateTime.add(DateTime.utc_now(:second), amount_to_add, unit)
 
-    LumainusWeb.Repo.update_all(
+    Repo.update_all(
       from(ut in Accounts.UserToken, where: ut.token == ^token),
       set: [inserted_at: dt, authenticated_at: dt]
     )
