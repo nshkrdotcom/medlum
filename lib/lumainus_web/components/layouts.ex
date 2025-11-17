@@ -35,36 +35,17 @@ defmodule LumainusWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
-
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
-        {render_slot(@inner_block)}
+    <main class="app-shell bg-slate-50 py-12 sm:py-16">
+      <div class="mx-auto flex max-w-5xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
+        <div class="rounded-3xl border border-slate-200 bg-white p-8 sm:p-10 shadow-[0_40px_120px_rgba(15,23,42,0.1)]">
+          <div class="mb-8 flex items-center gap-3 text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">
+            <span class="inline-flex h-2 w-2 rounded-full bg-blue-500" aria-hidden="true" />
+            Lumainus · Traceable AI Intelligence
+          </div>
+          <div class="space-y-6">
+            {render_slot(@inner_block)}
+          </div>
+        </div>
       </div>
     </main>
 

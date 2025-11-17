@@ -230,6 +230,10 @@ defmodule LumainusWeb.UserAuth do
     end
   end
 
+  def on_mount(:ensure_authenticated, params, session, socket) do
+    on_mount(:require_authenticated, params, session, socket)
+  end
+
   def on_mount(:require_sudo_mode, _params, session, socket) do
     socket = mount_current_scope(socket, session)
 

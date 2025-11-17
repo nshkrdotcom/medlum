@@ -38,12 +38,14 @@ defmodule LumainusWeb.UserLive.Settings do
         phx-submit="update_password"
         phx-trigger-action={@trigger_submit}
       >
-        <input
-          name={@password_form[:email].name}
-          type="hidden"
-          id="hidden_user_email"
-          autocomplete="username"
+        <.input
+          id="password_form_account_email"
+          field={@password_form[:email]}
+          type="email"
+          label="Account email"
           value={@current_email}
+          readonly
+          autocomplete="username"
         />
         <.input
           field={@password_form[:password]}
