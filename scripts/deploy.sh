@@ -16,7 +16,7 @@ run_remote() {
 
 run_remote_env() {
   local cmd="$1"
-  run_remote "source $ENV_FILE && MIX_ENV=\${MIX_ENV:-prod} $cmd"
+  run_remote "set -a && source $ENV_FILE && set +a && MIX_ENV=\${MIX_ENV:-prod} $cmd"
 }
 
 echo "🚀 Deploying Lumainus to dev.lumainus.com..."
