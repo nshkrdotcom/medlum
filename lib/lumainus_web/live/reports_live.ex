@@ -356,12 +356,12 @@ defmodule LumainusWeb.ReportsLive do
             <div class="text-sm text-slate-600">
               Drag & drop PDFs here or click to select up to 5 files (25MB each).
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-col gap-2">
               <.live_file_input
                 upload={@uploads.documents}
-                class="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                class="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm w-full"
               />
-              <button type="submit" class="btn btn-primary btn-sm">
+              <button type="submit" class="btn btn-primary btn-sm w-full">
                 Upload PDFs
               </button>
             </div>
