@@ -36,44 +36,44 @@
   <body class="bg-slate-50 min-h-screen">
     <% user = @current_scope && @current_scope.user %>
     <% show_admin_link? = user && user.role in ["admin", "system_administrator"] %>
-    <nav class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-lg">
+    <nav class="global-nav sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-lg">
       <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-        <div class="flex flex-1 items-center gap-2 text-slate-600">
+        <div class="global-nav__brand flex flex-1 items-center gap-2 text-slate-600">
           <a href={~p"/"} class="flex items-center gap-2 text-base font-semibold tracking-wide text-slate-700 hover:text-slate-900">
-            <img src={~p"/images/logo.svg"} alt="Lumainus" class="h-8 w-8" />
+            <img src={~p"/images/lumainus-logo-enhanced.svg"} alt="Lumainus" class="h-8 w-8" />
             <span>LUMAINUS</span>
           </a>
-          <span class="hidden text-xs font-medium uppercase tracking-[0.2em] text-slate-400 sm:inline">
+          <span class="global-nav__tagline hidden text-xs font-medium uppercase tracking-[0.2em] text-slate-400 sm:inline">
             Traceable Intelligence
           </span>
         </div>
-        <div class="flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600">
-          <.link href={~p"/"} class="transition hover:text-slate-900">
+        <div class="global-nav__links flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600">
+          <.link href={~p"/"} class="global-nav__link transition hover:text-slate-900">
             Sanctuary
           </.link>
           <%= if show_admin_link? do %>
-            <.link href={~p"/admin/invitations"} class="transition hover:text-slate-900">
+            <.link href={~p"/admin/invitations"} class="global-nav__link transition hover:text-slate-900">
               Admin · Invitations
             </.link>
           <% end %>
           <%= if user do %>
-            <.link href={~p"/users/settings"} class="transition hover:text-slate-900">
+            <.link href={~p"/users/settings"} class="global-nav__link transition hover:text-slate-900">
               Settings
             </.link>
-            <span class="hidden rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 sm:inline-flex">
+            <span class="global-nav__signed-as hidden rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 sm:inline-flex">
               Signed in as {user.email}
             </span>
             <.link
               href={~p"/users/log-out"}
               method="delete"
-              class="inline-flex items-center rounded-full border border-slate-900/20 bg-slate-900/5 px-4 py-1.5 text-slate-900 transition hover:bg-slate-900/10"
+              class="global-nav__cta inline-flex items-center rounded-full border border-slate-900/20 bg-slate-900/5 px-4 py-1.5 text-slate-900 transition hover:bg-slate-900/10"
             >
               Log out
             </.link>
           <% else %>
             <.link
               href={~p"/users/log-in"}
-              class="inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-blue-700 transition hover:bg-blue-500/20"
+              class="global-nav__cta inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-blue-700 transition hover:bg-blue-500/20"
             >
               Log in
             </.link>

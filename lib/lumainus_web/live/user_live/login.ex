@@ -7,6 +7,40 @@ defmodule LumainusWeb.UserLive.Login do
   @impl true
   def render(assigns) do
     ~H"""
+    <style>
+      body:has(.lumainus-login-page) {
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        background: #050914;
+      }
+
+      body:has(.lumainus-login-page) .global-nav {
+        background: rgba(5, 9, 20, 0.85);
+        border-color: rgba(226, 232, 240, 0.15);
+      }
+
+      body:has(.lumainus-login-page)
+      .global-nav__brand > a,
+      body:has(.lumainus-login-page)
+      .global-nav__tagline,
+      body:has(.lumainus-login-page)
+      .global-nav__link {
+        color: #e2e8f0 !important;
+      }
+
+      body:has(.lumainus-login-page) .global-nav__cta {
+        border-color: rgba(226, 232, 240, 0.45);
+        color: #f8fafc;
+        background: transparent;
+      }
+
+      body:has(.lumainus-login-page) .global-nav__cta:hover {
+        background: rgba(248, 250, 252, 0.1);
+        border-color: rgba(248, 250, 252, 0.8);
+      }
+    </style>
+
     <div class="lumainus-login-page">
       <style>
         .lumainus-login-page {
@@ -362,6 +396,25 @@ defmodule LumainusWeb.UserLive.Login do
           background: rgba(239, 68, 68, 0.1);
         }
 
+        .return-home {
+          margin-top: 2.5rem;
+          text-align: center;
+        }
+
+        .return-home a {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          color: #cbd5f5;
+          font-weight: 500;
+          text-decoration: none;
+          transition: color 0.2s ease;
+        }
+
+        .return-home a:hover {
+          color: #ffffff;
+        }
+
         @keyframes slideInRight {
           from {
             opacity: 0;
@@ -492,14 +545,14 @@ defmodule LumainusWeb.UserLive.Login do
             </button>
           </.form>
         </div>
-      </div>
-      <div class="mt-10 text-center text-sm text-slate-300">
-        <.link
-          navigate={~p"/"}
-          class="inline-flex items-center gap-2 text-slate-300 transition hover:text-white"
-        >
-          <.icon name="hero-arrow-left" class="size-4" /> Return to sanctuary home
-        </.link>
+        <div class="return-home">
+          <.link
+            href={~p"/"}
+            class="inline-flex items-center gap-2 text-slate-300 transition hover:text-white"
+          >
+            <.icon name="hero-arrow-left" class="size-4" /> Return to sanctuary home
+          </.link>
+        </div>
       </div>
       <Layouts.flash_group flash={@flash} />
     </div>
