@@ -1,14 +1,17 @@
 import Config
 
+# Only in tests, remove the complexity from the password hashing algorithm
+config :bcrypt_elixir, :log_rounds, 1
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :lumainus_web, LumainusWebWeb.Endpoint,
+config :lumainus, LumainusWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "mWh5hLEUFzRa9Jq0pEkjIuwXXfx+UZtg95A3DvZRmTW7ZDvckaO3kzJKF8Y/Tkei",
   server: false
 
 # In test we don't send emails
-config :lumainus_web, LumainusWeb.Mailer, adapter: Swoosh.Adapters.Test
+config :lumainus, LumainusWeb.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false

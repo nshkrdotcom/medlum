@@ -1,9 +1,9 @@
-defmodule LumainusWeb.MixProject do
+defmodule Lumainus.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :lumainus_web,
+      app: :lumainus,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -20,8 +20,8 @@ defmodule LumainusWeb.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {LumainusWeb.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      mod: {Lumainus.Application, []},
+      extra_applications: [:logger, :runtime_tools, :crypto]
     ]
   end
 
@@ -41,6 +41,9 @@ defmodule LumainusWeb.MixProject do
   defp deps do
     [
       {:phoenix, "~> 1.8.1"},
+      {:phoenix_ecto, "~> 4.6"},
+      {:ecto_sql, "~> 3.12"},
+      {:postgrex, ">= 0.0.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
@@ -62,7 +65,9 @@ defmodule LumainusWeb.MixProject do
       {:gettext, "~> 0.26"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:bcrypt_elixir, "~> 3.0"},
+      {:tidewave, "~> 0.5", only: :dev}
     ]
   end
 
@@ -74,12 +79,15 @@ defmodule LumainusWeb.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "assets.setup", "assets.build"],
+      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
+      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind lumainus_web", "esbuild lumainus_web"],
+      "assets.build": ["compile", "tailwind lumainus", "esbuild lumainus"],
       "assets.deploy": [
-        "tailwind lumainus_web --minify",
-        "esbuild lumainus_web --minify",
+        "tailwind lumainus --minify",
+        "esbuild lumainus --minify",
         "phx.digest"
       ],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
