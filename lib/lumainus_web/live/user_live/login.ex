@@ -521,7 +521,12 @@ defmodule LumainusWeb.UserLive.Login do
 
     form = to_form(%{"email" => email}, as: "user")
 
-    {:ok, assign(socket, form: form, trigger_submit: false)}
+    {:ok,
+     assign(socket,
+       form: form,
+       trigger_submit: false,
+       page_icon_href: ~p"/assets/lumainus-icon.svg"
+     )}
   end
 
   @impl true
