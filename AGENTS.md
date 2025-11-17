@@ -1,6 +1,6 @@
 # AI Agents Guide - Lumainus Project
 
-**Last Updated:** November 16, 2025
+**Last Updated:** November 16, 2025 (codebase review refresh)
 **Project:** Lumainus - Traceable AI Intelligence Platform
 **Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
 
@@ -81,6 +81,17 @@ lumainus/
 ├── docs/                      # Documentation (HIPAA, FDA, etc.)
 └── scripts/                   # Utility scripts
 ```
+
+---
+
+## Codebase Review Snapshot (Nov 16, 2025)
+
+- `lib/lumainus/accounts/` owns users, invitations, session tokens, and `scope.ex`; everything that calls into contexts must pass a `Lumainus.Accounts.Scope` (see `lib/lumainus/accounts/scope.ex`) so role-aware queries stay centralized.
+- `lib/lumainus_web/user_auth.ex` wires the plugs (`fetch_current_scope_for_user/2`, `require_*_role/2`, etc.) and handles remember-me cookies + session reissue logic; all LiveView mounts rely on the `current_scope` assign from this module.
+- Authentication-facing LiveViews live in `lib/lumainus_web/live/user_live/` (login, registration, settings) and already follow `Layouts.app`; admin tooling resides in `lib/lumainus_web/live/admin/invitations_live.ex` and exercises `Lumainus.Accounts` end-to-end.
+- `/reports` (`lib/lumainus_web/live/reports_live.ex`) renders entirely from the in-memory dataset in `lib/lumainus/medical/mock_documents.ex` (`LumainusWeb.Medical.MockDocuments`). Update that mock module first when prototyping new sections so UI state, selectors, and provenance badges stay consistent.
+- Tailwind 4 lives in `assets/css/app.css` with the `@import "tailwindcss" source(none)` + `@source` directives; DaisyUI themes are registered inline so new components should stay compatible with this file rather than adding ad-hoc CSS frameworks.
+- Tests are split between `test/lumainus_web` (contexts) and `test/lumainus_web_web/{controllers,live}` (router/auth/LiveView exercises). Add regression coverage next to whichever module you touch (ex: LiveView tests in `test/lumainus_web_web/live/*_test.exs`).
 
 ---
 
@@ -512,6 +523,17 @@ Usage: 32px - 48px, can be tinted with CSS filters
 - Use cards sparingly
 - Emphasize critical information
 - Maintain breathing room
+
+### Reports LiveView (`reports_live.ex`)
+
+**Theme:** "Clinical source-of-truth workspace"
+
+**Key Requirements:**
+- Initialize assigns just like `ReportsLive.mount/3` (`documents`, `report`, `selected_document`, `document_view_mode`) so the sidebar + detail pane stay synchronized.
+- Document selection is handled through `"select_document"`, `"show_source"`, and `"close_document"` events; keep the payload keys (`"doc-id"`, `"mode"`) stable because tests/assertions expect these atoms.
+- Inline CSS at the top of `render/1` (see `lib/lumainus_web/live/reports_live.ex:54+`) intentionally builds the clinical chart aesthetic; edit the existing selectors instead of scattering new style tags elsewhere.
+- When changing report sections, update both the `LumainusWeb.Medical.MockDocuments.Report` struct and the LiveView template so every heading/body block has backing data.
+- Provenance badges pull from `MockDocuments.list_documents/0`; add new docs or IDs there first before referencing them in the UI.
 
 ---
 
