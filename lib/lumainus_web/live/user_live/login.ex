@@ -2,6 +2,7 @@ defmodule LumainusWeb.UserLive.Login do
   use LumainusWeb, :live_view
 
   alias Lumainus.Accounts
+  alias LumainusWeb.Layouts
 
   @impl true
   def render(assigns) do
@@ -331,13 +332,65 @@ defmodule LumainusWeb.UserLive.Login do
           }
         }
 
+        /* Flash messages - styled to match login page */
+        .lumainus-login-page #flash-group {
+          position: fixed;
+          top: 2rem;
+          right: 2rem;
+          z-index: 100;
+          max-width: 400px;
+        }
+
+        .lumainus-login-page #flash-group > div {
+          background: rgba(15, 23, 42, 0.95);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(59, 130, 246, 0.3);
+          border-radius: 0.75rem;
+          padding: 1rem 1.25rem;
+          margin-bottom: 0.75rem;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+          animation: slideInRight 0.3s ease-out;
+        }
+
+        .lumainus-login-page #flash-group [role="alert"][data-kind="info"] {
+          border-color: rgba(6, 182, 212, 0.5);
+          background: rgba(6, 182, 212, 0.1);
+        }
+
+        .lumainus-login-page #flash-group [role="alert"][data-kind="error"] {
+          border-color: rgba(239, 68, 68, 0.5);
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        @keyframes slideInRight {
+          from {
+            opacity: 0;
+            transform: translateX(100px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+
         /* Accessibility - Respect prefers-reduced-motion */
         @media (prefers-reduced-motion: reduce) {
           .lumainus-login-page::before,
           .lumainus-login-page::after,
           .logo-container img,
-          .login-btn::before {
+          .login-btn::before,
+          #flash-group > div {
             animation: none !important;
+          }
+        }
+
+        /* Flash messages responsive */
+        @media (max-width: 640px) {
+          .lumainus-login-page #flash-group {
+            left: 1rem;
+            right: 1rem;
+            top: 1rem;
+            max-width: none;
           }
         }
       </style>
@@ -441,7 +494,7 @@ defmodule LumainusWeb.UserLive.Login do
         </div>
       </div>
 
-      <.flash_group flash={@flash} />
+      <Layouts.flash_group flash={@flash} />
     </div>
     """
   end
