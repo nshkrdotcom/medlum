@@ -26,13 +26,16 @@ defmodule LumainusWeb.Endpoint do
     gzip: not code_reloading?,
     only: LumainusWeb.static_paths()
 
-  plug Tidewave,
-    allow_remote_access: true,
-    allowed_origins: [
-      "http://localhost:9832",
-      "http://lumainus.test:9832",
-      "http://127.0.0.1:9832"
-    ]
+  # Tidewave is only available in development
+  if code_reloading? do
+    plug Tidewave,
+      allow_remote_access: true,
+      allowed_origins: [
+        "http://localhost:9832",
+        "http://lumainus.test:9832",
+        "http://127.0.0.1:9832"
+      ]
+  end
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
