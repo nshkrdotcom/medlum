@@ -14,6 +14,7 @@ Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 - **Phoenix LiveView** - Real-time, server-rendered UI
 - **Tailwind CSS + DaisyUI** - Modern, responsive design
 - **Tidewave Integration** - AI-powered development assistance
+- **Clinical Summary UI** - `/reports` LiveView with provenance badges (fed by `LumainusWeb.Medical.MockDocuments` until the ingestion pipeline lands)
 
 ## Prerequisites
 

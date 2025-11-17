@@ -1,222 +1,98 @@
-# Lumainus - Quick Start Guide
+# Lumainus – Quick Start Guide
 
-## 🚀 Get Started in 30 Seconds
+Spin up the full Phoenix application (auth, invitations, admin console, and mock clinical reporting) in a couple of minutes.
+
+## 🚀 Start the stack
 
 ```bash
-cd /home/home/p/g/n/lumainus_web
+cd /home/home/p/g/n/lumainus
+mix setup          # installs deps, creates DB, runs migrations, seeds admin
 mix phx.server
 ```
 
-Then open: **http://localhost:4000/reports**
+Phoenix serves at **http://localhost:4000** (or `lumainus.test:4000` if you mapped the hosts entry mentioned in `README.md`).
 
-## ✅ What You'll See
+## 🔐 First login & doctor access
 
-### Left Pane - Medical Documents (6 sample documents)
-- **Doctor's Note** - Primary care visit (green badge)
-- **Cardiology Consultation** - Specialist note (red badge)
-- **Lab Report** - Lipid panel results (purple badge)
-- **Radiology** - Chest X-ray (blue badge)
-- **Hospital Discharge** - 3-day pneumonia stay (orange badge)
-- **Infectious Disease** - Specialist consult (yellow badge)
+1. Visit **http://localhost:4000/users/log-in**.
+2. Sign in with the seeded admin user:
+   - Email: `admin@lumainus.local`
+   - Password: `LumainusAdmin!reset` (change in `priv/repo/seeds.exs` or via env vars before running `mix setup`).
+3. Open **http://localhost:4000/admin/invitations** and create a **Doctor** invitation.
+4. Open the generated invitation link (new tab or private window), set the account password, and confirm via the emailed magic link (dev mailbox at **/dev/mailbox**).
+5. Log in as that doctor user and head to **http://localhost:4000/reports**.
 
-Click any document to see details!
+The `/reports` LiveView is doctor-only; admins can’t view it unless they also have the doctor role.
 
-### Main Pane - Clinical Summary Report
-Comprehensive patient summary with sections:
-- Chief Complaint
-- History of Present Illness (HPI)
-- Medications
-- Past Exam Findings
-- Review of Systems
-- Lab Results
-- Imaging Studies
-- Pathology
-- Assessment
-- Plan
+## ✅ What you’ll see on `/reports`
 
-### 🔗 Provenance Tracking (The Cool Part!)
+The UI renders a complete clinical summary experience driven by the sample dataset in `lib/lumainus/medical/mock_documents.ex`:
 
-Look for **blue badges** like this in the report:
+- **Medical document sidebar** – six hardcoded documents (doctor note, cardiology consult, labs, radiology, discharge summary, infectious disease note) with color-coded badges.
+- **Clinical summary report** – Chief Complaint, detailed HPI breakdowns, Medications, Exam, ROS, Labs, Imaging, Pathology, Assessment, Plan.
+- **Provenance badges** – inline `|source:doc-XXX` links open the selected document modal with Summary / Cleaned / Raw tabs.
 
-> "Patient has elevated LDL (165 mg/dL) [doc-003]"
+Everything you see is LiveView-powered, composable Tailwind components—the only “mock” piece is the data source module feeding the socket assigns.
 
-**Click the blue badge** → Modal pops up showing the source document!
+## 🔐 Authentication & roles
 
-Switch between:
-- **Summary** - AI-generated summary
-- **Cleaned** - Formatted/structured version
-- **Raw** - Original document text
+- Password + magic-link login flows are available on `/users/log-in`.
+- Invitations (doctor/admin/system administrator) are managed in `/admin/invitations`.
+- `/users/settings` lets authenticated users update credentials and view sudo-mode prompts.
+- Route access is enforced via `LumainusWeb.UserAuth` plugs (`require_doctor_role`, `require_admin_role`, etc.).
 
-## 📁 Project Structure
+## 📁 Project structure (high level)
 
 ```
-lumainus_web/
+lumainus/
 ├── lib/
-│   ├── lumainus_web/
-│   │   └── medical/
-│   │       └── mock_documents.ex    ← All hardcoded data here
-│   └── lumainus_web_web/
-│       └── live/
-│           └── reports_live.ex      ← Main UI component
-├── DEVELOPMENT.md                   ← Detailed dev guide
-└── QUICKSTART.md                    ← You are here!
+│   ├── lumainus/              # Contexts, Repo, mock medical data
+│   └── lumainus_web/          # Phoenix web layer (LiveViews, controllers, components)
+├── assets/                    # Tailwind + esbuild sources
+├── priv/
+│   ├── repo/migrations        # Users, tokens, invitations migrations
+│   └── static/                # Logos, background patterns, digested assets
+├── config/                    # dev/test/prod configs
+└── docs/                      # Regulatory + architecture references
 ```
 
-## 🎯 Current Status
+Report styling lives in `lib/lumainus_web/live/reports_live.ex`; the mock data is in `lib/lumainus/medical/mock_documents.ex`.
 
-**This is a UI mockup with hardcoded data.**
+## 🎯 Current state
 
-✅ Working:
-- Beautiful medical document UI
-- Report generation display
-- Provenance linking (click sources)
-- Document detail modal (3 view modes)
-- Professional styling
+| Capability                     | Status |
+|--------------------------------|--------|
+| Passwordless + password auth   | ✅     |
+| Role-based routing & invitations | ✅   |
+| Admin console (/admin/invitations) | ✅ |
+| `/reports` UI experience       | ✅ (mock data) |
+| Real ingestion / LLM pipeline  | 🚧 (feeds still `MockDocuments`) |
 
-❌ Not implemented yet:
-- No AI/LLM integration
-- No database
-- No authentication
-- No file upload
-- No real document processing
+Use `MockDocuments` to tweak the medical narratives while the ingestion pipeline is being built.
 
-## 🔜 Next Steps
+## 🔜 Next steps
 
-### Phase 1: Add Real LLM Processing
+1. **Document ingestion** – add upload + classification flows that replace the mock module with persisted records.
+2. **LLM summarization** – call Gemini (or other HIPAA-covered models) per section, emit `text|source:doc-x` payloads.
+3. **Traceable intelligence** – implement the multi-agent critic pipeline described in `docs/20251116/001_LUMAINUS_claude.md`.
+4. **HIPAA hardening** – follow the architecture in `docs/20251114/` for hybrid deployments, audit logging, etc.
 
-1. **Integrate Gemini API** (via `gemini_ex`)
-   ```elixir
-   # Add to mix.exs
-   {:gemini_ex, "~> 0.1.0"}
-   ```
+## 🎨 Customization pointers
 
-2. **One Prompt Per Section**
-   - Chief Complaint: 1 LLM call
-   - HPI: 1 LLM call
-   - Labs: 1 LLM call
-   - etc.
+- Update report layout/components: `lib/lumainus_web/live/reports_live.ex`.
+- Adjust mock data / sections: `lib/lumainus/medical/mock_documents.ex`.
+- Login experience, backgrounds, logo animations: `lib/lumainus_web/live/user_live/login.ex` and `priv/static/images/`.
+- Global Tailwind/DaisyUI settings: `assets/css/app.css`.
 
-3. **Structured Outputs with Tool Calling**
-   ```elixir
-   # Example for Chief Complaint
-   Gemini.generate_content(
-     prompt: "Extract chief complaint from these documents: #{docs}",
-     tools: [
-       %{
-         type: "function",
-         function: %{
-           name: "extract_chief_complaint",
-           parameters: %{
-             text: "string",
-             sources: ["doc-001", "doc-002"]
-           }
-         }
-       }
-     ]
-   )
-   ```
+## 🐛 Common issues
 
-4. **Provenance Tagging**
-   - LLM outputs: `"text|source:doc-001,doc-002"`
-   - UI already handles this format!
+- **Port 4000 busy** – `lsof -ti:4000 | xargs kill -9` or set `PORT=4001 mix phx.server`.
+- **Missing deps/DB** – re-run `mix setup` (includes `ecto.create`, migrations, seeds).
+- **Assets not rebuilding** – `mix assets.setup && mix assets.build`.
+- **Forgot admin password** – re-run `mix run priv/repo/seeds.exs` with new env vars or update via IEx.
 
-### Phase 2: Document Upload
+## 📬 Need the mailbox?
 
-1. Add file upload LiveView component
-2. Store uploaded files (temp directory or S3)
-3. Auto-classify documents by type
-4. Generate summaries with LLM
+When running in dev, visit **http://localhost:4000/dev/mailbox** to open magic-link emails sent by Swoosh’s local adapter.
 
-### Phase 3: Multi-Agent Framework (Synapse)
-
-1. Add Synapse dependency
-2. Build critic pipeline (see `docs/20251116/001_LUMAINUS_claude.md`)
-3. Implement attribution graphs
-
-### Phase 4: HIPAA + FDA Compliance
-
-1. Add encryption (AES-256, TLS 1.2+)
-2. Audit logging
-3. BAA with cloud providers
-4. Clinical validation studies
-
-## 📖 Read More
-
-- **DEVELOPMENT.md** - Full development guide
-- **../lumainus/docs/20251116/001_LUMAINUS_claude.md** - Architecture design
-- **../lumainus/docs/20251114/** - FDA regulatory strategy
-
-## 🎨 UI Customization
-
-All styling is in `lib/lumainus_web_web/live/reports_live.ex` using Tailwind CSS.
-
-### Color Scheme
-- **Primary**: Blue (`blue-600`, `blue-100`)
-- **Success**: Green (Doctor's Notes)
-- **Danger**: Red (Cardiology)
-- **Info**: Purple (Labs)
-- **Warning**: Orange (Hospital)
-- **Neutral**: Gray
-
-### Document Category Colors
-
-Change in `get_category_color/1` function:
-
-```elixir
-defp get_category_color(type) do
-  cond do
-    String.contains?(type, "Doctor's Note") -> "bg-green-100 text-green-800"
-    String.contains?(type, "Cardiology") -> "bg-red-100 text-red-800"
-    # ... etc
-  end
-end
-```
-
-## 🐛 Common Issues
-
-### Port 4000 in use?
-
-```bash
-# Option 1: Kill existing process
-pkill -f "phx.server"
-
-# Option 2: Use different port
-# Edit config/dev.exs:
-http: [port: 4001]
-```
-
-### Compilation errors?
-
-```bash
-mix clean
-mix deps.get
-mix compile
-```
-
-### Assets not loading?
-
-```bash
-mix assets.setup
-```
-
-## 💡 Pro Tips
-
-1. **Use `iex -S mix phx.server`** for interactive debugging
-2. **Edit mock data** in `lib/lumainus_web/medical/mock_documents.ex`
-3. **LiveView auto-reloads** when you save files (in dev mode)
-4. **Check browser console** for JavaScript errors
-5. **Use Chrome DevTools** to inspect Tailwind classes
-
-## 🎉 You're All Set!
-
-The UI is fully functional - just waiting for real data!
-
-**Next:** Start adding Gemini API integration or upload capability.
-
-Questions? Check `DEVELOPMENT.md` or the main project docs.
-
----
-
-**Built with:** Phoenix 1.8 • LiveView • Tailwind CSS • Elixir 1.18
-**Status:** UI Mockup Complete ✅
-**Next Phase:** LLM Integration 🚧
+You’re now aligned with the current codebase—full auth + admin flows running, with mock data for reporting until the ingestion/LLM pipeline lands. Happy building!

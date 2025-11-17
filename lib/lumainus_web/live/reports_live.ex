@@ -49,263 +49,348 @@ defmodule LumainusWeb.ReportsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex h-screen bg-gray-50">
-      <!-- Left Sidebar - Document List -->
-      <div class="w-1/4 bg-white shadow-lg overflow-y-auto border-r border-gray-200">
-        <div class="p-6 border-b border-gray-200 bg-blue-50">
-          <h2 class="text-xl font-bold text-gray-800">Medical Documents</h2>
-          <p class="text-sm text-gray-600 mt-1">{length(@documents)} documents ingested</p>
+    <style>
+      .reports-shell {
+        --nav-gap: 96px;
+        min-height: 640px;
+        height: calc(100vh - var(--nav-gap));
+        background: #e2e8f0;
+        padding: 1rem;
+        display: flex;
+        gap: 1rem;
+      }
+
+      .reports-sidebar {
+        width: 320px;
+        min-width: 280px;
+        border-radius: 1.5rem;
+        background: #ffffff;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+      }
+
+      .reports-sidebar__list {
+        margin-top: 0.75rem;
+        overflow-y: auto;
+        flex: 1;
+        gap: 0.5rem;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .reports-content {
+        flex: 1;
+        border-radius: 1.5rem;
+        background: #ffffff;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-direction: column;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+      }
+
+      .reports-scroll {
+        overflow-y: auto;
+        flex: 1;
+        padding-right: 0.5rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 0.75rem;
+        align-content: flex-start;
+      }
+
+      .reports-section {
+        min-height: 120px;
+      }
+
+      @media (max-width: 1024px) {
+        .reports-shell {
+          height: auto;
+          min-height: 100vh;
+          flex-direction: column;
+          padding: 0.75rem;
+        }
+
+        .reports-sidebar,
+        .reports-content {
+          width: 100%;
+          min-width: 0;
+          border-radius: 1rem;
+        }
+
+        .reports-scroll {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+
+    <div class="reports-shell">
+      <aside class="reports-sidebar">
+        <div>
+          <p class="text-[0.7rem] uppercase tracking-[0.4em] text-slate-400 font-semibold">
+            Documents
+          </p>
+          <p class="text-xs text-slate-500 mt-1">
+            {length(@documents)} ingested sources
+          </p>
         </div>
 
-        <div class="divide-y divide-gray-200">
+        <div class="reports-sidebar__list">
           <%= for doc <- @documents do %>
-            <div
+            <button
               id={"document-#{doc.id}"}
-              class={[
-                "p-4 cursor-pointer hover:bg-blue-50 transition-colors",
-                @selected_document && @selected_document.id == doc.id &&
-                  "bg-blue-100 border-l-4 border-blue-600"
-              ]}
               phx-click="select_document"
               phx-value-doc-id={doc.id}
+              class={[
+                "text-left rounded-xl border border-slate-200 px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                @selected_document && @selected_document.id == doc.id &&
+                  "border-blue-500 bg-blue-50 shadow-sm"
+              ]}
             >
-              <div class="flex items-start justify-between">
-                <div class="flex-1">
-                  <span class={[
-                    "inline-block px-2 py-1 text-xs font-semibold rounded-full mb-2",
-                    get_category_color(doc.type)
-                  ]}>
-                    {doc.type}
-                  </span>
-                  <div class="text-sm text-gray-500 mb-1">
-                    {Calendar.strftime(doc.date, "%B %d, %Y")} • {doc.provider}
-                  </div>
-                  <p class="text-sm text-gray-700 line-clamp-3">
-                    {doc.summary}
-                  </p>
-                </div>
+              <span class={[
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-semibold mb-1",
+                get_category_color(doc.type)
+              ]}>
+                {doc.type}
+              </span>
+              <div class="text-[0.7rem] text-slate-500">
+                {Calendar.strftime(doc.date, "%b %d, %Y")} • {doc.provider}
               </div>
-            </div>
+              <p class="mt-1 text-xs text-slate-700 line-clamp-2 leading-snug">
+                {doc.summary}
+              </p>
+            </button>
           <% end %>
         </div>
-      </div>
-      
-    <!-- Main Content Area - Report -->
-      <div class="flex-1 overflow-y-auto">
-        <div class="max-w-5xl mx-auto p-8">
-          <!-- Header -->
-          <div class="bg-white shadow-sm rounded-lg p-6 mb-6 border border-gray-200">
-            <h1 class="text-3xl font-bold text-gray-900">Clinical Summary Report</h1>
-            <div class="mt-2 text-gray-600">
-              <p class="text-lg">
-                <span class="font-semibold">Patient:</span>
+      </aside>
+
+      <section class="reports-content">
+        <header class="border-b border-slate-200 pb-2 mb-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-[0.7rem] uppercase tracking-[0.3em] text-blue-500 font-semibold">
+                Clinical Summary
+              </p>
+              <h1 class="text-xl font-semibold text-slate-900 mt-1">
                 {@report.patient_name}
-              </p>
-              <p>
-                <span class="font-semibold">MRN:</span>
-                {@report.patient_mrn}
-              </p>
-              <p class="text-sm text-gray-500 mt-2">
-                Generated from {length(@documents)} documents
-              </p>
+              </h1>
+            </div>
+            <div class="text-right text-xs text-slate-500">
+              <p>MRN · {@report.patient_mrn}</p>
+              <p>Sources · {length(@documents)}</p>
             </div>
           </div>
-          <!-- Chief Complaint -->
-          <.report_section title="Chief Complaint" id="chief-complaint">
+        </header>
+
+        <div class="reports-scroll">
+          <.report_section title="Chief Complaint" id="chief-complaint" class="reports-section">
             <.render_with_sources content={@report.chief_complaint} />
           </.report_section>
-          <!-- HPI -->
-          <.report_section title="History of Present Illness" id="hpi">
-            <div class="space-y-4">
+
+          <.report_section title="History of Present Illness" id="hpi" class="reports-section">
+            <div class="space-y-3 text-[0.85rem]">
               <div>
-                <h4 class="font-semibold text-gray-700 mb-2">Present Illness</h4>
+                <h4 class="font-semibold text-slate-700">Present Illness</h4>
                 <.render_with_sources content={@report.hpi.present_illness} />
               </div>
               <div>
-                <h4 class="font-semibold text-gray-700 mb-2">Past Medical History</h4>
+                <h4 class="font-semibold text-slate-700">Past Medical History</h4>
                 <.render_with_sources content={@report.hpi.past_medical_history} />
               </div>
               <div>
-                <h4 class="font-semibold text-gray-700 mb-2">Past Surgical History</h4>
+                <h4 class="font-semibold text-slate-700">Past Surgical History</h4>
                 <.render_with_sources content={@report.hpi.past_surgical_history} />
               </div>
               <div>
-                <h4 class="font-semibold text-gray-700 mb-2">Social History</h4>
+                <h4 class="font-semibold text-slate-700">Social History</h4>
                 <.render_with_sources content={@report.hpi.social_history} />
               </div>
             </div>
           </.report_section>
-          <!-- Medications -->
-          <.report_section title="Medications" id="medications">
-            <div class="space-y-3">
+
+          <.report_section title="Medications" id="medications" class="reports-section">
+            <div class="space-y-2 text-[0.8rem]">
               <%= for med <- @report.medications do %>
-                <div class="bg-gray-50 p-3 rounded border border-gray-200">
-                  <div class="font-semibold text-gray-800">{med.name}</div>
-                  <div class="text-sm text-gray-600">
-                    <.render_with_sources content={med.indication} />
+                <div class="rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                  <div class="flex items-center justify-between text-slate-800">
+                    <span class="font-semibold">{med.name}</span>
+                    <span class="text-[0.65rem] uppercase tracking-widest text-slate-400">
+                      {med.status}
+                    </span>
                   </div>
-                  <div class="text-xs text-gray-500 mt-1">Status: {med.status}</div>
+                  <.render_with_sources content={med.indication} class="text-slate-600" />
                 </div>
               <% end %>
             </div>
           </.report_section>
-          <!-- Past Physical Exam Findings -->
-          <.report_section title="Past Physical Exam Findings" id="exam">
+
+          <.report_section title="Past Physical Exam" id="exam" class="reports-section">
             <.render_with_sources content={@report.past_exam_findings} />
           </.report_section>
-          <!-- Review of Systems -->
-          <.report_section title="Review of Systems" id="ros">
+
+          <.report_section title="Review of Systems" id="ros" class="reports-section">
             <.render_with_sources content={@report.review_of_systems} />
           </.report_section>
-          <!-- Labs -->
-          <.report_section title="Laboratory Results" id="labs">
-            <div class="space-y-4">
+
+          <.report_section title="Laboratory Results" id="labs" class="reports-section">
+            <div class="space-y-2">
               <%= for lab <- @report.labs do %>
-                <div class="bg-gray-50 p-4 rounded border border-gray-200">
-                  <div class="font-semibold text-gray-800 mb-1">
-                    {lab.test} - <.render_with_sources content={lab.date} />
+                <div class="rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                  <div class="flex items-center justify-between text-[0.8rem] text-slate-800">
+                    <span>{lab.test}</span>
+                    <.render_with_sources content={lab.date} class="text-slate-500" />
                   </div>
-                  <.render_with_sources content={lab.findings} class="text-sm whitespace-pre-line" />
+                  <.render_with_sources
+                    content={lab.findings}
+                    class="text-xs text-slate-600 whitespace-pre-line"
+                  />
                 </div>
               <% end %>
             </div>
           </.report_section>
-          <!-- Imaging -->
-          <.report_section title="Imaging Studies" id="imaging">
-            <div class="space-y-4">
+
+          <.report_section title="Imaging Studies" id="imaging" class="reports-section">
+            <div class="space-y-2">
               <%= for img <- @report.imaging do %>
-                <div class="bg-gray-50 p-4 rounded border border-gray-200">
-                  <div class="font-semibold text-gray-800 mb-1">
-                    {img.study} - <.render_with_sources content={img.date} />
+                <div class="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-xs">
+                  <div class="flex items-center justify-between text-slate-800">
+                    <span class="font-semibold">{img.study}</span>
+                    <.render_with_sources content={img.date} class="text-slate-500" />
                   </div>
-                  <div class="text-sm mb-2">
-                    <span class="font-medium text-gray-700">Findings:</span>
-                    <.render_with_sources content={img.findings} class="whitespace-pre-line" />
+                  <div class="mt-1">
+                    <span class="font-medium text-slate-700">Findings:</span>
+                    <.render_with_sources
+                      content={img.findings}
+                      class="text-slate-600 whitespace-pre-line"
+                    />
                   </div>
-                  <div class="text-sm">
-                    <span class="font-medium text-gray-700">Impression:</span>
-                    <.render_with_sources content={img.impression} />
+                  <div class="mt-1">
+                    <span class="font-medium text-slate-700">Impression:</span>
+                    <.render_with_sources content={img.impression} class="text-slate-600" />
                   </div>
                 </div>
               <% end %>
             </div>
           </.report_section>
-          <!-- Pathology -->
-          <.report_section title="Pathology Results" id="pathology">
+
+          <.report_section title="Pathology Results" id="pathology" class="reports-section">
             <%= if @report.pathology == [] do %>
-              <p class="text-gray-500 italic">No pathology results available</p>
+              <p class="text-xs text-slate-500 italic">No pathology results available</p>
             <% else %>
-              <div class="space-y-4">
+              <div class="space-y-2">
                 <%= for path <- @report.pathology do %>
-                  <div class="bg-gray-50 p-4 rounded border border-gray-200">
+                  <div class="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700">
                     <.render_with_sources content={path} />
                   </div>
                 <% end %>
               </div>
             <% end %>
           </.report_section>
-          <!-- Assessment -->
-          <.report_section title="Assessment" id="assessment">
-            <.render_with_sources content={@report.assessment} class="whitespace-pre-line" />
+
+          <.report_section title="Assessment" id="assessment" class="reports-section">
+            <.render_with_sources
+              content={@report.assessment}
+              class="text-sm text-slate-700 whitespace-pre-line"
+            />
           </.report_section>
-          <!-- Plan -->
-          <.report_section title="Plan" id="plan">
-            <.render_with_sources content={@report.plan} class="whitespace-pre-line" />
+
+          <.report_section title="Plan" id="plan" class="reports-section">
+            <.render_with_sources
+              content={@report.plan}
+              class="text-sm text-slate-700 whitespace-pre-line"
+            />
           </.report_section>
         </div>
-      </div>
-      
-    <!-- Right Overlay - Selected Document Detail -->
-      <%= if @selected_document do %>
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg shadow-2xl w-3/4 h-3/4 flex flex-col">
-            <!-- Modal Header -->
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h3 class="text-xl font-bold text-gray-900">{@selected_document.type}</h3>
-                <p class="text-sm text-gray-600">
-                  {Calendar.strftime(@selected_document.date, "%B %d, %Y")} • {@selected_document.provider}
-                </p>
-              </div>
-              <button
-                phx-click="close_document"
-                class="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <svg
-                  class="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
+      </section>
+    </div>
+
+    <%= if @selected_document do %>
+      <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
+          <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-semibold text-slate-900">{@selected_document.type}</h3>
+              <p class="text-xs text-slate-500">
+                {Calendar.strftime(@selected_document.date, "%b %d, %Y")} • {@selected_document.provider}
+              </p>
             </div>
-            <!-- View Mode Tabs -->
-            <div class="flex border-b border-gray-200 px-6">
-              <button
-                phx-click="change_view_mode"
-                phx-value-mode="summary"
-                class={[
-                  "px-4 py-2 font-medium text-sm border-b-2 transition-colors",
-                  (@document_view_mode == :summary &&
-                     "border-blue-600 text-blue-600") ||
-                    "border-transparent text-gray-500 hover:text-gray-700"
-                ]}
+            <button
+              phx-click="close_document"
+              class="text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                Summary
-              </button>
-              <button
-                phx-click="change_view_mode"
-                phx-value-mode="cleaned"
-                class={[
-                  "px-4 py-2 font-medium text-sm border-b-2 transition-colors",
-                  (@document_view_mode == :cleaned &&
-                     "border-blue-600 text-blue-600") ||
-                    "border-transparent text-gray-500 hover:text-gray-700"
-                ]}
-              >
-                Cleaned
-              </button>
-              <button
-                phx-click="change_view_mode"
-                phx-value-mode="raw"
-                class={[
-                  "px-4 py-2 font-medium text-sm border-b-2 transition-colors",
-                  (@document_view_mode == :raw &&
-                     "border-blue-600 text-blue-600") ||
-                    "border-transparent text-gray-500 hover:text-gray-700"
-                ]}
-              >
-                Raw
-              </button>
-            </div>
-            <!-- Modal Content -->
-            <div class="flex-1 overflow-y-auto p-6">
-              <%= case @document_view_mode do %>
-                <% :summary -> %>
-                  <div class="prose max-w-none">
-                    <p class="text-gray-700">{@selected_document.summary}</p>
-                  </div>
-                <% :cleaned -> %>
-                  <div class="bg-gray-50 p-4 rounded border border-gray-200 font-mono text-sm whitespace-pre-wrap">
-                    {@selected_document.cleaned_content}
-                  </div>
-                <% :raw -> %>
-                  <div class="bg-gray-900 text-green-400 p-4 rounded font-mono text-xs whitespace-pre-wrap">
-                    {@selected_document.raw_content}
-                  </div>
-              <% end %>
-            </div>
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+          <div class="flex border-b border-slate-200 px-5 space-x-2">
+            <button
+              phx-click="change_view_mode"
+              phx-value-mode="summary"
+              class={[
+                "px-3 py-2 text-xs font-semibold tracking-widest uppercase",
+                (@document_view_mode == :summary &&
+                   "border-b-2 border-blue-500 text-blue-600") ||
+                  "border-b-2 border-transparent text-slate-400 hover:text-slate-600"
+              ]}
+            >
+              Summary
+            </button>
+            <button
+              phx-click="change_view_mode"
+              phx-value-mode="cleaned"
+              class={[
+                "px-3 py-2 text-xs font-semibold tracking-widest uppercase",
+                (@document_view_mode == :cleaned &&
+                   "border-b-2 border-blue-500 text-blue-600") ||
+                  "border-b-2 border-transparent text-slate-400 hover:text-slate-600"
+              ]}
+            >
+              Cleaned
+            </button>
+            <button
+              phx-click="change_view_mode"
+              phx-value-mode="raw"
+              class={[
+                "px-3 py-2 text-xs font-semibold tracking-widest uppercase",
+                (@document_view_mode == :raw &&
+                   "border-b-2 border-blue-500 text-blue-600") ||
+                  "border-b-2 border-transparent text-slate-400 hover:text-slate-600"
+              ]}
+            >
+              Raw
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-5 text-sm">
+            <%= case @document_view_mode do %>
+              <% :summary -> %>
+                <div class="text-slate-700 leading-relaxed">
+                  {@selected_document.summary}
+                </div>
+              <% :cleaned -> %>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 font-mono text-xs whitespace-pre-wrap">
+                  {@selected_document.cleaned_content}
+                </div>
+              <% :raw -> %>
+                <div class="bg-slate-900 text-emerald-200 rounded-xl p-4 font-mono text-[0.7rem] whitespace-pre-wrap">
+                  {@selected_document.raw_content}
+                </div>
+            <% end %>
           </div>
         </div>
-      <% end %>
-    </div>
+      </div>
+    <% end %>
     """
   end
 
@@ -313,18 +398,23 @@ defmodule LumainusWeb.ReportsLive do
 
   attr :title, :string, required: true
   attr :id, :string, required: true
+  attr :class, :string, default: ""
   slot :inner_block, required: true
 
   defp report_section(assigns) do
     ~H"""
-    <div id={@id} class="bg-white shadow-sm rounded-lg p-6 mb-6 border border-gray-200">
-      <h2 class="text-2xl font-bold text-gray-900 mb-4 border-b-2 border-blue-600 pb-2">
+    <section
+      id={@id}
+      class={[
+        "rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-[0.85rem] text-slate-700 shadow-sm",
+        @class
+      ]}
+    >
+      <h2 class="text-[0.75rem] font-semibold uppercase tracking-[0.25em] text-slate-500 mb-2">
         {@title}
       </h2>
-      <div class="text-gray-700">
-        {render_slot(@inner_block)}
-      </div>
-    </div>
+      {render_slot(@inner_block)}
+    </section>
     """
   end
 
