@@ -81,6 +81,8 @@ defmodule LumainusWeb.Api.UploadController do
                ) do
           Documents.queue_ingestion(record, workspace.template)
           {:ok, record}
+        else
+          {:error, {:duplicate, upload}} -> {:ok, upload}
         end
     end
   end

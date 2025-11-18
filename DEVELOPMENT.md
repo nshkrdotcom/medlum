@@ -85,6 +85,10 @@ To prototype new sections, update the section prompt in `/prompts`, adjust the o
 | Pre-commit gate | `mix precommit` (compile w/ warnings-as-errors, unlock unused deps, format, test) |
 | Deploy assets | `mix assets.deploy` |
 
+### Workspace helpers
+
+- `mix lumainus.purge_uploads` – Remove all persisted uploads/ingestion jobs. Useful when iterating on the `/reports` UI and you need a clean slate.
+
 ### Run Phoenix + Docling ingestion together (dev only)
 
 The new helper script starts the PDF ingestion microservice (inside its Python virtualenv) and the Phoenix server in one go so `/reports` always has a local Docling endpoint:

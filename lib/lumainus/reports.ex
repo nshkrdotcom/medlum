@@ -33,11 +33,11 @@ defmodule Lumainus.Reports do
     end)
   end
 
-  def workspace(%Scope{} = scope) do
+  def workspace(%Scope{} = scope, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
 
     patient = default_patient!(tenant_id)
-    record_set = RecordSets.primary_for_patient(patient)
+    record_set = record_set_for(patient, opts)
 
     %{
       patient: patient,
@@ -97,6 +97,37 @@ defmodule Lumainus.Reports do
     Enum.map(sections, fn section ->
       %{section: section, latest_run: Map.get(runs_map, section.id)}
     end)
+  end
+
+  def list_runs_for_record_set(%Scope{} = scope, record_set, opts \\ []) do
+    limit = opts[:limit] || 5
+
+    ReportRun
+    |> where([r], r.tenant_id == ^tenant_id_from_scope(scope))
+    |> where([r], r.record_set_id == ^record_set.id)
+    |> order_by([r], desc: r.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  def latest_runs_for_record_sets(%Scope{} = scope, record_sets) do
+    tenant_id = tenant_id_from_scope(scope)
+    ids = Enum.map(record_sets, & &1.id)
+
+    case ids do
+      [] ->
+        %{}
+
+      record_set_ids ->
+        ReportRun
+        |> where([r], r.tenant_id == ^tenant_id)
+        |> where([r], r.record_set_id in ^record_set_ids)
+        |> order_by([r], desc: r.inserted_at)
+        |> Repo.all()
+        |> Enum.reduce(%{}, fn run, acc ->
+          Map.put_new(acc, run.record_set_id, run)
+        end)
+    end
   end
 
   def run_sections(%Scope{} = scope, patient, record_set, template, section_ids, opts \\ []) do
@@ -187,6 +218,13 @@ defmodule Lumainus.Reports do
     |> select([t], t.id)
     |> limit(1)
     |> Repo.one!()
+  end
+
+  defp record_set_for(patient, opts) do
+    case opts[:record_set_id] do
+      nil -> RecordSets.primary_for_patient(patient)
+      id -> RecordSets.get_for_patient!(patient, id)
+    end
   end
 
   defp default_patient!(tenant_id) do

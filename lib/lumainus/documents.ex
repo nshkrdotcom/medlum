@@ -11,6 +11,7 @@ defmodule Lumainus.Documents do
   alias Oban
   alias Path
   alias Phoenix.PubSub
+  require Logger
 
   @topic_prefix "record-set"
   @job_topic_prefix "ingestion-job"
@@ -83,16 +84,39 @@ defmodule Lumainus.Documents do
       raw_blob: binary
     }
 
-    case %DocumentUpload{}
-         |> DocumentUpload.changeset(attrs)
-         |> Repo.insert() do
+    case maybe_insert_upload(attrs) do
       {:ok, upload} = result ->
+        Logger.info("Created upload #{upload.id} for record set #{upload.record_set_id}")
         notify_documents_changed(upload.record_set_id)
         result
 
       error ->
         error
     end
+  end
+
+  defp maybe_insert_upload(attrs) do
+    tenant_id = attrs.tenant_id
+    record_set_id = attrs.record_set_id
+    sha = attrs.sha256
+
+    case duplicate_upload(tenant_id, record_set_id, sha) do
+      nil ->
+        %DocumentUpload{}
+        |> DocumentUpload.changeset(attrs)
+        |> Repo.insert()
+
+      upload ->
+        {:error, {:duplicate, upload}}
+    end
+  end
+
+  defp duplicate_upload(tenant_id, record_set_id, sha) do
+    DocumentUpload
+    |> where([d], d.tenant_id == ^tenant_id)
+    |> where([d], d.record_set_id == ^record_set_id)
+    |> where([d], d.sha256 == ^sha)
+    |> Repo.one()
   end
 
   def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
@@ -123,11 +147,15 @@ defmodule Lumainus.Documents do
         upload_status: "queued"
       )
 
+    Logger.info("Queueing ingestion for upload #{upload.id}")
+
     case worker.new(%{"ingestion_job_id" => job.id}) |> Oban.insert() do
       {:ok, _oban_job} ->
         {:ok, job}
 
       {:error, reason} ->
+        Logger.error("Failed to enqueue ingestion for upload #{upload.id}: #{inspect(reason)}")
+
         Repo.update!(
           Changeset.change(job, %{status: "failed", error: %{message: inspect(reason)}})
         )
@@ -211,6 +239,25 @@ defmodule Lumainus.Documents do
     end
   end
 
+  def delete_upload(%Scope{} = scope, upload_id) do
+    tenant_id = tenant_id_from_scope(scope)
+
+    upload =
+      DocumentUpload
+      |> where([d], d.tenant_id == ^tenant_id)
+      |> Repo.get(upload_id)
+
+    case upload do
+      nil ->
+        {:error, :not_found}
+
+      upload ->
+        {:ok, _} = Repo.delete(upload)
+        notify_documents_changed(upload.record_set_id)
+        :ok
+    end
+  end
+
   defp ensure_job_upload(job) do
     Repo.preload(job, [upload: [:patient, :record_set]], force: true)
   end
@@ -243,6 +290,8 @@ defmodule Lumainus.Documents do
   defp maybe_preload_events(job) do
     Repo.preload(job, :events)
   end
+
+  defp tenant_id_from_scope(%Scope{tenant_id: tenant_id}), do: tenant_id
 
   defp sha256(binary) do
     :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
