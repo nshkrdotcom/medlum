@@ -38,3 +38,6 @@ npm-debug.log
 
 # Ignore downloaded binaries
 /bin/
+
+# Docling service virtual environment
+/docling_service/.venv/
