@@ -105,14 +105,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
       })
       |> Repo.insert!()
 
-    %DocumentChunk{}
-    |> DocumentChunk.changeset(%{
-      parse_id: parse.id,
-      position: 0,
-      content: markdown,
-      token_count: markdown |> String.split() |> length()
-    })
-    |> Repo.insert!()
+    persist_chunks(parse, markdown)
 
     maybe_update_patient(upload, response)
     refresh_upload_metadata(upload, markdown, metadata)
@@ -212,6 +205,36 @@ defmodule Lumainus.Documents.IngestionProcessor do
   end
 
   defp short_summary(_), do: "Awaiting summarization"
+
+  defp persist_chunks(parse, markdown) when is_binary(markdown) do
+    markdown
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce(0, fn {line, line_number}, position ->
+      trimmed = String.trim(line)
+
+      if trimmed == "" do
+        position
+      else
+        %DocumentChunk{}
+        |> DocumentChunk.changeset(%{
+          parse_id: parse.id,
+          position: position,
+          content: line,
+          token_count: trimmed |> String.split() |> length(),
+          line_start: line_number,
+          line_end: line_number
+        })
+        |> Repo.insert!()
+
+        position + 1
+      end
+    end)
+
+    :ok
+  end
+
+  defp persist_chunks(_parse, _markdown), do: :ok
 
   defp fetch_markdown(response) when is_map(response) do
     case Map.get(response, "markdown") do

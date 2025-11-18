@@ -191,4 +191,24 @@ defmodule LumainusWeb.ReportsLiveTest do
     |> Map.fetch!(:assigns)
     |> Map.fetch!(key)
   end
+
+  test "clicking the same document toggles detail", %{conn: conn, scope: scope} do
+    workspace = Reports.workspace(scope)
+    pdf = "%PDF-1.4 sample"
+    meta = %{filename: "toggle.pdf", content_type: "application/pdf", byte_size: byte_size(pdf)}
+
+    {:ok, upload} =
+      Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
+
+    {:ok, view, _html} = live(conn, ~p"/reports")
+
+    button =
+      element(view, "button[phx-value-doc-id=\"#{upload.id}\"][phx-click=\"select_document\"]")
+
+    render_click(button)
+    assert has_element?(view, ".doc-detail-actions")
+
+    render_click(button)
+    refute has_element?(view, ".doc-detail-actions")
+  end
 end

@@ -35,7 +35,7 @@ config :lumainus, Oban,
     {Oban.Plugins.Pruner, max_age: 86_400},
     {Oban.Plugins.Cron, crontab: [{"*/5 * * * *", Lumainus.Docling.HealthCheckWorker}]}
   ],
-  queues: [ingestion: 5, health_checks: 1]
+  queues: [ingestion: 5, reports: 5, health_checks: 1]
 
 config :lumainus, :llm,
   default_provider: "google",

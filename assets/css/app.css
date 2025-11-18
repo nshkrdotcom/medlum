@@ -103,3 +103,13 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+/* Ensure default inputs in modals and settings use light background */
+.daisy-input,
+.daisy-textarea,
+.daisy-select,
+.input,
+.textarea,
+.select {
+  background-color: #fff;
+  color: #0f172a;
+}

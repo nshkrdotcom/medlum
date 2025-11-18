@@ -8,10 +8,10 @@ defmodule Lumainus.Reports do
   alias Ecto.Changeset
   alias Ecto.UUID
   alias Lumainus.Accounts.Scope
-  alias Lumainus.AI.SectionRunner
   alias Lumainus.Clinical.{Patient, PatientProfile, RecordSets}
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
+  alias Lumainus.Reports.SectionRunWorker
 
   alias Lumainus.Reports.{
     Report,
@@ -22,6 +22,10 @@ defmodule Lumainus.Reports do
   }
 
   alias Lumainus.Tenancy.Tenant
+  alias Oban
+  alias Phoenix.PubSub
+
+  @run_topic_prefix "report-run"
 
   def bootstrap_workspace!(%Scope{} = scope) do
     tenant_id = tenant_id_from_scope(scope)
@@ -46,6 +50,18 @@ defmodule Lumainus.Reports do
       documents: list_documents(scope, record_set),
       sections: list_sections_with_runs(scope)
     }
+  end
+
+  def subscribe_to_section_runs(record_set_id) when is_binary(record_set_id) do
+    PubSub.subscribe(LumainusWeb.PubSub, run_topic(record_set_id))
+  end
+
+  def notify_section_run_update(record_set_id) when is_binary(record_set_id) do
+    PubSub.broadcast(
+      LumainusWeb.PubSub,
+      run_topic(record_set_id),
+      {:section_run_updated, record_set_id}
+    )
   end
 
   def default_template_for_scope(%Scope{} = scope) do
@@ -79,7 +95,15 @@ defmodule Lumainus.Reports do
     |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
     |> where([d], d.record_set_id == ^record_set.id)
     |> order_by([d], asc: d.inserted_at)
-    |> preload(:parses)
+    |> preload(parses: [:chunks])
+    |> Repo.all()
+  end
+
+  defp document_ids_for(%Scope{} = scope, record_set) do
+    DocumentUpload
+    |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
+    |> where([d], d.record_set_id == ^record_set.id)
+    |> select([d], d.id)
     |> Repo.all()
   end
 
@@ -132,8 +156,8 @@ defmodule Lumainus.Reports do
 
   def run_sections(%Scope{} = scope, patient, record_set, template, section_ids, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
-    documents = list_documents(scope, record_set)
     ids = normalize_section_ids(section_ids)
+    document_ids = document_ids_for(scope, record_set)
 
     sections =
       ReportSectionTemplate
@@ -141,29 +165,83 @@ defmodule Lumainus.Reports do
       |> order_by([s], asc: s.position)
       |> Repo.all()
 
-    Repo.transaction(fn ->
-      run =
-        %ReportRun{}
-        |> ReportRun.changeset(%{
-          tenant_id: tenant_id,
-          patient_id: patient.id,
-          record_set_id: record_set.id,
-          template_id: template.id,
-          run_type: run_type_for(sections, template),
-          status: "running",
-          started_at: DateTime.utc_now(:second),
-          triggered_by_user_id: scope.user && scope.user.id
-        })
-        |> Repo.insert!()
+    case Repo.transaction(fn ->
+           run =
+             %ReportRun{}
+             |> ReportRun.changeset(%{
+               tenant_id: tenant_id,
+               patient_id: patient.id,
+               record_set_id: record_set.id,
+               template_id: template.id,
+               run_type: run_type_for(sections, template),
+               status: "queued",
+               triggered_by_user_id: scope.user && scope.user.id
+             })
+             |> Repo.insert!()
 
-      Enum.each(sections, fn section ->
-        SectionRunner.run_section(scope, run, section, patient, documents, opts)
-      end)
+           section_runs =
+             Enum.map(sections, fn section ->
+               %ReportSectionRun{}
+               |> ReportSectionRun.changeset(%{
+                 report_run_id: run.id,
+                 section_template_id: section.id,
+                 status: "queued",
+                 prompt_inputs: %{
+                   "document_ids" => document_ids,
+                   "record_set_id" => record_set.id,
+                   "patient_profile_id" => patient.current_profile_id
+                 }
+               })
+               |> Repo.insert!()
+             end)
 
-      Repo.update!(
-        Changeset.change(run, status: "completed", finished_at: DateTime.utc_now(:second))
-      )
+           {run, section_runs}
+         end) do
+      {:ok, {run, section_runs}} ->
+        case enqueue_section_runs(run, section_runs, opts) do
+          :ok ->
+            notify_section_run_update(run.record_set_id)
+            {:ok, run}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp enqueue_section_runs(run, section_runs, opts) do
+    worker = Keyword.get(opts, :worker, SectionRunWorker)
+
+    Enum.reduce_while(section_runs, :ok, fn section_run, _acc ->
+      case worker.new(%{"section_run_id" => section_run.id}) |> Oban.insert() do
+        {:ok, _job} ->
+          {:cont, :ok}
+
+        {:error, reason} ->
+          mark_section_run_failed(section_run, reason)
+
+          Repo.update!(
+            Changeset.change(run, %{
+              status: "error",
+              finished_at: DateTime.utc_now(:second)
+            })
+          )
+
+          {:halt, {:error, reason}}
+      end
     end)
+  end
+
+  defp mark_section_run_failed(section_run, reason) do
+    section_run
+    |> Changeset.change(%{
+      status: "error",
+      error: %{message: inspect(reason)}
+    })
+    |> Repo.update!()
   end
 
   def last_published_report(%Scope{} = scope) do
@@ -219,6 +297,8 @@ defmodule Lumainus.Reports do
     |> limit(1)
     |> Repo.one!()
   end
+
+  defp run_topic(record_set_id), do: "#{@run_topic_prefix}:#{record_set_id}"
 
   defp record_set_for(patient, opts) do
     case opts[:record_set_id] do

@@ -44,8 +44,16 @@ defmodule LumainusWeb.ReportsLive do
 
   @impl true
   def handle_event("select_document", %{"doc-id" => doc_id}, socket) do
-    doc = Enum.find(socket.assigns.documents, &(&1.id == doc_id))
-    {:noreply, assign(socket, selected_document: doc)}
+    current = socket.assigns.selected_document
+
+    cond do
+      current && current.id == doc_id ->
+        {:noreply, assign(socket, selected_document: nil)}
+
+      true ->
+        doc = Enum.find(socket.assigns.documents, &(&1.id == doc_id))
+        {:noreply, assign(socket, selected_document: doc)}
+    end
   end
 
   @impl true
@@ -55,16 +63,7 @@ defmodule LumainusWeb.ReportsLive do
 
   @impl true
   def handle_event("run_section", %{"section-id" => section_id}, socket) do
-    socket =
-      assign(socket, :running_sections, MapSet.put(socket.assigns.running_sections, section_id))
-
-    run_sections(socket, [section_id], fn updated_socket ->
-      assign(
-        updated_socket,
-        :running_sections,
-        MapSet.delete(updated_socket.assigns.running_sections, section_id)
-      )
-    end)
+    run_sections(socket, [section_id])
   end
 
   @impl true
@@ -73,11 +72,7 @@ defmodule LumainusWeb.ReportsLive do
   @impl true
   def handle_event("run_full_report", _params, socket) do
     section_ids = Enum.map(socket.assigns.sections, & &1.section.id)
-    socket = assign(socket, :running_sections, MapSet.new(section_ids))
-
-    run_sections(socket, section_ids, fn updated_socket ->
-      assign(updated_socket, :running_sections, MapSet.new())
-    end)
+    run_sections(socket, section_ids)
   end
 
   @impl true
@@ -150,7 +145,7 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
-  defp run_sections(socket, section_ids, after_fun) do
+  defp run_sections(socket, section_ids) do
     scope = socket.assigns.current_scope
 
     case Reports.run_sections(
@@ -161,20 +156,13 @@ defmodule LumainusWeb.ReportsLive do
            section_ids
          ) do
       {:ok, _run} ->
-        updated =
-          socket
-          |> load_workspace()
-          |> after_fun.()
-
-        {:noreply, updated}
+        {:noreply, load_workspace(socket)}
 
       {:error, reason} ->
-        updated =
-          socket
-          |> put_flash(:error, "Report generation failed: #{inspect(reason)}")
-          |> after_fun.()
-
-        {:noreply, updated}
+        {:noreply,
+         socket
+         |> put_flash(:error, "Report generation failed: #{inspect(reason)}")
+         |> load_workspace()}
     end
   end
 
@@ -184,6 +172,13 @@ defmodule LumainusWeb.ReportsLive do
     workspace = Reports.workspace(scope, record_set_id: record_set_id)
     documents = format_documents(workspace.documents)
     sections = format_sections(workspace.sections)
+
+    running_sections =
+      sections
+      |> Enum.filter(&(&1.status in ["running", "queued"]))
+      |> Enum.map(& &1.section.id)
+      |> MapSet.new()
+
     record_sets = RecordSets.list_for_patient(workspace.patient)
     record_set_latest_runs = Reports.latest_runs_for_record_sets(scope, record_sets)
     recent_runs = Reports.list_runs_for_record_set(scope, workspace.record_set, limit: 5)
@@ -195,19 +190,21 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:template, workspace.template)
       |> assign(:documents, documents)
       |> assign(:sections, sections)
+      |> assign(:running_sections, running_sections)
       |> assign(:record_sets, record_sets)
       |> assign(:record_set_latest_runs, record_set_latest_runs)
       |> assign(:recent_runs, recent_runs)
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
-      |> assign_new(:running_sections, fn -> MapSet.new() end)
       |> assign_new(:selected_document, fn -> nil end)
       |> assign_new(:patient_modal_open, fn -> false end)
       |> assign_new(:job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
+      |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
 
     socket
     |> maybe_subscribe_record_set(workspace.record_set.id)
+    |> maybe_subscribe_report_runs(workspace.record_set.id)
     |> subscribe_to_job_topics()
   end
 
@@ -224,6 +221,14 @@ defmodule LumainusWeb.ReportsLive do
     if socket.assigns.record_set.id == record_set_id do
       updated = update_document_progress(socket.assigns.documents, payload)
       {:noreply, assign(socket, :documents, updated)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:section_run_updated, record_set_id}, socket) do
+    if socket.assigns.record_set.id == record_set_id do
+      {:noreply, load_workspace(socket)}
     else
       {:noreply, socket}
     end
@@ -419,6 +424,21 @@ defmodule LumainusWeb.ReportsLive do
         socket,
         :record_set_subscriptions,
         MapSet.put(socket.assigns.record_set_subscriptions, record_set_id)
+      )
+    else
+      socket
+    end
+  end
+
+  defp maybe_subscribe_report_runs(socket, record_set_id) do
+    if connected?(socket) and
+         not MapSet.member?(socket.assigns.report_run_subscriptions, record_set_id) do
+      Reports.subscribe_to_section_runs(record_set_id)
+
+      assign(
+        socket,
+        :report_run_subscriptions,
+        MapSet.put(socket.assigns.report_run_subscriptions, record_set_id)
       )
     else
       socket
@@ -856,7 +876,7 @@ defmodule LumainusWeb.ReportsLive do
         </div>
         <div class="patient-actions">
           <button class="manage-btn" phx-click="open_patient_modal">
-            Manage Workspace
+            Edit Patient Info
           </button>
           <button
             class="btn btn-primary"
@@ -1327,6 +1347,7 @@ defmodule LumainusWeb.ReportsLive do
 
   defp status_label(%{last_run: nil}), do: "Not generated"
   defp status_label(%{last_run: %{status: "completed"}}), do: "Ready"
+  defp status_label(%{last_run: %{status: "queued"}}), do: "Queued"
   defp status_label(%{last_run: %{status: "running"}}), do: "Running"
   defp status_label(%{last_run: %{status: "error"}}), do: "Needs attention"
   defp status_label(%{last_run: %{status: status}}), do: status
