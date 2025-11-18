@@ -4,135 +4,100 @@ defmodule Lumainus.Documents.IngestionProcessor do
   import Ecto.Query, warn: false
 
   alias Ecto.Changeset
-  alias Lumainus.AI
-  alias Lumainus.AI.LlmInvocation
+  alias Lumainus.Docling
+  alias Lumainus.Documents
   alias Lumainus.Documents.{DocumentChunk, DocumentParse, DocumentUpload, IngestionJob}
   alias Lumainus.Clinical.PatientProfile
   alias Lumainus.Repo
-  alias Lumainus.Reports
-  alias ReqLLM.Context
-  alias __MODULE__.PdfExtractor
-  alias Path
 
   def process(job_id) do
     job =
       IngestionJob
       |> Repo.get!(job_id)
-      |> Repo.preload(upload: [patient: [:current_profile]])
+      |> Repo.preload(upload: [:patient, :record_set])
 
-    Repo.transaction(fn ->
-      job
-      |> Changeset.change(%{status: "processing", started_at: DateTime.utc_now(:second)})
-      |> Repo.update!()
-    end)
+    job = mark_processing(job)
 
     result =
-      with {:ok, template} <- fetch_template(job),
-           {:ok, text} <- extract_pdf(job.upload),
-           {:ok, response} <- run_llm(job, template, text),
-           {:ok, _parse} <- persist_parse(job.upload, response) do
-        :ok
+      with {:ok, response, job} <- docling_convert(job),
+           {:ok, _parse, job} <- persist_parse(job, response) do
+        {:ok, job}
       else
-        {:error, reason} -> {:error, reason}
+        {:error, reason, job} -> {:error, reason, job}
       end
 
-    finalize_job(job, result)
-  end
+    case result do
+      {:ok, job} ->
+        finalize_job(job, :ok)
+        :ok
 
-  defp fetch_template(%IngestionJob{metadata: %{"template_id" => template_id}}) do
-    template = Reports.get_template!(template_id)
-    {:ok, template}
-  rescue
-    _ -> {:error, :template_missing}
-  end
-
-  defp fetch_template(_job), do: {:error, :template_missing}
-
-  defp extract_pdf(%DocumentUpload{} = upload) do
-    PdfExtractor.from_binary(upload.raw_blob, upload.filename)
-  end
-
-  defp run_llm(job, template, text) do
-    prompt = Reports.ingestion_prompt(template)
-
-    user_content = """
-    Filename: #{job.upload.filename}
-    Size: #{job.upload.byte_size} bytes
-
-    Raw text:
-    #{text}
-    """
-
-    messages =
-      Context.new([
-        Context.system(prompt),
-        Context.user(user_content)
-      ])
-
-    model_spec = AI.model_spec()
-    options = AI.options()
-    schema = ingestion_schema()
-
-    llm =
-      %LlmInvocation{}
-      |> LlmInvocation.changeset(%{
-        tenant_id: job.tenant_id,
-        provider: "google",
-        model: "gemini-flash-lite-latest",
-        prompt_text: prompt,
-        prompt_context: %{"filename" => job.upload.filename, "document_id" => job.upload.id},
-        status: "pending",
-        temperature: Keyword.get(options, :temperature),
-        max_output_tokens: Keyword.get(options, :max_output_tokens)
-      })
-      |> Repo.insert!()
-
-    started = System.monotonic_time()
-
-    case AI.client().generate_object(model_spec, messages, schema, options) do
-      {:ok, response} ->
-        duration = duration_ms(started)
-
-        Repo.update!(
-          Changeset.change(llm, %{
-            response_text: response |> Map.get(:text),
-            response_object: stringify(response),
-            usage: Map.get(response, :usage, %{}),
-            status: "completed",
-            req_duration_ms: duration
-          })
-        )
-
-        {:ok, stringify(response)}
-
-      {:error, reason} ->
-        Repo.update!(
-          Changeset.change(llm, %{
-            status: "error",
-            error: %{message: inspect(reason)}
-          })
-        )
-
+      {:error, reason, job} ->
+        finalize_job(job, {:error, reason})
         {:error, reason}
     end
   end
 
-  defp persist_parse(upload, response) do
+  defp mark_processing(job) do
+    job =
+      job
+      |> Changeset.change(%{status: "processing", started_at: DateTime.utc_now(:second)})
+      |> Repo.update!()
+      |> Map.put(:upload, job.upload)
+
+    {job, _event} =
+      Documents.record_job_stage!(
+        job,
+        "downloading",
+        message: "Preparing upload for Docling",
+        progress: 15
+      )
+
+    job
+  end
+
+  defp docling_convert(%IngestionJob{} = job) do
+    {job, _event} =
+      Documents.record_job_stage!(
+        job,
+        "docling",
+        message: "Sending binary to Docling service",
+        progress: 50
+      )
+
+    upload = job.upload
+
+    case Docling.convert(upload.raw_blob,
+           filename: upload.filename,
+           content_type: upload.content_type
+         ) do
+      {:ok, response} -> {:ok, response, job}
+      {:error, reason} -> {:error, reason, job}
+    end
+  end
+
+  defp persist_parse(%IngestionJob{} = job, response) do
+    {job, _event} =
+      Documents.record_job_stage!(
+        job,
+        "parsing",
+        message: "Persisting Docling response",
+        progress: 80
+      )
+
+    upload = job.upload
+
     markdown =
-      get_in(response, ["object", "markdown"]) || get_in(response, ["markdown"]) || "No content"
+      response
+      |> fetch_markdown()
+      |> cleanse_markdown()
 
-    summary =
-      get_in(response, ["object", "summary"]) || get_in(response, ["summary"]) ||
-        "Summary unavailable"
-
-    provider = get_in(response, ["object", "source_provider"])
-    label = upload.metadata["label"] || Path.rootname(upload.filename)
+    metadata = response["metadata"] || %{}
 
     parse =
       %DocumentParse{}
       |> DocumentParse.changeset(%{
         upload_id: upload.id,
-        parser: "llm-ingestion",
+        parser: "docling",
         parsed_text: markdown,
         structured_metadata: response,
         extracted_at: DateTime.utc_now(:second),
@@ -145,28 +110,38 @@ defmodule Lumainus.Documents.IngestionProcessor do
       parse_id: parse.id,
       position: 0,
       content: markdown,
-      token_count: length(String.split(markdown))
+      token_count: markdown |> String.split() |> length()
     })
     |> Repo.insert!()
 
     maybe_update_patient(upload, response)
+    refresh_upload_metadata(upload, markdown, metadata)
+    {:ok, parse, job}
+  end
 
-    metadata =
-      upload.metadata
+  defp refresh_upload_metadata(upload, markdown, docling_metadata) do
+    summary = short_summary(markdown)
+
+    updated_metadata =
+      (upload.metadata || %{})
       |> Map.put("summary", summary)
-      |> Map.put("provider", provider || upload.metadata["provider"])
-      |> Map.put("label", label)
       |> Map.put("status", "parsed")
+      |> Map.put("ingestion_stage", "completed")
+      |> Map.put("ingestion_progress", 100)
+      |> Map.put("ingestion_message", "Docling ingestion finished")
+      |> Map.put("page_count", docling_metadata["page_count"])
+      |> Map.put("source_kind", docling_metadata["source_kind"])
+      |> Map.put("has_tables", docling_metadata["has_tables"])
 
     upload
     |> Changeset.change(%{
       status: "parsed",
-      metadata: metadata,
+      metadata: updated_metadata,
       ingested_at: DateTime.utc_now(:second)
     })
     |> Repo.update!()
 
-    {:ok, parse}
+    Documents.notify_documents_changed(upload.record_set_id)
   end
 
   defp maybe_update_patient(%DocumentUpload{patient: nil}, _response), do: :ok
@@ -175,115 +150,83 @@ defmodule Lumainus.Documents.IngestionProcessor do
     profile = patient.current_profile && Repo.preload(patient, :current_profile).current_profile
 
     if profile do
-      patient_name =
-        get_in(response, ["object", "patient_name"]) || get_in(response, ["patient_name"])
-
-      {first_name, last_name} = split_name(patient_name)
-
       attrs =
         %{
-          given_name: first_name,
-          family_name: last_name,
-          mrn: get_in(response, ["object", "patient_mrn"]) || get_in(response, ["patient_mrn"]),
           structured_metadata:
-            Map.merge(profile.structured_metadata || %{}, %{"ingestion" => response})
+            Map.merge(profile.structured_metadata || %{}, %{"docling" => response})
         }
-        |> Enum.reject(fn {_k, v} -> is_nil(v) || v == "" end)
-        |> Enum.into(%{})
 
-      if map_size(attrs) > 0 do
-        profile
-        |> PatientProfile.changeset(attrs)
-        |> Repo.update()
-      else
-        :ok
-      end
+      profile
+      |> PatientProfile.changeset(attrs)
+      |> Repo.update()
     else
       :ok
     end
   end
 
   defp finalize_job(job, :ok) do
-    job
-    |> Changeset.change(%{status: "completed", finished_at: DateTime.utc_now(:second)})
-    |> Repo.update!()
+    job =
+      job
+      |> Changeset.change(%{status: "completed", finished_at: DateTime.utc_now(:second)})
+      |> Repo.update!()
+      |> Map.put(:upload, job.upload)
+
+    Documents.record_job_stage!(
+      job,
+      "completed",
+      message: "Docling ingestion finished",
+      progress: 100
+    )
   end
 
   defp finalize_job(job, {:error, reason}) do
-    job
-    |> Changeset.change(%{
-      status: "failed",
-      finished_at: DateTime.utc_now(:second),
-      error: %{message: inspect(reason)}
-    })
-    |> Repo.update!()
+    job =
+      job
+      |> Changeset.change(%{
+        status: "failed",
+        finished_at: DateTime.utc_now(:second),
+        error: %{message: inspect(reason)}
+      })
+      |> Repo.update!()
+      |> Map.put(:upload, job.upload)
+
+    Documents.record_job_stage!(
+      job,
+      "failed",
+      message: "Docling ingestion failed: #{inspect(reason)}",
+      upload_status: "failed"
+    )
   end
 
-  defp ingestion_schema do
-    %{
-      "fields" => [
-        %{"name" => "markdown", "type" => "string", "required" => true},
-        %{"name" => "summary", "type" => "string", "required" => true},
-        %{"name" => "patient_name", "type" => "string", "required" => false},
-        %{"name" => "patient_mrn", "type" => "string", "required" => false},
-        %{"name" => "source_provider", "type" => "string", "required" => false}
-      ]
-    }
-  end
-
-  defp duration_ms(start) do
-    System.convert_time_unit(System.monotonic_time() - start, :native, :millisecond)
-  end
-
-  defp stringify(%{object: obj} = response) when is_map(obj) do
-    Map.update!(response, :object, &stringify_keys/1)
-  end
-
-  defp stringify(map) when is_map(map) do
-    stringify_keys(map)
-  end
-
-  defp stringify(other), do: other
-
-  defp stringify_keys(map) do
-    map
-    |> Enum.map(fn {k, v} ->
-      value = if is_map(v), do: stringify_keys(v), else: v
-      {to_string(k), value}
-    end)
-    |> Enum.into(%{})
-  end
-
-  defp split_name(nil), do: {nil, nil}
-
-  defp split_name(name) do
-    case String.split(name, " ", trim: true) do
-      [] -> {nil, nil}
-      [single] -> {single, nil}
-      parts -> {List.first(parts), List.last(parts)}
+  defp short_summary(markdown) when is_binary(markdown) do
+    markdown
+    |> String.split("\n")
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.take(3)
+    |> Enum.join(" ")
+    |> String.slice(0, 280)
+    |> case do
+      <<>> -> "Awaiting summarization"
+      text -> text
     end
   end
 
-  defmodule PdfExtractor do
-    def from_binary(binary, filename) do
-      tmp =
-        Path.join(
-          System.tmp_dir!(),
-          "lumainus_pdf_#{System.unique_integer([:positive])}#{Path.extname(filename)}"
-        )
+  defp short_summary(_), do: "Awaiting summarization"
 
-      File.write!(tmp, binary)
-
-      result =
-        case System.cmd("pdftotext", [tmp, "-"]) do
-          {text, 0} when byte_size(text) > 0 -> {:ok, text}
-          _ -> {:ok, IO.iodata_to_binary(binary)}
-        end
-
-      File.rm(tmp)
-      result
-    rescue
-      _ -> {:ok, IO.iodata_to_binary(binary)}
+  defp fetch_markdown(response) when is_map(response) do
+    case Map.get(response, "markdown") do
+      nil -> ""
+      value when is_binary(value) -> value
+      other -> to_string(other)
     end
+  end
+
+  defp fetch_markdown(_), do: ""
+
+  defp cleanse_markdown(content) do
+    content
+    |> String.replace(~r/<!--\s*image\s*-->/i, "")
+    |> String.replace(~r/\n{3,}/, "\n\n")
+    |> String.trim()
   end
 end

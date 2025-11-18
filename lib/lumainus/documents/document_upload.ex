@@ -3,7 +3,7 @@ defmodule Lumainus.Documents.DocumentUpload do
   import Ecto.Changeset
 
   alias Lumainus.Tenancy.Tenant
-  alias Lumainus.Clinical.Patient
+  alias Lumainus.Clinical.{Patient, PatientRecordSet}
   alias Lumainus.Accounts.User
 
   @primary_key {:id, :binary_id, autogenerate: true}
@@ -23,9 +23,11 @@ defmodule Lumainus.Documents.DocumentUpload do
 
     belongs_to(:tenant, Tenant)
     belongs_to(:patient, Patient)
+    belongs_to(:record_set, PatientRecordSet)
     belongs_to(:uploader, User, foreign_key: :uploader_id, type: :id)
 
     has_many(:parses, Lumainus.Documents.DocumentParse, foreign_key: :upload_id)
+    has_many(:ingestion_jobs, Lumainus.Documents.IngestionJob, foreign_key: :upload_id)
 
     timestamps(type: :utc_datetime)
   end
@@ -35,6 +37,7 @@ defmodule Lumainus.Documents.DocumentUpload do
     |> cast(attrs, [
       :tenant_id,
       :patient_id,
+      :record_set_id,
       :uploader_id,
       :document_kind,
       :filename,
@@ -48,6 +51,7 @@ defmodule Lumainus.Documents.DocumentUpload do
       :metadata,
       :ingested_at
     ])
-    |> validate_required([:tenant_id, :filename, :status])
+    |> validate_required([:tenant_id, :filename, :status, :record_set_id])
+    |> unique_constraint(:sha256, name: :document_uploads_tenant_id_sha256_index)
   end
 end

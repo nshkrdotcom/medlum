@@ -3,7 +3,7 @@ defmodule Lumainus.Reports.ReportRun do
   import Ecto.Changeset
 
   alias Lumainus.Tenancy.Tenant
-  alias Lumainus.Clinical.Patient
+  alias Lumainus.Clinical.{Patient, PatientRecordSet}
   alias Lumainus.Reports.{ReportTemplate, ReportSectionRun}
   alias Lumainus.AI.LlmInvocation
   alias Lumainus.Accounts.User
@@ -18,6 +18,7 @@ defmodule Lumainus.Reports.ReportRun do
 
     belongs_to(:tenant, Tenant)
     belongs_to(:patient, Patient)
+    belongs_to(:record_set, PatientRecordSet)
     belongs_to(:template, ReportTemplate)
     belongs_to(:triggered_by, User, foreign_key: :triggered_by_user_id, type: :id)
     belongs_to(:summary_invocation, LlmInvocation, foreign_key: :summary_invocation_id)
@@ -36,10 +37,18 @@ defmodule Lumainus.Reports.ReportRun do
       :finished_at,
       :tenant_id,
       :patient_id,
+      :record_set_id,
       :template_id,
       :triggered_by_user_id,
       :summary_invocation_id
     ])
-    |> validate_required([:tenant_id, :patient_id, :template_id, :run_type, :status])
+    |> validate_required([
+      :tenant_id,
+      :patient_id,
+      :record_set_id,
+      :template_id,
+      :run_type,
+      :status
+    ])
   end
 end

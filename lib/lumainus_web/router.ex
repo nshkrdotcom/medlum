@@ -18,6 +18,15 @@ defmodule LumainusWeb.Router do
     plug :accepts, ["json"]
   end
 
+  scope "/api", LumainusWeb do
+    pipe_through :api
+
+    post "/uploads", Api.UploadController, :create
+    get "/uploads/:id/status", Api.UploadController, :status
+    get "/jobs/:id/status", Api.JobController, :status
+    get "/jobs/:id/stream", Api.JobController, :stream
+  end
+
   # Public routes - anyone can access
   scope "/", LumainusWeb do
     pipe_through :browser

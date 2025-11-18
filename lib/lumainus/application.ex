@@ -4,12 +4,14 @@ defmodule Lumainus.Application do
   @moduledoc false
 
   use Application
+  alias Oban
 
   @impl true
   def start(_type, _args) do
     children = [
       LumainusWeb.Telemetry,
       Lumainus.Repo,
+      {Oban, Application.fetch_env!(:lumainus, Oban)},
       {DNSCluster, query: Application.get_env(:lumainus_web, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: LumainusWeb.PubSub},
       # Start a worker by calling: LumainusWeb.Worker.start_link(arg)

@@ -3,7 +3,7 @@ defmodule Lumainus.Clinical.Patient do
   import Ecto.Changeset
 
   alias Lumainus.Tenancy.Tenant
-  alias Lumainus.Clinical.PatientProfile
+  alias Lumainus.Clinical.{PatientProfile, PatientRecordSet}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -15,6 +15,7 @@ defmodule Lumainus.Clinical.Patient do
     belongs_to(:current_profile, PatientProfile)
 
     has_many(:profiles, PatientProfile)
+    has_many(:record_sets, PatientRecordSet)
     has_many(:notes, Lumainus.Clinical.PatientNote)
 
     timestamps(type: :utc_datetime)

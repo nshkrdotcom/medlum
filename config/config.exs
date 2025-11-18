@@ -24,6 +24,19 @@ config :lumainus,
   ecto_repos: [Lumainus.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :lumainus, :docling,
+  base_url: "http://127.0.0.1:8042",
+  request_timeout: 60_000,
+  health_cron: "*/5 * * * *"
+
+config :lumainus, Oban,
+  repo: Lumainus.Repo,
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 86_400},
+    {Oban.Plugins.Cron, crontab: [{"*/5 * * * *", Lumainus.Docling.HealthCheckWorker}]}
+  ],
+  queues: [ingestion: 5, health_checks: 1]
+
 config :lumainus, :llm,
   default_provider: "google",
   default_model: "gemini-flash-lite-latest",

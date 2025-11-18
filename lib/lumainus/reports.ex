@@ -9,7 +9,7 @@ defmodule Lumainus.Reports do
   alias Ecto.UUID
   alias Lumainus.Accounts.Scope
   alias Lumainus.AI.SectionRunner
-  alias Lumainus.Clinical.{Patient, PatientProfile}
+  alias Lumainus.Clinical.{Patient, PatientProfile, RecordSets}
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
 
@@ -36,10 +36,14 @@ defmodule Lumainus.Reports do
   def workspace(%Scope{} = scope) do
     tenant_id = tenant_id_from_scope(scope)
 
+    patient = default_patient!(tenant_id)
+    record_set = RecordSets.primary_for_patient(patient)
+
     %{
-      patient: default_patient!(tenant_id),
+      patient: patient,
+      record_set: record_set,
       template: default_template!(tenant_id),
-      documents: list_documents(scope),
+      documents: list_documents(scope, record_set),
       sections: list_sections_with_runs(scope)
     }
   end
@@ -70,9 +74,10 @@ defmodule Lumainus.Reports do
     |> Repo.update()
   end
 
-  def list_documents(%Scope{} = scope) do
+  def list_documents(%Scope{} = scope, record_set) do
     DocumentUpload
     |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
+    |> where([d], d.record_set_id == ^record_set.id)
     |> order_by([d], asc: d.inserted_at)
     |> preload(:parses)
     |> Repo.all()
@@ -94,9 +99,9 @@ defmodule Lumainus.Reports do
     end)
   end
 
-  def run_sections(%Scope{} = scope, patient, template, section_ids, opts \\ []) do
+  def run_sections(%Scope{} = scope, patient, record_set, template, section_ids, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
-    documents = list_documents(scope)
+    documents = list_documents(scope, record_set)
     ids = normalize_section_ids(section_ids)
 
     sections =
@@ -111,6 +116,7 @@ defmodule Lumainus.Reports do
         |> ReportRun.changeset(%{
           tenant_id: tenant_id,
           patient_id: patient.id,
+          record_set_id: record_set.id,
           template_id: template.id,
           run_type: run_type_for(sections, template),
           status: "running",

@@ -10,6 +10,8 @@ defmodule Lumainus.Documents.IngestionEvent do
     field(:event_type, :string)
     field(:payload, :map, default: %{})
     field(:recorded_at, :utc_datetime)
+    field(:progress, :integer)
+    field(:message, :string)
 
     belongs_to(:job, IngestionJob)
 
@@ -18,7 +20,11 @@ defmodule Lumainus.Documents.IngestionEvent do
 
   def changeset(event, attrs) do
     event
-    |> cast(attrs, [:event_type, :payload, :recorded_at, :job_id])
+    |> cast(attrs, [:event_type, :payload, :recorded_at, :job_id, :progress, :message])
     |> validate_required([:event_type, :recorded_at, :job_id])
+    |> validate_number(:progress,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 100
+    )
   end
 end

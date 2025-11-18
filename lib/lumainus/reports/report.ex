@@ -3,7 +3,7 @@ defmodule Lumainus.Reports.Report do
   import Ecto.Changeset
 
   alias Lumainus.Tenancy.Tenant
-  alias Lumainus.Clinical.Patient
+  alias Lumainus.Clinical.{Patient, PatientRecordSet}
   alias Lumainus.Reports.{ReportTemplate, ReportRun, ReportVersion}
 
   @primary_key {:id, :binary_id, autogenerate: true}
@@ -17,6 +17,7 @@ defmodule Lumainus.Reports.Report do
 
     belongs_to(:tenant, Tenant)
     belongs_to(:patient, Patient)
+    belongs_to(:record_set, PatientRecordSet)
     belongs_to(:template, ReportTemplate)
     belongs_to(:report_run, ReportRun)
     belongs_to(:superseded_by, __MODULE__)
@@ -36,10 +37,18 @@ defmodule Lumainus.Reports.Report do
       :published_at,
       :tenant_id,
       :patient_id,
+      :record_set_id,
       :template_id,
       :report_run_id,
       :superseded_by_id
     ])
-    |> validate_required([:title, :status, :tenant_id, :patient_id, :template_id])
+    |> validate_required([
+      :title,
+      :status,
+      :tenant_id,
+      :patient_id,
+      :record_set_id,
+      :template_id
+    ])
   end
 end

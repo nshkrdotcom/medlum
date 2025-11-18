@@ -20,6 +20,12 @@ if System.get_env("PHX_SERVER") do
   config :lumainus, LumainusWeb.Endpoint, server: true
 end
 
+if docling_url = System.get_env("DOCLING_URL") do
+  docling_config = Application.get_env(:lumainus, :docling, [])
+
+  config :lumainus, :docling, Keyword.merge(docling_config, base_url: docling_url)
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
