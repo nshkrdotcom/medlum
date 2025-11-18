@@ -78,11 +78,33 @@ To prototype new sections, update the section prompt in `/prompts`, adjust the o
 |------|---------|
 | Install deps + DB + assets | `mix setup` |
 | Start server | `mix phx.server` |
+| Start Phoenix + Docling (dev) | `scripts/dev_stack.sh` |
 | Re-seed admin | `mix run priv/repo/seeds.exs` |
 | Run tests | `mix test` |
 | Format code | `mix format` |
 | Pre-commit gate | `mix precommit` (compile w/ warnings-as-errors, unlock unused deps, format, test) |
 | Deploy assets | `mix assets.deploy` |
+
+### Run Phoenix + Docling ingestion together (dev only)
+
+The new helper script starts the PDF ingestion microservice (inside its Python virtualenv) and the Phoenix server in one go so `/reports` always has a local Docling endpoint:
+
+```bash
+scripts/dev_stack.sh
+```
+
+- Forces `MIX_ENV=dev` and exits otherwise (keeps production deploys separate).
+- Launches Docling via `docling_service/run.sh` using its `.venv`, binding to `127.0.0.1:8042`.
+- Runs Phoenix with `mix phx.server` in the repo root.
+- Stops the Docling process automatically when you `Ctrl+C` Phoenix.
+
+Environment knobs:
+
+```bash
+DOCLING_PORT=9050 PHX_CMD="iex -S mix phx.server" scripts/dev_stack.sh
+```
+
+Available overrides: `DOCLING_HOST`, `DOCLING_PORT`, `DOCLING_PYTHON_BIN`, and `PHX_CMD`. Use them if you need different bind addresses or want to run Phoenix via `iex`.
 
 ### Creating doctor access in dev
 
