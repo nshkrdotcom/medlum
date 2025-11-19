@@ -179,6 +179,31 @@ defmodule LumainusWeb.ReportsLive do
     {:noreply, assign(socket, :patient_modal_open, false)}
   end
 
+  def handle_event("select_patient", %{"patient_id" => patient_id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:patient_modal_open, false)
+     |> load_workspace(patient_id: patient_id)}
+  end
+
+  def handle_event("create_patient", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Reports.create_patient_for_scope(scope) do
+      {:ok, patient} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "New patient created.")
+         |> assign(:patient_modal_open, false)
+         |> load_workspace(patient_id: patient.id)}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Unable to create patient: #{humanize_errors(changeset)}")}
+    end
+  end
+
   def handle_event("select_record_set", %{"id" => record_set_id}, socket) do
     {:noreply,
      socket
@@ -244,8 +269,19 @@ defmodule LumainusWeb.ReportsLive do
 
   defp load_workspace(socket, opts \\ []) do
     scope = socket.assigns.current_scope
-    record_set_id = opts[:record_set_id] || socket.assigns[:active_record_set_id]
-    workspace = Reports.workspace(scope, record_set_id: record_set_id)
+    has_patient_override = Keyword.has_key?(opts, :patient_id)
+
+    record_set_id =
+      if has_patient_override do
+        Keyword.get(opts, :record_set_id)
+      else
+        Keyword.get(opts, :record_set_id) || socket.assigns[:active_record_set_id]
+      end
+
+    patient_id =
+      Keyword.get(opts, :patient_id) || (socket.assigns[:patient] && socket.assigns.patient.id)
+
+    workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
     documents = format_documents(workspace.documents)
     sections = format_sections(workspace.sections)
 
@@ -258,6 +294,7 @@ defmodule LumainusWeb.ReportsLive do
     record_sets = RecordSets.list_for_patient(workspace.patient)
     record_set_latest_runs = Reports.latest_runs_for_record_sets(scope, record_sets)
     recent_runs = Reports.list_runs_for_record_set(scope, workspace.record_set, limit: 5)
+    patients = Reports.list_patients_for_scope(scope)
 
     socket =
       socket
@@ -270,6 +307,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:record_sets, record_sets)
       |> assign(:record_set_latest_runs, record_set_latest_runs)
       |> assign(:recent_runs, recent_runs)
+      |> assign(:patients, patients)
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
       |> assign_new(:selected_document, fn -> nil end)
@@ -1193,6 +1231,29 @@ defmodule LumainusWeb.ReportsLive do
           </div>
         </div>
         <div class="patient-actions">
+          <form
+            id="patient-switcher"
+            phx-change="select_patient"
+            class="flex items-center gap-2"
+          >
+            <label class="text-xs font-medium text-slate-600">
+              Select patient
+            </label>
+            <select name="patient_id" class="select select-sm w-52">
+              <%= for patient <- @patients do %>
+                <option value={patient.id} selected={patient.id == @patient.id}>
+                  {patient_display_name(patient)}
+                </option>
+              <% end %>
+            </select>
+          </form>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            phx-click="create_patient"
+          >
+            Add new patient
+          </button>
           <button class="manage-btn" phx-click="open_patient_modal">
             Manage Workspace
           </button>
@@ -1752,6 +1813,20 @@ defmodule LumainusWeb.ReportsLive do
     Enum.filter([profile.given_name, profile.family_name], & &1)
     |> Enum.join(" ")
   end
+
+  defp patient_display_name(patient) do
+    name = patient_name(patient)
+    mrn_label = label_or_nil("MRN", patient_mrn(patient))
+    dob_label = label_or_nil("DOB", patient_dob(patient))
+
+    [name, mrn_label, dob_label]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp label_or_nil(_label, "N/A"), do: nil
+  defp label_or_nil(label, value) when is_binary(value), do: "#{label} #{value}"
+  defp label_or_nil(_label, _value), do: nil
 
   defp patient_mrn(%{current_profile: nil}), do: "N/A"
   defp patient_mrn(%{current_profile: profile}), do: profile.mrn || "N/A"

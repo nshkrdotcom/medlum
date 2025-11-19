@@ -18,27 +18,25 @@ defmodule LumainusWeb.Admin.InvitationsLive do
         <h2 class="text-xl font-semibold mb-4">Create New Invitation</h2>
 
         <.form for={@form} phx-submit="create_invitation" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-            <select
-              name="role"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="doctor">Doctor</option>
-              <option value="admin">Administrator</option>
-              <option value="system_administrator">System Administrator</option>
-            </select>
-          </div>
+          <.input
+            type="select"
+            name="role"
+            label="Role"
+            prompt="Select a role"
+            options={[
+              {"Doctor", "doctor"},
+              {"Administrator", "admin"},
+              {"System Administrator", "system_administrator"}
+            ]}
+            required
+          />
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              Email (Optional)
-            </label>
-            <input
+            <.input
               type="email"
               name="email"
+              label="Email (Optional)"
               placeholder="user@example.com"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             />
             <p class="mt-1 text-sm text-gray-500">
               If provided, this email will be pre-filled in the registration form
@@ -109,6 +107,9 @@ defmodule LumainusWeb.Admin.InvitationsLive do
                           type="button"
                           phx-click="copy_link"
                           phx-value-token={invitation.token}
+                          id={"copy-invitation-#{invitation.id}"}
+                          phx-hook="CopyInvitationLink"
+                          data-target-input-id={"invitation-link-#{invitation.id}"}
                           class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                         >
                           Copy

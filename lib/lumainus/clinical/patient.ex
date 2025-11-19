@@ -2,6 +2,7 @@ defmodule Lumainus.Clinical.Patient do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Lumainus.Accounts.User
   alias Lumainus.Tenancy.Tenant
   alias Lumainus.Clinical.{PatientProfile, PatientRecordSet}
 
@@ -12,6 +13,7 @@ defmodule Lumainus.Clinical.Patient do
     field(:status, :string, default: "active")
 
     belongs_to(:tenant, Tenant)
+    belongs_to(:created_by_user, User, type: :id)
     belongs_to(:current_profile, PatientProfile)
 
     has_many(:profiles, PatientProfile)
@@ -23,7 +25,7 @@ defmodule Lumainus.Clinical.Patient do
 
   def changeset(patient, attrs) do
     patient
-    |> cast(attrs, [:patient_key, :status, :tenant_id, :current_profile_id])
+    |> cast(attrs, [:patient_key, :status, :tenant_id, :current_profile_id, :created_by_user_id])
     |> validate_required([:tenant_id, :patient_key, :status])
     |> unique_constraint([:tenant_id, :patient_key])
   end

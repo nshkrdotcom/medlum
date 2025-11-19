@@ -31,7 +31,7 @@ defmodule Lumainus.Reports do
     tenant_id = tenant_id_from_scope(scope)
 
     Repo.transaction(fn ->
-      patient = ensure_patient!(tenant_id)
+      patient = ensure_patient_for_scope!(scope, tenant_id)
       ensure_template!(tenant_id)
       patient
     end)
@@ -40,7 +40,7 @@ defmodule Lumainus.Reports do
   def workspace(%Scope{} = scope, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
 
-    patient = default_patient!(tenant_id)
+    patient = patient_for_scope!(scope, tenant_id, opts)
     record_set = record_set_for(patient, opts)
 
     %{
@@ -50,6 +50,28 @@ defmodule Lumainus.Reports do
       documents: list_documents(scope, record_set),
       sections: list_sections_with_runs(scope)
     }
+  end
+
+  def list_patients_for_scope(%Scope{} = scope) do
+    tenant_id = tenant_id_from_scope(scope)
+
+    Patient
+    |> where([p], p.tenant_id == ^tenant_id)
+    |> maybe_filter_patients_for_user(scope.user)
+    |> order_by([p], asc: p.inserted_at)
+    |> preload(:current_profile)
+    |> Repo.all()
+  end
+
+  def create_patient_for_scope(%Scope{} = scope, attrs \\ %{}) do
+    tenant_id = tenant_id_from_scope(scope)
+
+    attrs =
+      attrs
+      |> Map.new()
+      |> maybe_put_created_by(scope.user)
+
+    create_patient(tenant_id, attrs)
   end
 
   def subscribe_to_section_runs(record_set_id) when is_binary(record_set_id) do
@@ -294,6 +316,15 @@ defmodule Lumainus.Reports do
     end)
   end
 
+  defp maybe_filter_patients_for_user(query, nil), do: query
+
+  defp maybe_filter_patients_for_user(query, user) do
+    where(query, [p], p.created_by_user_id == ^user.id)
+  end
+
+  defp maybe_put_created_by(attrs, nil), do: attrs
+  defp maybe_put_created_by(attrs, user), do: Map.put_new(attrs, :created_by_user_id, user.id)
+
   defp tenant_id_from_scope(%Scope{tenant_id: tenant_id}) when not is_nil(tenant_id),
     do: tenant_id
 
@@ -306,6 +337,20 @@ defmodule Lumainus.Reports do
 
   defp run_topic(record_set_id), do: "#{@run_topic_prefix}:#{record_set_id}"
 
+  defp patient_for_scope!(%Scope{} = scope, tenant_id, opts) do
+    case opts[:patient_id] do
+      nil ->
+        ensure_patient_for_scope!(scope, tenant_id)
+
+      patient_id ->
+        Patient
+        |> where([p], p.tenant_id == ^tenant_id and p.id == ^patient_id)
+        |> maybe_filter_patients_for_user(scope.user)
+        |> preload(:current_profile)
+        |> Repo.one!()
+    end
+  end
+
   defp record_set_for(patient, opts) do
     case opts[:record_set_id] do
       nil -> RecordSets.primary_for_patient(patient)
@@ -313,12 +358,57 @@ defmodule Lumainus.Reports do
     end
   end
 
-  defp default_patient!(tenant_id) do
+  defp ensure_patient_for_scope!(%Scope{user: nil}, tenant_id), do: ensure_patient!(tenant_id)
+
+  defp ensure_patient_for_scope!(%Scope{user: user}, tenant_id) do
     Patient
-    |> where([p], p.tenant_id == ^tenant_id)
+    |> where([p], p.tenant_id == ^tenant_id and p.created_by_user_id == ^user.id)
     |> order_by([p], asc: p.inserted_at)
-    |> preload(:current_profile)
-    |> Repo.one!()
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      nil ->
+        case create_patient(tenant_id, %{created_by_user_id: user.id}) do
+          {:ok, patient} ->
+            patient
+
+          {:error, changeset} ->
+            raise "failed to create patient for user: #{inspect(changeset.errors)}"
+        end
+
+      patient ->
+        Repo.preload(patient, :current_profile)
+    end
+  end
+
+  defp create_patient(tenant_id, attrs \\ %{}) do
+    attrs =
+      attrs
+      |> Map.put_new(:tenant_id, tenant_id)
+      |> Map.put_new(:patient_key, UUID.generate())
+      |> Map.put_new(:status, "active")
+
+    with {:ok, patient} <-
+           %Patient{}
+           |> Patient.changeset(attrs)
+           |> Repo.insert(),
+         {:ok, profile} <-
+           %PatientProfile{}
+           |> PatientProfile.changeset(%{
+             patient_id: patient.id,
+             structured_metadata: %{},
+             effective_at: DateTime.utc_now(:second)
+           })
+           |> Repo.insert(),
+         {:ok, patient} <-
+           patient
+           |> Changeset.change(current_profile_id: profile.id)
+           |> Repo.update() do
+      {:ok, Repo.preload(patient, :current_profile)}
+    else
+      {:error, changeset} ->
+        {:error, changeset}
+    end
   end
 
   defp default_template!(tenant_id) do
@@ -332,26 +422,13 @@ defmodule Lumainus.Reports do
   defp ensure_patient!(tenant_id) do
     case Patient |> where([p], p.tenant_id == ^tenant_id) |> Repo.one() do
       nil ->
-        {:ok, patient} =
-          %Patient{}
-          |> Patient.changeset(%{tenant_id: tenant_id, patient_key: "default"})
-          |> Repo.insert()
+        case create_patient(tenant_id) do
+          {:ok, patient} ->
+            patient
 
-        {:ok, profile} =
-          %PatientProfile{}
-          |> PatientProfile.changeset(%{
-            patient_id: patient.id,
-            structured_metadata: %{},
-            effective_at: DateTime.utc_now(:second)
-          })
-          |> Repo.insert()
-
-        patient =
-          patient
-          |> Changeset.change(current_profile_id: profile.id)
-          |> Repo.update!()
-
-        Repo.preload(patient, :current_profile)
+          {:error, changeset} ->
+            raise "failed to create default patient: #{inspect(changeset.errors)}"
+        end
 
       patient ->
         Repo.preload(patient, :current_profile)

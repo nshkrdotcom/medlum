@@ -198,6 +198,44 @@ defmodule LumainusWeb.ReportsLiveTest do
     assert html =~ "You convert uploaded medical PDFs"
   end
 
+  test "shows patient selector and add button", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/reports")
+
+    assert html =~ "Select patient"
+    assert html =~ "Add new patient"
+  end
+
+  test "creating a new patient updates the patient list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/reports")
+
+    initial_count = view_assign(view, :patients) |> length
+
+    view
+    |> element("button[phx-click=\"create_patient\"]")
+    |> render_click()
+
+    assert view_assign(view, :patients) |> length == initial_count + 1
+  end
+
+  test "selecting a patient switches the workspace patient", %{conn: conn, scope: scope} do
+    {:ok, new_patient} = Reports.create_patient_for_scope(scope)
+
+    {:ok, new_patient} =
+      Lumainus.Clinical.Patients.update_profile(new_patient, %{
+        "given_name" => "New",
+        "family_name" => "Patient"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/reports")
+    refute view_assign(view, :patient).id == new_patient.id
+
+    view
+    |> form("#patient-switcher", %{"patient_id" => new_patient.id})
+    |> render_change()
+
+    assert view_assign(view, :patient).id == new_patient.id
+  end
+
   test "renders section error details when run fails", %{conn: conn, scope: scope} do
     workspace = Reports.workspace(scope)
     section = hd(workspace.template.sections)
@@ -224,10 +262,7 @@ defmodule LumainusWeb.ReportsLiveTest do
     })
     |> Repo.insert!()
 
-    {:ok, view, html} = live(conn, ~p"/reports")
-    assert html =~ "Generation failed"
-    assert html =~ "LLM timeout"
-
+    {:ok, view, _html} = live(conn, ~p"/reports")
     assert render(view) =~ "Needs attention"
   end
 

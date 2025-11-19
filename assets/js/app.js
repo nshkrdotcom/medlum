@@ -24,10 +24,94 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
+const Hooks = {}
+
+Hooks.CopyInvitationLink = {
+  mounted() {
+    this.handleClick = async event => {
+      // Let the server event still run, but ensure we handle the UI/clipboard here.
+      event.preventDefault()
+
+      const inputId = this.el.getAttribute("data-target-input-id")
+      if (!inputId) return
+
+      const input = document.getElementById(inputId)
+      if (!input || !input.value) return
+
+      const value = input.value
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(value)
+        } else {
+          const textarea = document.createElement("textarea")
+          textarea.value = value
+          textarea.style.position = "fixed"
+          textarea.style.left = "-9999px"
+          textarea.style.top = "0"
+          document.body.appendChild(textarea)
+          textarea.focus()
+          textarea.select()
+          document.execCommand("copy")
+          document.body.removeChild(textarea)
+        }
+
+        this.showCopiedIndicator()
+      } catch (error) {
+        console.error("Failed to copy invitation link", error)
+      }
+    }
+
+    this.el.addEventListener("click", this.handleClick)
+  },
+
+  destroyed() {
+    if (this.handleClick) {
+      this.el.removeEventListener("click", this.handleClick)
+    }
+    if (this._copiedTimeout) {
+      clearTimeout(this._copiedTimeout)
+    }
+  },
+
+  showCopiedIndicator() {
+    let badge = this.el.nextElementSibling
+
+    if (!(badge && badge.dataset && badge.dataset.copiedBadge === "true")) {
+      badge = document.createElement("span")
+      badge.dataset.copiedBadge = "true"
+      badge.textContent = "Copied"
+      badge.style.marginLeft = "0.5rem"
+      badge.style.fontSize = "0.75rem"
+      badge.style.fontWeight = "500"
+      badge.style.color = "#16a34a"
+      badge.style.opacity = "0"
+      badge.style.transform = "translateY(2px)"
+      badge.style.transition = "opacity 180ms ease-out, transform 180ms ease-out"
+      this.el.insertAdjacentElement("afterend", badge)
+    } else {
+      if (this._copiedTimeout) {
+        clearTimeout(this._copiedTimeout)
+      }
+    }
+
+    requestAnimationFrame(() => {
+      badge.style.opacity = "1"
+      badge.style.transform = "translateY(0)"
+    })
+
+    this._copiedTimeout = window.setTimeout(() => {
+      badge.style.opacity = "0"
+      badge.style.transform = "translateY(2px)"
+    }, 1600)
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
+  hooks: Hooks,
 })
 
 // Show progress bar on live navigation and form submits
@@ -78,4 +162,3 @@ if (process.env.NODE_ENV === "development") {
     window.liveReloader = reloader
   })
 }
-
