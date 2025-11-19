@@ -34,36 +34,46 @@ defmodule LumainusWeb.Markdown do
     if trimmed == "" do
       render_fallback(fallback)
     else
-      try do
-        case Earmark.as_html(trimmed, %Earmark.Options{smartypants: false}) do
-          {:ok, html, _} -> html |> process_provenance_links() |> HTML.raw()
-          {:error, html, _} -> html |> process_provenance_links() |> HTML.raw()
-        end
-      rescue
-        _ -> HTML.raw(trimmed)
+      case safe_earmark(trimmed) do
+        {:ok, html} ->
+          html |> process_provenance_links() |> HTML.raw()
+
+        :error ->
+          trimmed |> process_provenance_links() |> HTML.raw()
       end
     end
   end
 
   defp render_markdown(_, fallback), do: render_fallback(fallback)
 
+  defp safe_earmark(text) do
+    try do
+      case Earmark.as_html(text) do
+        {:ok, html, _} -> {:ok, html}
+        {:error, html, _} -> {:ok, html}
+      end
+    rescue
+      _ -> :error
+    end
+  end
+
   defp render_fallback(nil), do: HTML.raw("")
   defp render_fallback(content), do: HTML.raw(content)
 
   defp process_provenance_links(html) when is_binary(html) do
-    html
-    # Match patterns like [doc-123:L001] or [doc-uuid:label]
-    # Captures the full doc-XXX part and the label separately
-    |> Regex.replace(
-      ~r/\[(doc-[a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)\]/,
-      fn _, doc_ref, label ->
-        ~s(<button type="button" class="provenance-link" phx-click="open_document_modal" phx-value-doc-id="#{doc_ref}" title="View source document">📄 #{doc_ref}:#{label}</button>)
-      end
-    )
-    # Match bare references like [doc-123] and turn them into clickable provenance links too
-    |> Regex.replace(
+    html =
+      Regex.replace(
+        ~r/\[(doc-[a-zA-Z0-9_-]+):([^\]]+)\]/,
+        html,
+        fn _match, doc_ref, label ->
+          ~s(<button type="button" class="provenance-link" phx-click="open_document_modal" phx-value-doc-id="#{doc_ref}" title="View source document">📄 #{doc_ref}:#{label}</button>)
+        end
+      )
+
+    Regex.replace(
       ~r/\[(doc-[a-zA-Z0-9_-]+)\]/,
-      fn _, doc_ref ->
+      html,
+      fn _match, doc_ref ->
         ~s(<button type="button" class="provenance-link" phx-click="open_document_modal" phx-value-doc-id="#{doc_ref}" title="View source document">📄 #{doc_ref}</button>)
       end
     )
