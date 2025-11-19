@@ -8,6 +8,8 @@ defmodule Lumainus.Application do
 
   @impl true
   def start(_type, _args) do
+    configure_req_llm_keys()
+
     children = [
       LumainusWeb.Telemetry,
       Lumainus.Repo,
@@ -32,5 +34,15 @@ defmodule Lumainus.Application do
   def config_change(changed, _new, removed) do
     LumainusWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp configure_req_llm_keys do
+    key =
+      System.get_env("GOOGLE_API_KEY") ||
+        System.get_env("GEMINI_API_KEY")
+
+    if key && Code.ensure_loaded?(ReqLLM) do
+      ReqLLM.put_key(:google_api_key, key)
+    end
   end
 end

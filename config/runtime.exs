@@ -33,6 +33,10 @@ if gemini_api_key = System.get_env("GEMINI_API_KEY") do
   config :gemini_ex, api_key: gemini_api_key
 end
 
+if google_api_key = System.get_env("GOOGLE_API_KEY") do
+  config :req_llm, google_api_key: google_api_key
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

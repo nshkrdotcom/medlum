@@ -84,12 +84,48 @@ defmodule Lumainus.AI.SectionRunnerTest do
     end)
   end
 
+  test "passes normalized schema to the LLM client", %{
+    scope: scope,
+    patient: patient,
+    documents: documents,
+    section_run: section_run
+  } do
+    with_llm_client(Lumainus.AI.SectionRunnerTest.SchemaCaptureClient, fn ->
+      {:ok, _run} = SectionRunner.run_section(scope, section_run, patient, documents)
+
+      assert_receive {:schema_payload, schema}
+      assert schema["type"] == "object"
+
+      citations = schema["properties"]["citations"]
+      assert citations["type"] == "array"
+    end)
+  end
+
   defmodule FailingClient do
     @behaviour Lumainus.LLM.Client
 
     @impl true
     def generate_object(_model_spec, _messages, _schema, _opts \\ []) do
       {:error, %RuntimeError{message: "failing client"}}
+    end
+  end
+
+  defmodule SchemaCaptureClient do
+    @behaviour Lumainus.LLM.Client
+
+    @impl true
+    def generate_object(_model_spec, _messages, schema, _opts \\ []) do
+      send(self(), {:schema_payload, schema})
+
+      {:ok,
+       %{
+         "object" => %{
+           "markdown" => "## Captured",
+           "citations" => []
+         },
+         "text" => "## Captured",
+         "usage" => %{}
+       }}
     end
   end
 
@@ -139,6 +175,35 @@ defmodule Lumainus.AI.SectionRunnerTest do
       assert item_schema["type"] == "object"
       assert item_schema["properties"]["label"]["type"] == "string"
       assert Enum.member?(item_schema["required"], "label")
+    end
+
+    test "deals with maps containing nested fields maps" do
+      stored_schema = %{
+        "fields" => %{
+          "type" => "object",
+          "fields" => [
+            %{"name" => "title", "type" => "string", "required" => true},
+            %{"name" => "summary", "type" => "string", "required" => true},
+            %{
+              "name" => "citations",
+              "type" => "list",
+              "required" => true,
+              "items" => %{
+                "fields" => [
+                  %{"name" => "label", "type" => "string", "required" => true},
+                  %{"name" => "document_reference", "type" => "string"}
+                ],
+                "type" => "map"
+              }
+            }
+          ]
+        }
+      }
+
+      json = SectionRunner.schema_to_json(stored_schema)
+      assert json["type"] == "object"
+      assert json["properties"]["title"]["type"] == "string"
+      assert json["properties"]["citations"]["type"] == "array"
     end
   end
 end

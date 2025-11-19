@@ -31,7 +31,7 @@ defmodule Lumainus.AI.SectionRunner do
     prompt_text =
       render_prompt(section_template.prompt_template, prompt_context, section_template.title)
 
-    schema = decode_schema(section_template.output_schema)
+    schema = schema_to_json(section_template.output_schema)
     model_spec = AI.model_spec(section_template)
 
     options =
@@ -362,6 +362,11 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp decode_schema(%{"fields" => fields}) when is_list(fields) do
     build_object_schema(fields)
+  end
+
+  defp decode_schema(%{"fields" => %{} = nested}) do
+    inner_fields = Map.get(nested, "fields") || Map.get(nested, :fields) || []
+    decode_schema(%{"fields" => inner_fields})
   end
 
   defp decode_schema(fields) when is_list(fields) do
