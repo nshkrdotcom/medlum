@@ -62,6 +62,7 @@ defmodule LumainusWeb.Router do
       live "/users/log-in/:token", UserLive.Confirmation, :new
     end
 
+    post "/users/register/:token", UserRegistrationController, :create
     post "/users/log-in", UserSessionController, :create
     delete "/users/log-out", UserSessionController, :delete
   end

@@ -1287,19 +1287,32 @@ defmodule LumainusWeb.ReportsLive do
             class="rounded-xl border border-dashed border-slate-300 p-4 flex flex-col gap-3 bg-slate-50"
           >
             <div class="text-sm text-slate-600">
-              Drag & drop PDFs or click to select up to 5 files (25MB each). Uploads queue automatically once selected.
+              Drag & drop PDFs anywhere in this panel, or use Select PDFs to browse (up to 5 files, 25MB each). Uploads queue automatically once selected.
             </div>
             <div class="flex flex-col gap-2">
-              <.live_file_input
-                upload={@uploads.documents}
-                class="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm w-full"
-              />
               <button
                 type="button"
-                class="btn btn-primary btn-sm w-full"
+                class="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-3 text-left shadow-sm transition hover:border-slate-300 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
                 phx-click={JS.dispatch("click", to: "##{@uploads.documents.ref}")}
               >
-                Select PDFs
+                <span
+                  class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500"
+                  aria-hidden="true"
+                >
+                  <svg
+                    class="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 4.5v11m5.5-5.5h-11" />
+                  </svg>
+                </span>
+                <span class="flex flex-col">
+                  <span class="text-sm font-semibold text-slate-900">Select PDFs</span>
+                  <span class="text-xs text-slate-500">Browse for medical reports to ingest</span>
+                </span>
               </button>
               <button
                 type="button"
@@ -1308,6 +1321,11 @@ defmodule LumainusWeb.ReportsLive do
               >
                 Load Sample Documents
               </button>
+              <.live_file_input
+                upload={@uploads.documents}
+                class="hidden"
+                aria-hidden="true"
+              />
             </div>
             <%= for entry <- @uploads.documents.entries do %>
               <div class="text-xs text-slate-500 flex items-center gap-2">
