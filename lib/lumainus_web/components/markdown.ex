@@ -35,8 +35,8 @@ defmodule LumainusWeb.Markdown do
       render_fallback(fallback)
     else
       case Earmark.as_html(trimmed, %Earmark.Options{smartypants: false}) do
-        {:ok, html, _} -> HTML.raw(html)
-        {:error, html, _} -> HTML.raw(html)
+        {:ok, html, _} -> html |> process_provenance_links() |> HTML.raw()
+        {:error, html, _} -> html |> process_provenance_links() |> HTML.raw()
       end
     end
   rescue
@@ -47,4 +47,23 @@ defmodule LumainusWeb.Markdown do
 
   defp render_fallback(nil), do: HTML.raw("")
   defp render_fallback(content), do: HTML.raw(content)
+
+  @doc """
+  Converts inline provenance references like `[doc-101:L001]` into clickable buttons
+  that trigger the document modal.
+  """
+  defp process_provenance_links(html) when is_binary(html) do
+    # Match patterns like [doc-123:L001] or [doc-uuid:label]
+    # Captures the full doc-XXX part and the label separately
+    Regex.replace(
+      ~r/\[(doc-[a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)\]/,
+      html,
+      fn _, doc_ref, label ->
+        # Keep the full doc-XXX format to match against mock_id
+        ~s(<button type="button" class="provenance-link" phx-click="open_document_modal" phx-value-doc-id="#{doc_ref}" title="View source document">📄 #{doc_ref}:#{label}</button>)
+      end
+    )
+  end
+
+  defp process_provenance_links(content), do: content
 end

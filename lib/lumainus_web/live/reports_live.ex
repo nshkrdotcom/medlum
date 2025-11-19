@@ -11,6 +11,13 @@ defmodule LumainusWeb.ReportsLive do
   alias LumainusWeb.Markdown
   require Logger
 
+  @document_modal_tabs [
+    %{id: "summary", label: "Summary"},
+    %{id: "cleaned", label: "Cleaned text"},
+    %{id: "raw", label: "Raw PDF text"}
+  ]
+  @document_modal_tab_ids Enum.map(@document_modal_tabs, & &1.id)
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -45,15 +52,17 @@ defmodule LumainusWeb.ReportsLive do
 
   @impl true
   def handle_event("select_document", %{"doc-id" => doc_id}, socket) do
-    doc_id = to_string(doc_id)
     current = socket.assigns.selected_document
+    doc = find_document_by_id(socket.assigns.documents, doc_id)
 
     cond do
-      current && to_string(current.id) == doc_id ->
+      is_nil(doc) ->
+        {:noreply, socket}
+
+      current && current.id == doc.id ->
         {:noreply, assign(socket, selected_document: nil)}
 
       true ->
-        doc = Enum.find(socket.assigns.documents, &(to_string(&1.id) == doc_id))
         {:noreply, assign(socket, selected_document: doc)}
     end
   end
@@ -61,6 +70,55 @@ defmodule LumainusWeb.ReportsLive do
   @impl true
   def handle_event("clear_document", _params, socket) do
     {:noreply, assign(socket, selected_document: nil)}
+  end
+
+  @impl true
+  def handle_event("open_document_modal", %{"doc-id" => doc_id}, socket) do
+    Logger.debug("Looking for document with ID: #{inspect(doc_id)}")
+
+    Logger.debug(
+      "Available documents: #{inspect(Enum.map(socket.assigns.documents, &{&1.id, &1.sequence, &1.mock_id}))}"
+    )
+
+    case find_document_by_id(socket.assigns.documents, doc_id) do
+      nil ->
+        Logger.warning("Document not found for ID: #{inspect(doc_id)}")
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Document reference '#{doc_id}' not found. Available docs: #{Enum.map(socket.assigns.documents, & &1.sequence) |> Enum.join(", ")}"
+         )}
+
+      doc ->
+        Logger.debug("Found document: #{inspect(doc.label)}")
+
+        {:noreply,
+         socket
+         |> assign(:document_modal_document, doc)
+         |> assign(:document_modal_tab, "summary")
+         |> assign(:document_modal_open, true)}
+    end
+  end
+
+  @impl true
+  def handle_event("close_document_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:document_modal_document, nil)
+     |> assign(:document_modal_open, false)}
+  end
+
+  @impl true
+  def handle_event("switch_document_modal_tab", %{"tab" => tab}, socket) do
+    tab = to_string(tab)
+
+    if tab in @document_modal_tab_ids do
+      {:noreply, assign(socket, :document_modal_tab, tab)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -215,12 +273,16 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
       |> assign_new(:selected_document, fn -> nil end)
+      |> assign_new(:document_modal_document, fn -> nil end)
+      |> assign_new(:document_modal_open, fn -> false end)
+      |> assign_new(:document_modal_tab, fn -> "summary" end)
       |> assign_new(:patient_modal_open, fn -> false end)
       |> assign_new(:job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
 
     socket
+    |> maybe_refresh_document_modal()
     |> maybe_subscribe_record_set(workspace.record_set.id)
     |> maybe_subscribe_report_runs(workspace.record_set.id)
     |> subscribe_to_job_topics()
@@ -414,6 +476,42 @@ defmodule LumainusWeb.ReportsLive do
       }
     end)
   end
+
+  defp find_document_by_id(documents, doc_id) do
+    doc_id = to_string(doc_id)
+
+    # First try to find by actual document ID (UUID)
+    # Then try to find by sequence number (e.g., "101" for doc-101)
+    # Finally try to find by mock_id (e.g., "doc-101")
+    Enum.find(documents, &(to_string(&1.id) == doc_id)) ||
+      Enum.find(documents, &(to_string(&1.sequence) == doc_id)) ||
+      Enum.find(documents, &(&1.mock_id && to_string(&1.mock_id) == doc_id))
+  end
+
+  defp maybe_refresh_document_modal(%{assigns: assigns} = socket) do
+    cond do
+      not Map.has_key?(assigns, :document_modal_document) ->
+        socket
+
+      is_nil(assigns.document_modal_document) ->
+        socket
+
+      true ->
+        doc_id = assigns.document_modal_document.id
+
+        case find_document_by_id(assigns.documents, doc_id) do
+          nil ->
+            socket
+            |> assign(:document_modal_document, nil)
+            |> assign(:document_modal_open, false)
+
+          doc ->
+            assign(socket, :document_modal_document, doc)
+        end
+    end
+  end
+
+  defp document_modal_tabs, do: @document_modal_tabs
 
   defp subscribe_to_job_topics(socket) do
     if connected?(socket) do
@@ -660,6 +758,106 @@ defmodule LumainusWeb.ReportsLive do
         color: #0f172a;
       }
 
+      .document-modal {
+        width: min(1100px, 96vw);
+        max-height: 85vh;
+        background: #fff;
+        border-radius: 24px;
+        padding: 32px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.35);
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        color: #0f172a;
+      }
+
+      .document-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 24px;
+      }
+
+      .document-modal-header h2 {
+        margin: 4px 0 0 0;
+        font-size: 24px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .document-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+        font-size: 12px;
+        color: #64748b;
+      }
+
+      .document-meta span {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+        color: #94a3b8;
+      }
+
+      .document-meta strong {
+        display: block;
+        font-size: 13px;
+        color: #0f172a;
+      }
+
+      .document-modal-tabs {
+        display: inline-flex;
+        border-radius: 999px;
+        border: 1px solid #e2e8f0;
+        padding: 4px;
+        gap: 4px;
+        background: #f8fafc;
+        align-self: flex-start;
+      }
+
+      .document-tab {
+        border: none;
+        border-radius: 999px;
+        padding: 6px 18px;
+        font-size: 13px;
+        background: transparent;
+        cursor: pointer;
+        color: #475569;
+        transition: background 160ms ease, color 160ms ease;
+      }
+
+      .document-tab.active {
+        background: #1d4ed8;
+        color: #fff;
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+      }
+
+      .document-modal-content {
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 18px;
+        background: #fdfefe;
+        flex: 1;
+        min-height: 260px;
+        max-height: 100%;
+        overflow-y: auto;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #0f172a;
+      }
+
+      .document-modal-content pre {
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        font-size: 13px;
+        margin: 0;
+      }
+
       .patient-modal .input,
       .patient-modal .textarea,
       .patient-modal .select {
@@ -901,12 +1099,67 @@ defmodule LumainusWeb.ReportsLive do
         font-size: 14px;
       }
 
+      .provenance-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 999px;
+        border: 1px solid #c7d2fe;
+        background: #edf2ff;
+        color: #3730a3;
+        padding: 2px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 100ms ease;
+        margin: 0 4px;
+        white-space: nowrap;
+      }
+
+      .provenance-link:hover,
+      .provenance-link:focus {
+        background: #e0e7ff;
+        color: #312e81;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        outline: none;
+        transform: translateY(-1px);
+      }
+
+      .provenance-link:active {
+        transform: translateY(0);
+      }
+
       .citations {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
         font-size: 12px;
         color: #475569;
+      }
+
+      .citations button {
+        border-radius: 999px;
+        border: 1px solid #c7d2fe;
+        background: #edf2ff;
+        color: #3730a3;
+        padding: 2px 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+      }
+
+      .citations button:hover,
+      .citations button:focus {
+        background: #e0e7ff;
+        color: #312e81;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        outline: none;
+      }
+
+      .citations button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        box-shadow: none;
       }
 
       .citations span {
@@ -1171,7 +1424,17 @@ defmodule LumainusWeb.ReportsLive do
               <%= if section_entry.last_run && Enum.any?(section_entry.last_run.citations) do %>
                 <div class="citations">
                   <%= for citation <- section_entry.last_run.citations do %>
-                    <span>{citation.label}</span>
+                    <%= if citation.document_id do %>
+                      <button
+                        type="button"
+                        phx-click="open_document_modal"
+                        phx-value-doc-id={citation.document_id}
+                      >
+                        {citation.label}
+                      </button>
+                    <% else %>
+                      <span>{citation.label}</span>
+                    <% end %>
                   <% end %>
                 </div>
               <% end %>
@@ -1180,6 +1443,84 @@ defmodule LumainusWeb.ReportsLive do
         </section>
       </div>
     </div>
+
+    <%= if @document_modal_open && @document_modal_document do %>
+      <div class="modal-backdrop" phx-click="close_document_modal">
+        <div class="document-modal" phx-click="noop">
+          <header class="document-modal-header">
+            <div>
+              <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8;">
+                Document {@document_modal_document.sequence}
+              </div>
+              <h2>{@document_modal_document.label}</h2>
+              <div style="font-size: 13px; color: #64748b;">
+                Uploaded {format_timestamp(@document_modal_document.uploaded_at)} • {@document_modal_document.filename}
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm" phx-click="close_document_modal">Close</button>
+          </header>
+
+          <div class="document-meta">
+            <div>
+              <span>Provider</span>
+              <strong>{@document_modal_document.provider}</strong>
+            </div>
+            <div>
+              <span>Document kind</span>
+              <strong>{@document_modal_document.kind}</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <strong>
+                {String.capitalize(document_status(@document_modal_document) || "pending")}
+              </strong>
+            </div>
+            <div>
+              <span>File size</span>
+              <strong>{@document_modal_document.byte_size_label}</strong>
+            </div>
+            <div>
+              <span>Content type</span>
+              <strong>{@document_modal_document.content_type || "application/pdf"}</strong>
+            </div>
+          </div>
+
+          <div class="document-modal-tabs">
+            <%= for tab <- document_modal_tabs() do %>
+              <button
+                type="button"
+                class={[
+                  "document-tab",
+                  @document_modal_tab == tab.id && "active"
+                ]}
+                phx-click="switch_document_modal_tab"
+                phx-value-tab={tab.id}
+              >
+                {tab.label}
+              </button>
+            <% end %>
+          </div>
+
+          <div class="document-modal-content">
+            <%= case @document_modal_tab do %>
+              <% "summary" -> %>
+                <div style="font-size: 14px; color: #475569;">
+                  {@document_modal_document.summary ||
+                    "Summary not available yet. Once the ingestion pipeline completes, an overview of this PDF will appear here."}
+                </div>
+              <% "cleaned" -> %>
+                <pre>{@document_modal_document.cleaned_content ||
+    "Cleaned markdown will be available when ingestion completes."}</pre>
+              <% "raw" -> %>
+                <pre>{@document_modal_document.raw_content ||
+    "Raw PDF text stream not available yet for this upload."}</pre>
+              <% _ -> %>
+                <div>Document preview unavailable.</div>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    <% end %>
 
     <%= if @patient_modal_open do %>
       <div class="modal-backdrop" phx-click="close_patient_modal">
