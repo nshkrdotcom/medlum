@@ -39,5 +39,16 @@ npm-debug.log
 # Ignore downloaded binaries
 /bin/
 
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.python-version
+/.pytest_cache/
+/.mypy_cache/
+
 # Docling service virtual environment
 /docling_service/.venv/
