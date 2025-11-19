@@ -10,13 +10,11 @@ defmodule Lumainus.AI.SectionRunner do
   alias Lumainus.Repo
 
   alias Lumainus.Reports.{ReportSectionCitation, ReportSectionRun}
-
-  alias ReqLLM.Context
   require EEx
   require Logger
 
   @system_prompt """
-  You are Lumainus, a clinical documentation system. Produce structured markdown with inline citations like [doc-001].
+  You are Lumainus, a clinical documentation system. Produce structured markdown with inline citations like [doc-001] and return JSON that matches the provided schema exactly.
   """
 
   def run_section(scope, %ReportSectionRun{} = section_run, patient, documents, _opts \\ []) do
@@ -35,7 +33,10 @@ defmodule Lumainus.AI.SectionRunner do
 
     schema = decode_schema(section_template.output_schema)
     model_spec = AI.model_spec(section_template)
-    options = AI.options(section_template)
+
+    options =
+      AI.options(section_template)
+      |> Keyword.put(:prompt_context, prompt_context)
 
     llm =
       %LlmInvocation{}
@@ -119,11 +120,10 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp invoke_llm(model_spec, prompt_text, schema, options) do
-    messages =
-      Context.new([
-        Context.system(@system_prompt),
-        Context.user(prompt_text)
-      ])
+    messages = [
+      %{role: :system, content: @system_prompt},
+      %{role: :user, content: prompt_text}
+    ]
 
     AI.client().generate_object(model_spec, messages, schema, options)
   rescue
@@ -132,15 +132,17 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp persist_success(section_run, llm, normalized, prompt_context, documents, duration) do
-    Repo.update!(
-      Changeset.change(llm, %{
+    llm_attrs =
+      %{
         response_text: normalized.text,
         response_object: normalized.object,
         usage: normalized.usage,
         status: "completed",
         req_duration_ms: duration
-      })
-    )
+      }
+      |> maybe_put_request(normalized.request_id)
+
+    Repo.update!(Changeset.change(llm, llm_attrs))
 
     section_run =
       Repo.update!(
@@ -184,6 +186,9 @@ defmodule Lumainus.AI.SectionRunner do
     persist_citations(section_run, fallback["citations"], documents, prompt_context)
     section_run
   end
+
+  defp maybe_put_request(attrs, nil), do: attrs
+  defp maybe_put_request(attrs, request_id), do: Map.put(attrs, :request_id, request_id)
 
   defp persist_citations(_section_run, nil, _documents, _context), do: :ok
 
@@ -318,7 +323,8 @@ defmodule Lumainus.AI.SectionRunner do
       markdown: markdown,
       confidence: object["confidence"] || 0.9,
       citations: citations,
-      summary: summary
+      summary: summary,
+      request_id: extract(response, :request_id)
     }
   end
 
@@ -336,47 +342,100 @@ defmodule Lumainus.AI.SectionRunner do
       "markdown" => "### #{section_template.title}\n\n#{body}",
       "citations" =>
         Enum.map(context[:documents], fn doc ->
-          %{"label" => doc["label"], "document_reference" => doc["mock_id"]}
+          %{
+            "label" => doc["label"],
+            "document_reference" => doc["mock_id"],
+            "document_id" => doc["id"],
+            "line_start" => 1,
+            "line_end" => 1
+          }
         end)
     }
   end
 
-  defp decode_schema(nil), do: []
+  defp decode_schema(nil), do: nil
+
+  defp decode_schema(%{"type" => _} = schema), do: schema
 
   defp decode_schema(%{"fields" => fields}) when is_list(fields) do
-    Enum.map(fields, &decode_field/1)
+    build_object_schema(fields)
   end
 
-  defp decode_schema(schema) when is_list(schema) do
-    Enum.map(schema, &decode_field/1)
+  defp decode_schema(fields) when is_list(fields) do
+    build_object_schema(fields)
   end
 
-  defp decode_field(%{"name" => name} = field) do
-    type = field["type"] || "string"
+  defp build_object_schema(fields) do
+    {properties, required} =
+      Enum.reduce(fields, {%{}, []}, fn field, {props, req} ->
+        name = field_name(field)
+        schema = field_schema(field)
+        updated_props = Map.put(props, name, schema)
 
-    opts =
-      []
-      |> maybe_put_required(field)
-      |> maybe_put_items(field)
-      |> Keyword.put(:type, type_atom(type))
+        updated_req =
+          if truthy?(field["required"] || field[:required]) do
+            [name | req]
+          else
+            req
+          end
 
-    {String.to_atom(name), opts}
+        {updated_props, updated_req}
+      end)
+
+    schema = %{"type" => "object", "properties" => properties}
+
+    case required do
+      [] -> schema
+      req_list -> Map.put(schema, "required", Enum.reverse(req_list))
+    end
   end
 
-  defp maybe_put_required(opts, %{"required" => true}), do: Keyword.put(opts, :required, true)
-  defp maybe_put_required(opts, _), do: opts
+  defp field_schema(field) do
+    case field_type(field) do
+      "list" ->
+        items = Map.get(field, "items") || Map.get(field, :items)
+        %{"type" => "array", "items" => normalize_item_schema(items)}
 
-  defp maybe_put_items(opts, %{"items" => items}) do
-    Keyword.put(opts, :items, decode_field(Map.put(items, "name", "item")) |> elem(1))
+      "map" ->
+        nested = Map.get(field, "fields") || Map.get(field, :fields) || []
+        decode_schema(%{"fields" => nested})
+
+      "float" ->
+        %{"type" => "number"}
+
+      "integer" ->
+        %{"type" => "integer"}
+
+      "boolean" ->
+        %{"type" => "boolean"}
+
+      _ ->
+        %{"type" => "string"}
+    end
   end
 
-  defp maybe_put_items(opts, _), do: opts
+  defp normalize_item_schema(nil), do: %{"type" => "string"}
 
-  defp type_atom("list"), do: :list
-  defp type_atom("map"), do: :map
-  defp type_atom("string"), do: :string
-  defp type_atom("float"), do: :float
-  defp type_atom(_), do: :string
+  defp normalize_item_schema(%{} = item) do
+    item
+    |> Map.put_new("type", item["type"] || item[:type] || "string")
+    |> Map.put_new("name", item["name"] || item[:name] || "item")
+    |> field_schema()
+  end
+
+  defp field_name(field) do
+    cond do
+      name = field["name"] -> name
+      name = field[:name] -> name
+      true -> "field_#{System.unique_integer([:positive])}"
+    end
+  end
+
+  defp field_type(field) do
+    field["type"] || field[:type] || "string"
+  end
+
+  defp truthy?(value), do: value not in [nil, false]
 
   defp duration_ms(start_time) do
     System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)

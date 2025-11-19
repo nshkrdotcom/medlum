@@ -866,6 +866,15 @@ defmodule LumainusWeb.ReportsLive do
         padding: 2px 10px;
       }
 
+      .section-error {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+        border-radius: 12px;
+        padding: 12px;
+        font-size: 13px;
+      }
+
       @media (max-width: 1024px) {
         .reports-body {
           grid-template-columns: 1fr;
@@ -1114,6 +1123,15 @@ defmodule LumainusWeb.ReportsLive do
                   </div>
                 <% end %>
               </div>
+
+              <%= if section_entry.last_run && section_entry.last_run.error do %>
+                <div class="section-error">
+                  <strong>Generation failed.</strong>
+                  <div>
+                    {Map.get(section_entry.last_run.error, "message") || "Unknown error"}
+                  </div>
+                </div>
+              <% end %>
 
               <%= if section_entry.last_run && Enum.any?(section_entry.last_run.citations) do %>
                 <div class="citations">

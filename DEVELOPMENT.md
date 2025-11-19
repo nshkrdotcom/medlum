@@ -1,6 +1,6 @@
 # Lumainus Web – Development Guide
 
-This repo hosts the full Phoenix LiveView application for Lumainus. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView now renders from the ingestion/LLM pipeline (PDF uploads persisted in Postgres + ReqLLM markdown conversion).
+This repo hosts the full Phoenix LiveView application for Lumainus. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView now renders from the ingestion/LLM pipeline (PDF uploads persisted in Postgres + Gemini markdown + section drafting).
 
 ## Quick start
 
@@ -8,6 +8,12 @@ This repo hosts the full Phoenix LiveView application for Lumainus. Authenticati
 cd /home/home/p/g/n/lumainus
 mix setup          # deps.get + ecto.create + ecto.migrate + seeds + assets.setup/build
 mix phx.server
+```
+
+- Export your Gemini key before starting Phoenix so `/reports` can run the real LLM pipeline:
+
+```bash
+export GEMINI_API_KEY="ya29.your-google-generative-ai-key"
 ```
 
 - App: **http://localhost:4000** (or `lumainus.test:4000` if you added the hosts entry from `README.md`).
@@ -31,7 +37,7 @@ Override via `LUMAINUS_ADMIN_*` env vars before running `mix setup`.
 | Invitations & role assignment                | ✅     | `/admin/invitations`, roles: doctor/admin/system_admin |
 | Role-based routing                           | ✅     | `LumainusWeb.UserAuth` plugs guard doctor/admin scopes |
 | `/reports` LiveView UI                       | ✅     | Driven by persisted uploads + ingestion jobs |
-| Real ingestion / LLM summarization           | ✅     | PDF uploads -> ReqLLM markdown parser |
+| Real ingestion / LLM summarization           | ✅     | PDF uploads -> Gemini structured outputs |
 | Multi-agent critic pipeline & attribution    | 🚧     | See `docs/20251116/001_LUMAINUS_claude.md` |
 
 ## Architecture overview

@@ -36,7 +36,7 @@ config :phoenix_live_view,
   enable_expensive_runtime_checks: true
 
 config :lumainus, :llm,
-  client: Lumainus.AI.MockClient,
+  client: Lumainus.LLM.MockClient,
   enabled: true
 
 config :lumainus, Oban,

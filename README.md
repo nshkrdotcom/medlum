@@ -14,7 +14,7 @@ Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 - **Phoenix LiveView** - Real-time, server-rendered UI
 - **Tailwind CSS + DaisyUI** - Modern, responsive design
 - **Tidewave Integration** - AI-powered development assistance
-- **Clinical Summary UI** - `/reports` LiveView with provenance badges backed by the persisted ingestion pipeline (ReqLLM + PDF uploads)
+- **Clinical Summary UI** - `/reports` LiveView with provenance badges backed by the persisted ingestion pipeline (Gemini structured outputs + PDF uploads)
 
 ## Prerequisites
 
@@ -53,6 +53,8 @@ This creates a system administrator account with:
 ```bash
 mix phx.server
 ```
+
+> Set `GEMINI_API_KEY` in your environment before starting the server so report sections can call Gemini.
 
 Server will be available at:
 - **Main app:** http://localhost:4000
@@ -193,6 +195,9 @@ SECRET_KEY_BASE=<generated-secret>
 
 # Email (development)
 # Uses local mailbox at /dev/mailbox
+
+# LLM
+GEMINI_API_KEY=<your-google-generative-ai-key>
 ```
 
 ### Development Domain

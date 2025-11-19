@@ -1,13 +1,13 @@
 defmodule Lumainus.AI do
   @moduledoc """
-  Central configuration and helper utilities for ReqLLM integrations.
+  Central configuration and helper utilities for LLM integrations.
   """
 
-  alias Lumainus.AI.ReqLLMClient
+  alias Lumainus.LLM.GeminiClient
 
   def client do
     config()
-    |> Keyword.get(:client, ReqLLMClient)
+    |> Keyword.get(:client, GeminiClient)
   end
 
   def model_spec(section_template \\ nil) do

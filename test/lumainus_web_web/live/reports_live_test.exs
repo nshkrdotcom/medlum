@@ -8,7 +8,7 @@ defmodule LumainusWeb.ReportsLiveTest do
   alias Lumainus.Accounts.Scope
   alias Lumainus.Documents
   alias Lumainus.Documents.IngestionJob
-  alias Lumainus.Reports.ReportRun
+  alias Lumainus.Reports.{ReportRun, ReportSectionRun}
   alias Lumainus.{Repo, Reports}
 
   setup %{conn: conn} do
@@ -196,6 +196,39 @@ defmodule LumainusWeb.ReportsLiveTest do
     assert html =~ "Recent runs"
     assert html =~ "Completed"
     assert html =~ "You convert uploaded medical PDFs"
+  end
+
+  test "renders section error details when run fails", %{conn: conn, scope: scope} do
+    workspace = Reports.workspace(scope)
+    section = hd(workspace.template.sections)
+
+    run =
+      %ReportRun{}
+      |> ReportRun.changeset(%{
+        tenant_id: scope.tenant_id,
+        patient_id: workspace.patient.id,
+        record_set_id: workspace.record_set.id,
+        template_id: workspace.template.id,
+        run_type: "section",
+        status: "error"
+      })
+      |> Repo.insert!()
+
+    %ReportSectionRun{}
+    |> ReportSectionRun.changeset(%{
+      report_run_id: run.id,
+      section_template_id: section.id,
+      status: "error",
+      error: %{"message" => "LLM timeout"},
+      output_markdown: ""
+    })
+    |> Repo.insert!()
+
+    {:ok, view, html} = live(conn, ~p"/reports")
+    assert html =~ "Generation failed"
+    assert html =~ "LLM timeout"
+
+    assert render(view) =~ "Needs attention"
   end
 
   defp view_assign(view, key) do

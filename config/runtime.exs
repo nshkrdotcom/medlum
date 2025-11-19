@@ -26,6 +26,13 @@ if docling_url = System.get_env("DOCLING_URL") do
   config :lumainus, :docling, Keyword.merge(docling_config, base_url: docling_url)
 end
 
+if gemini_api_key = System.get_env("GEMINI_API_KEY") do
+  llm_config = Application.get_env(:lumainus, :llm, [])
+
+  config :lumainus, :llm, Keyword.put(llm_config, :api_key, gemini_api_key)
+  config :gemini_ex, api_key: gemini_api_key
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

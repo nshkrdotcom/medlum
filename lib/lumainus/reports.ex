@@ -412,23 +412,28 @@ defmodule Lumainus.Reports do
 
   defp default_schema do
     %{
-      "fields" => [
-        %{"name" => "title", "type" => "string", "required" => true},
-        %{"name" => "summary", "type" => "string", "required" => true},
-        %{"name" => "markdown", "type" => "string", "required" => true},
-        %{
-          "name" => "citations",
-          "type" => "list",
-          "required" => true,
+      "type" => "object",
+      "properties" => %{
+        "title" => %{"type" => "string"},
+        "summary" => %{"type" => "string"},
+        "markdown" => %{"type" => "string"},
+        "citations" => %{
+          "type" => "array",
           "items" => %{
-            "type" => "map",
-            "fields" => [
-              %{"name" => "label", "type" => "string", "required" => true},
-              %{"name" => "document_reference", "type" => "string", "required" => true}
-            ]
+            "type" => "object",
+            "properties" => %{
+              "label" => %{"type" => "string"},
+              "document_id" => %{"type" => "string"},
+              "document_reference" => %{"type" => "string"},
+              "line_start" => %{"type" => "integer"},
+              "line_end" => %{"type" => "integer"},
+              "excerpt" => %{"type" => "string"}
+            },
+            "required" => ["label", "document_id"]
           }
         }
-      ]
+      },
+      "required" => ["title", "summary", "markdown", "citations"]
     }
   end
 
@@ -450,7 +455,13 @@ defmodule Lumainus.Reports do
     You are drafting the <%= section_title %> portion of a cardiology report focused on #{focus}.
     Patient: <%= patient.full_name %> (MRN <%= patient.mrn %>, DOB <%= patient.date_of_birth %>)
 
-    Use the summarized evidence below. Cite inline using [doc-###] markers that map to the mock IDs.
+    Cite source evidence using the document IDs below. Inline citations must use the mock ID (e.g., [doc-101])
+    and each citation entry in the structured JSON output must include the matching `document_id` value.
+
+    Document reference table:
+    <%= for doc <- documents do %>
+    - <%= doc["mock_id"] || doc["label"] %>: Document ID <%= doc["id"] %> · <%= doc["summary"] %>
+    <% end %>
 
     Summaries:
     <%= documents_summary %>
@@ -458,7 +469,9 @@ defmodule Lumainus.Reports do
     Source content:
     <%= documents_text %>
 
-    Return markdown with headings, bullet points, and inline citations.
+    Return JSON that matches the provided schema with keys `title`, `summary`, `markdown`, and `citations`.
+    The markdown must include inline citations matching `[mock_id]`. Each citation entry must provide
+    `label`, `document_id`, `document_reference`, `line_start`, `line_end`, and a short `excerpt`.
     """
   end
 end
