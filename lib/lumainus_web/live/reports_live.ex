@@ -310,10 +310,10 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:patients, patients)
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
-      |> assign_new(:selected_document, fn -> nil end)
-      |> assign_new(:document_modal_document, fn -> nil end)
-      |> assign_new(:document_modal_open, fn -> false end)
-      |> assign_new(:document_modal_tab, fn -> "summary" end)
+      |> assign(:selected_document, nil)
+      |> assign(:document_modal_document, nil)
+      |> assign(:document_modal_open, false)
+      |> assign(:document_modal_tab, "summary")
       |> assign_new(:patient_modal_open, fn -> false end)
       |> assign_new(:job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
@@ -1224,9 +1224,9 @@ defmodule LumainusWeb.ReportsLive do
             Patient
           </div>
           <div style="font-size: 24px; font-weight: 600; color: #0f172a;">
-            {patient_name(@patient)}
+            {patient_display_name(@patient)}
           </div>
-          <div style="font-size: 14px; color: #475569;">
+          <div :if={patient_mrn(@patient) != "N/A"} style="font-size: 14px; color: #475569;">
             MRN {patient_mrn(@patient)}
           </div>
         </div>
@@ -1239,7 +1239,10 @@ defmodule LumainusWeb.ReportsLive do
             <label class="text-xs font-medium text-slate-600">
               Select patient
             </label>
-            <select name="patient_id" class="select select-sm w-52">
+            <select
+              name="patient_id"
+              class="select select-sm w-52 bg-white text-slate-900 border-slate-300"
+            >
               <%= for patient <- @patients do %>
                 <option value={patient.id} selected={patient.id == @patient.id}>
                   {patient_display_name(patient)}
@@ -1249,7 +1252,7 @@ defmodule LumainusWeb.ReportsLive do
           </form>
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-sm text-slate-700 border-slate-300 bg-slate-50 hover:bg-slate-100"
             phx-click="create_patient"
           >
             Add new patient
@@ -1819,9 +1822,21 @@ defmodule LumainusWeb.ReportsLive do
     mrn_label = label_or_nil("MRN", patient_mrn(patient))
     dob_label = label_or_nil("DOB", patient_dob(patient))
 
-    [name, mrn_label, dob_label]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
+    label =
+      [name, mrn_label, dob_label]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    cond do
+      label != "" ->
+        label
+
+      patient.patient_key ->
+        "Patient " <> String.slice(patient.patient_key, 0, 8)
+
+      true ->
+        "Patient"
+    end
   end
 
   defp label_or_nil(_label, "N/A"), do: nil

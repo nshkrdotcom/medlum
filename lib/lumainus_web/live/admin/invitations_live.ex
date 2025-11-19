@@ -23,6 +23,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
             name="role"
             label="Role"
             prompt="Select a role"
+            value="doctor"
             options={[
               {"Doctor", "doctor"},
               {"Administrator", "admin"},
@@ -36,6 +37,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
               type="email"
               name="email"
               label="Email (Optional)"
+              value={nil}
               placeholder="user@example.com"
             />
             <p class="mt-1 text-sm text-gray-500">

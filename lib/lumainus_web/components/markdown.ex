@@ -49,14 +49,20 @@ defmodule LumainusWeb.Markdown do
   defp render_fallback(content), do: HTML.raw(content)
 
   defp process_provenance_links(html) when is_binary(html) do
+    html
     # Match patterns like [doc-123:L001] or [doc-uuid:label]
     # Captures the full doc-XXX part and the label separately
-    Regex.replace(
+    |> Regex.replace(
       ~r/\[(doc-[a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)\]/,
-      html,
       fn _, doc_ref, label ->
-        # Keep the full doc-XXX format to match against mock_id
         ~s(<button type="button" class="provenance-link" phx-click="open_document_modal" phx-value-doc-id="#{doc_ref}" title="View source document">📄 #{doc_ref}:#{label}</button>)
+      end
+    )
+    # Match bare references like [doc-123] and turn them into clickable provenance links too
+    |> Regex.replace(
+      ~r/\[(doc-[a-zA-Z0-9_-]+)\]/,
+      fn _, doc_ref ->
+        ~s(<button type="button" class="provenance-link" phx-click="open_document_modal" phx-value-doc-id="#{doc_ref}" title="View source document">📄 #{doc_ref}</button>)
       end
     )
   end

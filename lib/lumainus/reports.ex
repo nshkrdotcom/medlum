@@ -48,7 +48,7 @@ defmodule Lumainus.Reports do
       record_set: record_set,
       template: default_template!(tenant_id),
       documents: list_documents(scope, record_set),
-      sections: list_sections_with_runs(scope)
+      sections: list_sections_with_runs(scope, record_set)
     }
   end
 
@@ -129,7 +129,7 @@ defmodule Lumainus.Reports do
     |> Repo.all()
   end
 
-  def list_sections_with_runs(%Scope{} = scope) do
+  def list_sections_with_runs(%Scope{} = scope, record_set) do
     template = default_template!(tenant_id_from_scope(scope))
 
     sections =
@@ -138,7 +138,7 @@ defmodule Lumainus.Reports do
       |> order_by([s], asc: s.position)
       |> Repo.all()
 
-    runs_map = latest_section_runs_map(Enum.map(sections, & &1.id))
+    runs_map = latest_section_runs_map(Enum.map(sections, & &1.id), record_set.id)
 
     Enum.map(sections, fn section ->
       %{section: section, latest_run: Map.get(runs_map, section.id)}
@@ -303,13 +303,17 @@ defmodule Lumainus.Reports do
     |> Repo.one()
   end
 
-  defp latest_section_runs_map([]), do: %{}
+  defp latest_section_runs_map([], _record_set_id), do: %{}
 
-  defp latest_section_runs_map(section_ids) do
+  defp latest_section_runs_map(section_ids, record_set_id) do
     ReportSectionRun
-    |> where([sr], sr.section_template_id in ^section_ids)
+    |> join(:inner, [sr], r in ReportRun, on: r.id == sr.report_run_id)
+    |> where(
+      [sr, r],
+      sr.section_template_id in ^section_ids and r.record_set_id == ^record_set_id
+    )
     |> order_by([sr], desc: sr.inserted_at)
-    |> preload([:llm_invocation, citations: [:document]])
+    |> preload([sr, _r], [:llm_invocation, citations: [:document]])
     |> Repo.all()
     |> Enum.reduce(%{}, fn run, acc ->
       Map.put_new(acc, run.section_template_id, run)
@@ -451,12 +455,9 @@ defmodule Lumainus.Reports do
           |> Repo.insert!()
 
         default_sections(template.id)
-        |> Enum.with_index()
-        |> Enum.each(fn {section_attrs, idx} ->
+        |> Enum.each(fn section_attrs ->
           %ReportSectionTemplate{}
-          |> ReportSectionTemplate.changeset(
-            Map.merge(section_attrs, %{position: idx * 10, template_id: template.id})
-          )
+          |> ReportSectionTemplate.changeset(section_attrs)
           |> Repo.insert!()
         end)
 
@@ -467,28 +468,136 @@ defmodule Lumainus.Reports do
     end
   end
 
-  defp default_sections(template_id) do
+  @doc false
+  def default_sections(template_id) do
+    section_blueprints()
+    |> Enum.with_index(1)
+    |> Enum.map(fn {blueprint, idx} ->
+      instructions = Map.get(blueprint, :instructions)
+      schema = Map.get(blueprint, :output_schema) || default_schema()
+
+      %{
+        identifier: blueprint.identifier,
+        title: blueprint.title,
+        prompt_template: section_prompt(blueprint.focus, instructions: instructions),
+        output_schema: schema,
+        template_id: template_id,
+        position: idx * 10
+      }
+    end)
+  end
+
+  defp section_blueprints do
     [
       %{
         identifier: "chief-complaint",
-        title: "Chief Complaint & History",
-        prompt_template: section_prompt("Chief complaint and history of present illness"),
-        output_schema: default_schema(),
-        template_id: template_id
+        title: "Chief Complaint",
+        focus: "the patient's primary reason for presentation",
+        instructions: """
+        - Keep this section to 1-2 sentences written from the patient's voice.
+        - Capture onset timing, severity, and precipitating context if documented.
+        - Highlight notable quotes or descriptors inside quotation marks.
+        """
       },
       %{
-        identifier: "diagnostics",
-        title: "Diagnostics Overview",
-        prompt_template: section_prompt("Diagnostics, labs, and imaging findings"),
-        output_schema: default_schema(),
-        template_id: template_id
+        identifier: "history-present-illness",
+        title: "History of Present Illness (HPI)",
+        focus: "a chronological narrative of the presenting problem",
+        instructions: """
+        - Organize paragraphs by timeline: onset, progression, current status.
+        - Mention alleviating/exacerbating factors plus associated ROS findings.
+        - Call out pertinent negatives inline (e.g., \"denies syncope\").
+        """
       },
       %{
-        identifier: "assessment-plan",
-        title: "Assessment & Plan",
-        prompt_template: section_prompt("Assessment and plan with inline citations"),
-        output_schema: default_schema(),
-        template_id: template_id
+        identifier: "past-history",
+        title: "Past History",
+        focus: "medical, surgical, and social history summaries",
+        instructions: """
+        - Create subheadings for Medical History, Surgical History, and Social History.
+        - Use bullet lists under each subheading; include dates if available.
+        - Social History should mention marital status, tobacco/alcohol/drugs, and occupation when documented.
+        """
+      },
+      %{
+        identifier: "medications",
+        title: "Medications",
+        focus: "current medications, doses, and adherence notes",
+        instructions: """
+        - Present as a bullet list with medication name, dose, route, and frequency.
+        - Note recent changes, held meds, or adherence concerns in italics.
+        - Include OTC and supplements if present.
+        """
+      },
+      %{
+        identifier: "physical-exam-history",
+        title: "Past Physical Exam Findings",
+        focus: "historical exam findings and vitals trends",
+        instructions: """
+        - Group content by system (Cardiovascular, Pulmonary, Neuro, etc.) with subheadings.
+        - Highlight abnormal findings first, then list reassuring normals.
+        - Include notable vital trends with dates.
+        """
+      },
+      %{
+        identifier: "review-of-systems",
+        title: "Review of Systems",
+        focus: "prior documented ROS results",
+        instructions: """
+        - Use a table or bullet list grouped by system.
+        - For each system, list positives first then key negatives.
+        - Limit to items explicitly mentioned in the source documents.
+        """
+      },
+      %{
+        identifier: "lab-review",
+        title: "Laboratory Review",
+        focus: "all relevant laboratory data and trends",
+        instructions: """
+        - Provide a markdown table with columns: Test, Value & Units, Reference/Flag, Date or Trend.
+        - Call out abnormal values with **bold** flags or text.
+        - Follow the table with 1-2 sentences interpreting the trends.
+        """
+      },
+      %{
+        identifier: "imaging-review",
+        title: "Imaging Review",
+        focus: "radiology, cardiology, and other imaging summaries",
+        instructions: """
+        - List each study with modality and date.
+        - Summarize impressions plus key measurements (e.g., EF, stenosis %).
+        - Note whether follow-up imaging is pending.
+        """
+      },
+      %{
+        identifier: "pathology-review",
+        title: "Pathology Review",
+        focus: "biopsy and pathology results relevant to the case",
+        instructions: """
+        - Include specimen site, diagnosis, grade/stage markers, and critical molecular findings.
+        - Mention when pathology is pending or inconclusive.
+        - Tie findings to treatment implications when evident.
+        """
+      },
+      %{
+        identifier: "assessment",
+        title: "Assessment",
+        focus: "synthesis of clinical problems with evidence",
+        instructions: """
+        - Use a numbered list, one problem per number ordered by priority.
+        - Each entry should include 1-2 sentences referencing supporting data with citations.
+        - Note current status/severity and clinical uncertainty if present.
+        """
+      },
+      %{
+        identifier: "plan",
+        title: "Plan",
+        focus: "recommended management steps for each assessed problem",
+        instructions: """
+        - Mirror the numbering from the Assessment section when possible.
+        - Detail medications, procedures, monitoring, patient education, and contingency plans.
+        - Include follow-up steps and responsible teams.
+        """
       }
     ]
   end
@@ -522,13 +631,32 @@ defmodule Lumainus.Reports do
     """
   end
 
-  defp section_prompt(focus) do
+  defp section_prompt(focus, opts) do
+    instructions_block =
+      opts
+      |> Keyword.get(:instructions)
+      |> case do
+        nil ->
+          ""
+
+        text ->
+          trimmed = String.trim(text)
+
+          """
+
+          Clinical formatting guidance:
+          #{trimmed}
+          """
+      end
+
     """
     You are drafting the <%= section_title %> portion of a cardiology report focused on #{focus}.
     Patient: <%= patient.full_name %> (MRN <%= patient.mrn %>, DOB <%= patient.date_of_birth %>)
 
     Cite source evidence using the document IDs below. Inline citations must use the mock ID (e.g., [doc-101])
     and each citation entry in the structured JSON output must include the matching `document_id` value.
+
+    #{instructions_block}
 
     Document reference table:
     <%= for doc <- documents do %>

@@ -148,7 +148,8 @@ defmodule Lumainus.AI.SectionRunner do
           output_markdown: normalized.markdown,
           output_object: normalized.object,
           confidence_score: normalized.confidence,
-          inline_citations: wrap_citations(normalized.citations)
+          inline_citations: wrap_citations(normalized.citations),
+          error: nil
         })
       )
 
@@ -173,15 +174,16 @@ defmodule Lumainus.AI.SectionRunner do
       })
     )
 
-    # Mark section_run as pending (not error) so it can be retried
-    # Use fallback content but don't persist error state
+    error_payload = failure_error_payload(reason)
+
     section_run =
       Repo.update!(
         Changeset.change(section_run, %{
-          status: "pending",
+          status: "error",
           output_markdown: fallback["markdown"],
           output_object: fallback,
-          inline_citations: wrap_citations(fallback["citations"])
+          inline_citations: wrap_citations(fallback["citations"]),
+          error: error_payload
         })
       )
 
@@ -354,6 +356,29 @@ defmodule Lumainus.AI.SectionRunner do
         end)
     }
   end
+
+  defp failure_error_payload(reason) when is_binary(reason), do: %{"message" => reason}
+
+  defp failure_error_payload(%{__struct__: module} = reason) do
+    message =
+      if function_exported?(module, :message, 1) do
+        Exception.message(reason)
+      else
+        inspect(reason)
+      end
+
+    %{
+      "message" => message,
+      "type" => to_string(module)
+    }
+  end
+
+  defp failure_error_payload(reason) when is_map(reason) do
+    message = Map.get(reason, "message") || Map.get(reason, :message) || inspect(reason)
+    %{"message" => message, "details" => reason}
+  end
+
+  defp failure_error_payload(reason), do: %{"message" => inspect(reason)}
 
   @doc false
   def schema_to_json(schema), do: decode_schema(schema)

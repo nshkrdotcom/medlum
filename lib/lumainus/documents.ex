@@ -150,16 +150,23 @@ defmodule Lumainus.Documents do
       |> where([d], fragment("?->>'mock_id' = ?", d.metadata, ^sample.mock_id))
       |> Repo.one()
 
-    if existing do
-      {:skip, existing}
-    else
-      {:ok, create_sample_document(scope, patient, record_set, sample, timestamp)}
+    cond do
+      existing ->
+        {:skip, existing}
+
+      true ->
+        {:ok, create_sample_document(scope, patient, record_set, sample, timestamp)}
     end
   end
 
   defp create_sample_document(scope, patient, record_set, sample, timestamp) do
     content = sample_content(sample)
     metadata = sample_metadata(sample, timestamp)
+
+    # For synthetic fixtures, include the record_set_id in the digest so we can
+    # safely seed the same sample documents into multiple workspaces without
+    # tripping the tenant-wide sha256 uniqueness constraint.
+    digest = sha256(content <> record_set.id)
 
     upload =
       %DocumentUpload{}
@@ -171,7 +178,7 @@ defmodule Lumainus.Documents do
         filename: sample.filename,
         content_type: "application/pdf",
         byte_size: byte_size(content),
-        sha256: sha256(content),
+        sha256: digest,
         status: "parsed",
         storage_backend: "fixtures",
         raw_blob: content,
