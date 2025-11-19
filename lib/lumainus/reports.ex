@@ -236,11 +236,17 @@ defmodule Lumainus.Reports do
   end
 
   defp mark_section_run_failed(section_run, reason) do
+    # Log error instead of persisting to DB
+    require Logger
+
+    Logger.error("""
+    [Reports] Section run failed: #{section_run.id}
+    Reason: #{inspect(reason)}
+    """)
+
+    # Mark as pending (not error) so it can be retried
     section_run
-    |> Changeset.change(%{
-      status: "error",
-      error: %{message: inspect(reason)}
-    })
+    |> Changeset.change(%{status: "pending"})
     |> Repo.update!()
   end
 

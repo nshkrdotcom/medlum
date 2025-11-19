@@ -140,6 +140,7 @@ defmodule Lumainus.AI.SectionRunner do
 
     Repo.update!(Changeset.change(llm, llm_attrs))
 
+    # Clear error field on success (should always be nil now)
     section_run =
       Repo.update!(
         Changeset.change(section_run, %{
@@ -147,8 +148,7 @@ defmodule Lumainus.AI.SectionRunner do
           output_markdown: normalized.markdown,
           output_object: normalized.object,
           confidence_score: normalized.confidence,
-          inline_citations: wrap_citations(normalized.citations),
-          error: nil
+          inline_citations: wrap_citations(normalized.citations)
         })
       )
 
@@ -157,25 +157,31 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp persist_failure(section_run, llm, reason, fallback, prompt_context, documents, duration) do
-    error_payload = %{message: inspect(reason)}
+    # Log error instead of persisting to DB
+    Logger.error("""
+    [SectionRunner] LLM generation failed for section_run=#{section_run.id}
+    Section: #{section_run.section_template.title}
+    Reason: #{inspect(reason)}
+    """)
 
+    # Update LLM invocation with error status but no error field
     Repo.update!(
       Changeset.change(llm, %{
         status: "error",
-        error: error_payload,
         response_object: fallback,
         req_duration_ms: duration
       })
     )
 
+    # Mark section_run as pending (not error) so it can be retried
+    # Use fallback content but don't persist error state
     section_run =
       Repo.update!(
         Changeset.change(section_run, %{
-          status: "error",
+          status: "pending",
           output_markdown: fallback["markdown"],
           output_object: fallback,
-          inline_citations: wrap_citations(fallback["citations"]),
-          error: error_payload
+          inline_citations: wrap_citations(fallback["citations"])
         })
       )
 
