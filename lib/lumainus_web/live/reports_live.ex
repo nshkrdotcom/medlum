@@ -75,6 +75,22 @@ defmodule LumainusWeb.ReportsLive do
     run_sections(socket, section_ids)
   end
 
+  def handle_event("seed_sample_documents", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Documents.seed_sample_documents(scope, socket.assigns.patient, socket.assigns.record_set) do
+      {:ok, :noop} ->
+        {:noreply,
+         put_flash(socket, :info, "Sample documents already loaded.") |> load_workspace()}
+
+      {:ok, uploads} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Loaded #{length(uploads)} sample documents.")
+         |> load_workspace()}
+    end
+  end
+
   @impl true
   def handle_event("delete_document", %{"doc-id" => doc_id}, socket) do
     scope = socket.assigns.current_scope
@@ -918,6 +934,13 @@ defmodule LumainusWeb.ReportsLive do
                 phx-click={JS.dispatch("click", to: "##{@uploads.documents.ref}")}
               >
                 Select PDFs
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm w-full text-slate-700 border-slate-300"
+                phx-click="seed_sample_documents"
+              >
+                Load Sample Documents
               </button>
             </div>
             <%= for entry <- @uploads.documents.entries do %>

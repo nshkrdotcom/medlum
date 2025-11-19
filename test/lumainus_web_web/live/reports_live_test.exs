@@ -110,6 +110,20 @@ defmodule LumainusWeb.ReportsLiveTest do
     assert html =~ "MRN MRN-4242"
   end
 
+  test "loads sample documents via debug button", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/reports")
+
+    refute render(view) =~ "ED Intake"
+
+    view
+    |> element("button[phx-click=\"seed_sample_documents\"]")
+    |> render_click()
+
+    html = render(view)
+    assert html =~ "ED Intake"
+    assert html =~ "Diagnostics"
+  end
+
   test "shows inline validation errors for patient profile", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/reports")
 

@@ -6,7 +6,17 @@ defmodule Lumainus.Documents do
   import Ecto.Query, warn: false
   alias Ecto.Changeset
   alias Lumainus.Accounts.Scope
-  alias Lumainus.Documents.{DoclingIngestionWorker, DocumentUpload, IngestionEvent, IngestionJob}
+
+  alias Lumainus.Documents.{
+    DoclingIngestionWorker,
+    DocumentChunk,
+    DocumentParse,
+    DocumentUpload,
+    IngestionEvent,
+    IngestionJob,
+    SampleData
+  }
+
   alias Lumainus.Repo
   alias Oban
   alias Path
@@ -95,6 +105,28 @@ defmodule Lumainus.Documents do
     end
   end
 
+  def seed_sample_documents(%Scope{} = scope, patient, record_set) do
+    now = DateTime.utc_now(:second)
+
+    inserted =
+      SampleData.samples()
+      |> Enum.reduce([], fn sample, acc ->
+        case ensure_sample_document(scope, patient, record_set, sample, now) do
+          {:ok, upload} -> [upload | acc]
+          {:skip, _} -> acc
+        end
+      end)
+
+    case inserted do
+      [] ->
+        {:ok, :noop}
+
+      uploads ->
+        notify_documents_changed(record_set.id)
+        {:ok, Enum.reverse(uploads)}
+    end
+  end
+
   defp maybe_insert_upload(attrs) do
     tenant_id = attrs.tenant_id
     record_set_id = attrs.record_set_id
@@ -109,6 +141,102 @@ defmodule Lumainus.Documents do
       upload ->
         {:error, {:duplicate, upload}}
     end
+  end
+
+  defp ensure_sample_document(scope, patient, record_set, sample, timestamp) do
+    existing =
+      DocumentUpload
+      |> where([d], d.record_set_id == ^record_set.id)
+      |> where([d], fragment("?->>'mock_id' = ?", d.metadata, ^sample.mock_id))
+      |> Repo.one()
+
+    if existing do
+      {:skip, existing}
+    else
+      {:ok, create_sample_document(scope, patient, record_set, sample, timestamp)}
+    end
+  end
+
+  defp create_sample_document(scope, patient, record_set, sample, timestamp) do
+    content = sample_content(sample)
+    metadata = sample_metadata(sample, timestamp)
+
+    upload =
+      %DocumentUpload{}
+      |> DocumentUpload.changeset(%{
+        tenant_id: tenant_id_from_scope(scope),
+        patient_id: patient.id,
+        record_set_id: record_set.id,
+        document_kind: sample.document_kind,
+        filename: sample.filename,
+        content_type: "application/pdf",
+        byte_size: byte_size(content),
+        sha256: sha256(content),
+        status: "parsed",
+        storage_backend: "fixtures",
+        raw_blob: content,
+        metadata: metadata,
+        ingested_at: timestamp
+      })
+      |> Repo.insert!()
+
+    parse =
+      %DocumentParse{}
+      |> DocumentParse.changeset(%{
+        upload_id: upload.id,
+        parser: "sample-fixture",
+        parsed_text: content,
+        structured_metadata: %{
+          "mock_id" => sample.mock_id,
+          "lines" => sample.lines,
+          "provider" => sample.provider
+        },
+        extracted_at: timestamp,
+        patient_profile_id: patient.current_profile_id
+      })
+      |> Repo.insert!()
+
+    persist_sample_chunks(parse, sample.lines)
+
+    upload
+  end
+
+  defp sample_content(sample) do
+    sample.lines
+    |> Enum.map(& &1.text)
+    |> Enum.join("\n")
+  end
+
+  defp sample_metadata(sample, timestamp) do
+    %{
+      "label" => sample.label,
+      "mock_id" => sample.mock_id,
+      "summary" => sample.summary,
+      "provider" => sample.provider,
+      "date" => sample.date,
+      "status" => "parsed",
+      "ingestion_stage" => "completed",
+      "ingestion_progress" => 100,
+      "ingestion_message" => "Synthetic fixture loaded",
+      "ingestion_updated_at" => timestamp
+    }
+  end
+
+  defp persist_sample_chunks(parse, lines) do
+    lines
+    |> Enum.with_index(1)
+    |> Enum.each(fn {line, index} ->
+      %DocumentChunk{}
+      |> DocumentChunk.changeset(%{
+        parse_id: parse.id,
+        position: index,
+        content: line.text,
+        token_count: line.text |> String.split() |> length(),
+        line_start: index,
+        line_end: index
+      })
+      |> Repo.insert!()
+    end)
   end
 
   defp duplicate_upload(tenant_id, record_set_id, sha) do
