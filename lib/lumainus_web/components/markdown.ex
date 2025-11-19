@@ -34,13 +34,15 @@ defmodule LumainusWeb.Markdown do
     if trimmed == "" do
       render_fallback(fallback)
     else
-      case Earmark.as_html(trimmed, %Earmark.Options{smartypants: false}) do
-        {:ok, html, _} -> html |> process_provenance_links() |> HTML.raw()
-        {:error, html, _} -> html |> process_provenance_links() |> HTML.raw()
+      try do
+        case Earmark.as_html(trimmed, %Earmark.Options{smartypants: false}) do
+          {:ok, html, _} -> html |> process_provenance_links() |> HTML.raw()
+          {:error, html, _} -> html |> process_provenance_links() |> HTML.raw()
+        end
+      rescue
+        _ -> HTML.raw(trimmed)
       end
     end
-  rescue
-    _ -> HTML.raw("")
   end
 
   defp render_markdown(_, fallback), do: render_fallback(fallback)

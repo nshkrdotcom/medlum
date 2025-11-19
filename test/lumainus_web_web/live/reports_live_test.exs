@@ -266,6 +266,52 @@ defmodule LumainusWeb.ReportsLiveTest do
     assert render(view) =~ "Needs attention"
   end
 
+  test "renders section output when run succeeds", %{conn: conn, scope: scope} do
+    workspace = Reports.workspace(scope)
+    section = hd(workspace.template.sections)
+
+    run =
+      %ReportRun{}
+      |> ReportRun.changeset(%{
+        tenant_id: scope.tenant_id,
+        patient_id: workspace.patient.id,
+        record_set_id: workspace.record_set.id,
+        template_id: workspace.template.id,
+        run_type: "section",
+        status: "completed"
+      })
+      |> Repo.insert!()
+
+    section_run =
+      %ReportSectionRun{}
+      |> ReportSectionRun.changeset(%{
+        report_run_id: run.id,
+        section_template_id: section.id,
+        status: "completed",
+        output_markdown: "# Test Heading\n\nBody with [doc-101]."
+      })
+      |> Repo.insert!()
+
+    # Sanity check: the reports context should surface this run
+    sections = Reports.list_sections_with_runs(scope, workspace.record_set)
+
+    assert Enum.any?(sections, fn %{latest_run: latest} ->
+             latest && latest.id == section_run.id
+           end)
+
+    {:ok, view, _html} = live(conn, ~p"/reports")
+
+    # Ensure LiveView assigns see the completed run
+    lv_sections = view_assign(view, :sections)
+
+    assert Enum.any?(lv_sections, fn entry ->
+             entry.last_run && entry.last_run.output_markdown =~ "Test Heading"
+           end)
+
+    html = render(view)
+    assert html =~ "Test Heading"
+  end
+
   defp view_assign(view, key) do
     view.pid
     |> :sys.get_state()
