@@ -353,6 +353,9 @@ defmodule Lumainus.AI.SectionRunner do
     }
   end
 
+  @doc false
+  def schema_to_json(schema), do: decode_schema(schema)
+
   defp decode_schema(nil), do: nil
 
   defp decode_schema(%{"type" => _} = schema), do: schema
@@ -366,8 +369,10 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp build_object_schema(fields) do
+    normalized_fields = Enum.map(fields, &normalize_field/1)
+
     {properties, required} =
-      Enum.reduce(fields, {%{}, []}, fn field, {props, req} ->
+      Enum.reduce(normalized_fields, {%{}, []}, fn field, {props, req} ->
         name = field_name(field)
         schema = field_schema(field)
         updated_props = Map.put(props, name, schema)
@@ -418,9 +423,23 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp normalize_item_schema(%{} = item) do
     item
+    |> normalize_map_keys()
     |> Map.put_new("type", item["type"] || item[:type] || "string")
     |> Map.put_new("name", item["name"] || item[:name] || "item")
     |> field_schema()
+  end
+
+  defp normalize_item_schema(item) when is_list(item) do
+    cond do
+      keyword_schema_opts?(item) ->
+        item
+        |> normalize_field_opts()
+        |> Map.put_new("type", item[:type] || "string")
+        |> field_schema()
+
+      true ->
+        %{"type" => "object", "fields" => Enum.map(item, &normalize_field/1)}
+    end
   end
 
   defp field_name(field) do
@@ -433,6 +452,161 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp field_type(field) do
     field["type"] || field[:type] || "string"
+  end
+
+  defp normalize_field(%{} = field) do
+    field
+    |> normalize_map_keys()
+    |> maybe_normalize_nested("fields")
+    |> maybe_normalize_nested("items")
+  end
+
+  defp normalize_field({name, opts}) when is_atom(name) or is_binary(name) do
+    base =
+      %{}
+      |> Map.put("name", to_string(name))
+      |> Map.merge(normalize_field_opts(opts))
+
+    base
+  end
+
+  defp normalize_field(other) do
+    %{
+      "name" => "field_#{System.unique_integer([:positive])}",
+      "type" => "string",
+      "value" => other
+    }
+  end
+
+  defp normalize_field_opts(nil), do: %{}
+
+  defp normalize_field_opts(%{} = opts) do
+    opts
+    |> normalize_map_keys()
+    |> maybe_normalize_nested("fields")
+    |> maybe_normalize_nested("items")
+  end
+
+  defp normalize_field_opts(opts) when is_list(opts) do
+    Enum.reduce(opts, %{}, fn
+      {:type, type}, acc ->
+        info = parse_type_info(type)
+
+        acc
+        |> maybe_put("type", info[:type])
+        |> maybe_put("items", normalize_value_schema(info[:items]))
+        |> maybe_put("fields", normalize_fields(info[:fields]))
+
+      {:items, value}, acc ->
+        acc
+        |> Map.put("type", "list")
+        |> Map.put("items", normalize_value_schema(value))
+
+      {:fields, value}, acc ->
+        Map.put(acc, "fields", normalize_fields(value))
+
+      {:keys, value}, acc ->
+        Map.put(acc, "fields", normalize_fields(value))
+
+      {:required, value}, acc ->
+        if truthy?(value), do: Map.put(acc, "required", true), else: acc
+
+      {key, value}, acc ->
+        Map.put(acc, normalize_key(key), value)
+    end)
+  end
+
+  defp parse_type_info({:list, inner}), do: %{type: "list", items: inner}
+  defp parse_type_info({:map, inner}), do: %{type: "map", fields: inner}
+  defp parse_type_info(type) when is_atom(type), do: %{type: Atom.to_string(type)}
+  defp parse_type_info(type) when is_binary(type), do: %{type: type}
+  defp parse_type_info(_), do: %{type: "string"}
+
+  defp normalize_value_schema(nil), do: nil
+
+  defp normalize_value_schema({:list, inner}) do
+    %{"type" => "array", "items" => normalize_value_schema(inner)}
+  end
+
+  defp normalize_value_schema({:map, inner}) do
+    %{"type" => "object"}
+    |> maybe_put("fields", normalize_fields(inner))
+  end
+
+  defp normalize_value_schema(value) when is_list(value) do
+    if keyword_schema_opts?(value) do
+      normalize_field_opts(value)
+    else
+      %{"type" => "object"}
+      |> maybe_put("fields", normalize_fields(value))
+    end
+  end
+
+  defp normalize_value_schema(%{} = value) do
+    normalize_map_keys(value)
+    |> maybe_normalize_nested("fields")
+    |> maybe_normalize_nested("items")
+  end
+
+  defp normalize_value_schema(value) when is_atom(value) do
+    %{"type" => Atom.to_string(value)}
+  end
+
+  defp normalize_value_schema(value) when is_binary(value) do
+    %{"type" => value}
+  end
+
+  defp normalize_value_schema(value), do: %{"type" => "string", "value" => value}
+
+  defp normalize_fields(nil), do: nil
+
+  defp normalize_fields(fields) when is_list(fields) do
+    Enum.map(fields, &normalize_field/1)
+  end
+
+  defp normalize_fields(%{} = map) do
+    inner = Map.get(map, "fields") || Map.get(map, :fields)
+    normalize_fields(inner)
+  end
+
+  defp normalize_fields(_), do: nil
+
+  defp normalize_map_keys(map) do
+    map
+    |> Enum.reduce(%{}, fn {key, value}, acc ->
+      Map.put(acc, normalize_key(key), value)
+    end)
+  end
+
+  defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_key(key), do: key
+
+  defp maybe_normalize_nested(map, key) do
+    cond do
+      Map.has_key?(map, key) ->
+        Map.update!(map, key, &normalize_value_schema/1)
+
+      Map.has_key?(map, String.to_atom(key)) ->
+        atom_key = String.to_atom(key)
+        value = Map.get(map, atom_key)
+
+        map
+        |> Map.delete(atom_key)
+        |> Map.put(key, normalize_value_schema(value))
+
+      true ->
+        map
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp keyword_schema_opts?(list) do
+    Enum.all?(list, fn
+      {key, _value} when is_atom(key) or is_binary(key) -> true
+      _ -> false
+    end)
   end
 
   defp truthy?(value), do: value not in [nil, false]

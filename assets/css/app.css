@@ -109,7 +109,41 @@
 .daisy-select,
 .input,
 .textarea,
-.select {
-  background-color: #fff;
-  color: #0f172a;
+.select,
+input.input,
+textarea.textarea,
+select.select {
+  background-color: #fff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.input::placeholder,
+.textarea::placeholder,
+.daisy-input::placeholder,
+.daisy-textarea::placeholder {
+  color: #94a3b8;
+}
+
+.fieldset .label,
+.label {
+  color: #475569;
+  font-weight: 500;
+}
+
+.global-nav__brand {
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.global-nav__tagline {
+  letter-spacing: 0.3em;
+  white-space: nowrap;
+  color: #94a3b8;
+}
+
+@media (max-width: 1110px) {
+  .global-nav__brand {
+    width: 100%;
+  }
 }

@@ -104,4 +104,41 @@ defmodule Lumainus.AI.SectionRunnerTest do
       Application.put_env(:lumainus, :llm, original)
     end
   end
+
+  describe "schema_to_json/1" do
+    test "normalizes keyword schemas with list items" do
+      keyword_schema = [
+        title: [type: :string, required: true],
+        summary: [type: :string, required: true],
+        markdown: [type: :string, required: true],
+        citations: [
+          type: :list,
+          required: true,
+          items: [
+            type: :map,
+            fields: [
+              label: [type: :string, required: true],
+              document_id: [type: :string, required: true],
+              document_reference: [type: :string],
+              line_start: [type: :integer],
+              line_end: [type: :integer]
+            ]
+          ]
+        ]
+      ]
+
+      json = SectionRunner.schema_to_json(keyword_schema)
+
+      assert json["type"] == "object"
+      assert Enum.sort(json["required"]) == ~w[citations markdown summary title]
+
+      citations = json["properties"]["citations"]
+      assert citations["type"] == "array"
+
+      item_schema = citations["items"]
+      assert item_schema["type"] == "object"
+      assert item_schema["properties"]["label"]["type"] == "string"
+      assert Enum.member?(item_schema["required"], "label")
+    end
+  end
 end

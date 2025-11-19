@@ -44,14 +44,15 @@ defmodule LumainusWeb.ReportsLive do
 
   @impl true
   def handle_event("select_document", %{"doc-id" => doc_id}, socket) do
+    doc_id = to_string(doc_id)
     current = socket.assigns.selected_document
 
     cond do
-      current && current.id == doc_id ->
+      current && to_string(current.id) == doc_id ->
         {:noreply, assign(socket, selected_document: nil)}
 
       true ->
-        doc = Enum.find(socket.assigns.documents, &(&1.id == doc_id))
+        doc = Enum.find(socket.assigns.documents, &(to_string(&1.id) == doc_id))
         {:noreply, assign(socket, selected_document: doc)}
     end
   end
@@ -557,18 +558,22 @@ defmodule LumainusWeb.ReportsLive do
       }
 
       .patient-actions .manage-btn {
-        border: 1px solid #e2e8f0;
+        border: 1px solid #cbd5e1;
         color: #0f172a;
-        background: #fff;
+        background: linear-gradient(135deg, #f8fbff, #eef4ff);
         border-radius: 999px;
-        padding: 6px 14px;
+        padding: 6px 16px;
         font-size: 12px;
-        font-weight: 500;
-        transition: background 0.2s ease;
+        font-weight: 600;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
       }
 
-      .patient-actions .manage-btn:hover {
-        background: #f8fafc;
+      .patient-actions .manage-btn:hover,
+      .patient-actions .manage-btn:focus-visible {
+        background: linear-gradient(135deg, #e0ecff, #f3f8ff);
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+        transform: translateY(-1px);
       }
 
       .reports-body {
@@ -661,6 +666,16 @@ defmodule LumainusWeb.ReportsLive do
         background: #fff !important;
         color: #0f172a;
         border-color: #e2e8f0;
+      }
+
+      .patient-modal .input::placeholder,
+      .patient-modal .textarea::placeholder {
+        color: #94a3b8;
+      }
+
+      .patient-modal .label {
+        color: #475569;
+        font-weight: 600;
       }
 
       .patient-modal-grid {
@@ -901,7 +916,7 @@ defmodule LumainusWeb.ReportsLive do
         </div>
         <div class="patient-actions">
           <button class="manage-btn" phx-click="open_patient_modal">
-            Edit Patient Info
+            Manage Workspace
           </button>
           <button
             class="btn btn-primary"
@@ -1023,7 +1038,9 @@ defmodule LumainusWeb.ReportsLive do
                   </div>
                 </div>
                 <div class="doc-detail-actions">
-                  <button class="btn btn-ghost btn-xs" phx-click="clear_document">Close</button>
+                  <button class="btn btn-outline btn-xs text-slate-600" phx-click="clear_document">
+                    Collapse
+                  </button>
                   <button
                     class="btn btn-error btn-xs"
                     phx-click="delete_document"
