@@ -12,7 +12,7 @@
 - Every artifact (uploads, prompts, outputs, provenance) lives in Postgres with timestamps and FK chains for HIPAA audits.
 - Multi-tenancy: start with one tenant, but all domain objects need a `tenant_id` (or derivable tenant) and role-aware access via `Lumainus.Accounts.Scope`.
 - Patients are deduplicated + versioned (slowly changing dimension) because the LLM may update demographics over time but we keep the full history.
-- `/reports` runs per patient, per template section; each run makes **one ReqLLM structured-output call** using Gemini Flash Lite.
+- `/reports` runs per patient, per template section; each run makes **one GeminiEx structured-output call** through the LLM facade.
 - Logs: store prompts, responses, tool metadata, provider usage metrics, human edits.
 
 ---
@@ -65,7 +65,7 @@ SCD pattern lets clinicians correct auto-detected names while preserving provena
 | Table | Key fields | Description |
 | --- | --- | --- |
 | `report_templates` | `id`, `tenant_id`, `name`, `slug`, `description`, `status`, `version`, `default_prompt_options` | Defines a bundle of sections (e.g., “Cardiology Initial Assessment”). |
-| `report_section_templates` | `id`, `template_id`, `identifier`, `title`, `prompt_template`, `output_schema`, `order`, `auto_run`, `provider`, `model`, `temperature`, `max_output_tokens` | Each section corresponds to one button in `/reports`. `output_schema` stores NimbleOptions map for ReqLLM structured responses. |
+| `report_section_templates` | `id`, `template_id`, `identifier`, `title`, `prompt_template`, `output_schema`, `order`, `auto_run`, `provider`, `model`, `temperature`, `max_output_tokens` | Each section corresponds to one button in `/reports`. `output_schema` stores NimbleOptions definitions for the structured responses expected by the LLM. |
 | `report_template_documents` | `template_id`, `document_kind`, `required` | Declares which doc types feed a template (future-proof). |
 
 Sections inject concatenated document text + structured metadata when building prompts.
@@ -76,7 +76,7 @@ Sections inject concatenated document text + structured metadata when building p
 
 | Table | Key fields | Notes |
 | --- | --- | --- |
-| `llm_invocations` | `id`, `tenant_id`, `provider`, `model`, `prompt_context`, `response_text`, `response_object`, `usage`, `status`, `error`, `temperature`, `max_output_tokens`, `req_duration_ms`, `request_id` | Canonical log for every ReqLLM call (structured outputs stored in `response_object`). |
+| `llm_invocations` | `id`, `tenant_id`, `provider`, `model`, `prompt_context`, `response_text`, `response_object`, `usage`, `status`, `error`, `temperature`, `max_output_tokens`, `req_duration_ms`, `request_id` | Canonical log for every GeminiEx call (structured outputs stored in `response_object`). |
 | `report_runs` | `id`, `tenant_id`, `patient_id`, `template_id`, `triggered_by_user_id`, `run_type`, `status`, `started_at`, `finished_at`, `llm_invocation_summary_id` | Represents running ALL sections or a subset. |
 | `report_section_runs` | `id`, `report_run_id`, `section_template_id`, `status`, `llm_invocation_id`, `prompt_inputs`, `output_markdown`, `output_object`, `confidence_score`, `error`, `inline_citations`, `provenance_graph` | Each section’s execution + parsed structured output. |
 | `report_section_citations` | `id`, `section_run_id`, `document_id`, `source_span`, `citation_label` | Grounds inline citations to documents. |
@@ -98,11 +98,11 @@ Published reports always point to the exact section run + patient profile used a
 
 ---
 
-## 8. LLM Abstraction (ReqLLM)
+## 8. LLM Abstraction (GeminiEx Facade)
 
 - **Provider registry:** Store provider + model on `report_section_templates`. Default to `"google:gemini-flash-lite-latest"` but keep columns for overrides.
-- **Structured outputs:** `report_section_templates.output_schema` holds NimbleOptions definitions. The runner converts those definitions into the JSON schema that ReqLLM expects.
-- **Key management:** Use `ReqLLM.Keys` via runtime config. Tenants may later carry their own API keys through `tenant_settings`.
+- **Structured outputs:** `report_section_templates.output_schema` holds NimbleOptions definitions. The runner converts those definitions into the JSON schema that `GeminiEx` expects as a `response_schema`.
+- **Key management:** Configure `:gemini_ex` via runtime config (`GEMINI_API_KEY`/`GOOGLE_API_KEY`). Tenants may later carry their own API keys through `tenant_settings`.
 - **Service module outline:**
   ```elixir
   defmodule Lumainus.AI.SectionRunner do
@@ -114,12 +114,13 @@ Published reports always point to the exact section run + patient profile used a
       model = section_template.model || default_model(section_template.provider)
 
       {:ok, response} =
-        ReqLLM.generate_object(
+        Lumainus.LLM.generate_object(
           model,
-          context,
+          render_prompt(context),
           schema,
           temperature: section_template.temperature,
-          max_output_tokens: section_template.max_output_tokens
+          max_output_tokens: section_template.max_output_tokens,
+          system_instruction: system_prompt()
         )
 
       persist(response, context, ...)

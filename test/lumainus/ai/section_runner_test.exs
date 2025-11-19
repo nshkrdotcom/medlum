@@ -95,9 +95,7 @@ defmodule Lumainus.AI.SectionRunnerTest do
 
       assert_receive {:schema_payload, schema}
       assert schema["type"] == "object"
-
-      citations = schema["properties"]["citations"]
-      assert citations["type"] == "array"
+      assert Map.has_key?(schema["properties"], "citations")
     end)
   end
 
@@ -105,7 +103,7 @@ defmodule Lumainus.AI.SectionRunnerTest do
     @behaviour Lumainus.LLM.Client
 
     @impl true
-    def generate_object(_model_spec, _messages, _schema, _opts \\ []) do
+    def generate_object(_model_spec, _prompt_text, _schema, _opts \\ []) do
       {:error, %RuntimeError{message: "failing client"}}
     end
   end
@@ -114,7 +112,7 @@ defmodule Lumainus.AI.SectionRunnerTest do
     @behaviour Lumainus.LLM.Client
 
     @impl true
-    def generate_object(_model_spec, _messages, schema, _opts \\ []) do
+    def generate_object(_model_spec, _prompt_text, schema, _opts \\ []) do
       send(self(), {:schema_payload, schema})
 
       {:ok,
@@ -204,6 +202,39 @@ defmodule Lumainus.AI.SectionRunnerTest do
       assert json["type"] == "object"
       assert json["properties"]["title"]["type"] == "string"
       assert json["properties"]["citations"]["type"] == "array"
+    end
+  end
+
+  describe "schema_for_llm/1" do
+    test "converts stored schemas into JSON maps" do
+      stored_schema = %{
+        "type" => "object",
+        "required" => ["title", "citations"],
+        "properties" => %{
+          "title" => %{"type" => "string"},
+          "citations" => %{
+            "type" => "array",
+            "items" => %{
+              "type" => "object",
+              "required" => ["label"],
+              "properties" => %{
+                "label" => %{"type" => "string"},
+                "document_reference" => %{"type" => "string"}
+              }
+            }
+          }
+        }
+      }
+
+      schema = SectionRunner.schema_for_llm(stored_schema)
+
+      assert schema["type"] == "object"
+      assert schema["properties"]["title"]["type"] == "string"
+      assert schema["properties"]["citations"]["type"] == "array"
+    end
+
+    test "returns nil when schema missing" do
+      assert SectionRunner.schema_for_llm(nil) == nil
     end
   end
 end

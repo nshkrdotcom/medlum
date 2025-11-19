@@ -31,12 +31,13 @@ defmodule Lumainus.AI.SectionRunner do
     prompt_text =
       render_prompt(section_template.prompt_template, prompt_context, section_template.title)
 
-    schema = schema_to_json(section_template.output_schema)
+    schema = schema_for_llm(section_template.output_schema)
     model_spec = AI.model_spec(section_template)
 
     options =
       AI.options(section_template)
       |> Keyword.put(:prompt_context, prompt_context)
+      |> Keyword.put(:system_instruction, @system_prompt)
 
     llm =
       %LlmInvocation{}
@@ -120,12 +121,7 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp invoke_llm(model_spec, prompt_text, schema, options) do
-    messages = [
-      %{role: :system, content: @system_prompt},
-      %{role: :user, content: prompt_text}
-    ]
-
-    AI.client().generate_object(model_spec, messages, schema, options)
+    AI.client().generate_object(model_spec, prompt_text, schema, options)
   rescue
     error ->
       {:error, Exception.message(error)}
@@ -355,6 +351,12 @@ defmodule Lumainus.AI.SectionRunner do
 
   @doc false
   def schema_to_json(schema), do: decode_schema(schema)
+
+  @doc false
+  def schema_for_llm(schema) do
+    schema
+    |> schema_to_json()
+  end
 
   defp decode_schema(nil), do: nil
 

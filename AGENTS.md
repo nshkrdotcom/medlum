@@ -89,7 +89,7 @@ lumainus/
 - `lib/lumainus/accounts/` owns users, invitations, session tokens, and `scope.ex`; everything that calls into contexts must pass a `Lumainus.Accounts.Scope` (see `lib/lumainus/accounts/scope.ex`) so role-aware queries stay centralized.
 - `lib/lumainus_web/user_auth.ex` wires the plugs (`fetch_current_scope_for_user/2`, `require_*_role/2`, etc.) and handles remember-me cookies + session reissue logic; all LiveView mounts rely on the `current_scope` assign from this module.
 - Authentication-facing LiveViews live in `lib/lumainus_web/live/user_live/` (login, registration, settings) and already follow `Layouts.app`; admin tooling resides in `lib/lumainus_web/live/admin/invitations_live.ex` and exercises `Lumainus.Accounts` end-to-end.
-- `/reports` (`lib/lumainus_web/live/reports_live.ex`) now pulls from the real ingestion pipeline (PDF uploads + ReqLLM markdown extraction). Use the `/prompts` editor to tweak prompts for each section or for the ingestion step.
+- `/reports` (`lib/lumainus_web/live/reports_live.ex`) now pulls from the real ingestion pipeline (PDF uploads + GeminiEx-powered markdown generation via the LLM facade). Use the `/prompts` editor to tweak prompts for each section or for the ingestion step.
 - Tailwind 4 lives in `assets/css/app.css` with the `@import "tailwindcss" source(none)` + `@source` directives; DaisyUI themes are registered inline so new components should stay compatible with this file rather than adding ad-hoc CSS frameworks.
 - Tests are split between `test/lumainus_web` (contexts) and `test/lumainus_web_web/{controllers,live}` (router/auth/LiveView exercises). Add regression coverage next to whichever module you touch (ex: LiveView tests in `test/lumainus_web_web/live/*_test.exs`).
 

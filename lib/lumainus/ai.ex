@@ -3,11 +3,9 @@ defmodule Lumainus.AI do
   Central configuration and helper utilities for LLM integrations.
   """
 
-  alias Lumainus.LLM.GeminiClient
-
   def client do
     config()
-    |> Keyword.get(:client, GeminiClient)
+    |> Keyword.get(:client, Lumainus.LLM)
   end
 
   def model_spec(section_template \\ nil) do

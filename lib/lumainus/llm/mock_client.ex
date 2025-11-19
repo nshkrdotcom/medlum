@@ -7,7 +7,7 @@ defmodule Lumainus.LLM.MockClient do
   @behaviour Lumainus.LLM.Client
 
   @impl true
-  def generate_object(_model_spec, messages, _schema, opts \\ []) do
+  def generate_object(_model_spec, prompt_text, _schema, opts \\ []) do
     context = Keyword.get(opts, :prompt_context) || %{}
     documents = Map.get(context, :documents) || Map.get(context, "documents") || []
     first_doc = List.first(documents) || %{}
@@ -15,15 +15,7 @@ defmodule Lumainus.LLM.MockClient do
     doc_id = first_doc["id"] || first_doc[:id] || "doc-001"
 
     prompt_excerpt =
-      messages
-      |> Enum.filter(fn message ->
-        role = Map.get(message, :role) || Map.get(message, "role")
-        role in [:user, "user"]
-      end)
-      |> Enum.map(&(Map.get(&1, :content) || Map.get(&1, "content")))
-      |> Enum.reject(&is_nil/1)
-      |> List.last()
-      |> to_string()
+      prompt_text
       |> String.slice(0, 140)
 
     markdown = """

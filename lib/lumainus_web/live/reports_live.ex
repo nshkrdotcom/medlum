@@ -8,6 +8,7 @@ defmodule LumainusWeb.ReportsLive do
   alias MapSet
   alias Path
   alias Phoenix.LiveView.JS
+  alias LumainusWeb.Markdown
   require Logger
 
   @impl true
@@ -867,6 +868,40 @@ defmodule LumainusWeb.ReportsLive do
         line-height: 1.5;
       }
 
+      .markdown-body {
+        line-height: 1.7;
+        color: #0f172a;
+      }
+
+      .markdown-body h1,
+      .markdown-body h2,
+      .markdown-body h3,
+      .markdown-body h4 {
+        margin: 1.25rem 0 0.5rem;
+        font-weight: 600;
+      }
+
+      .markdown-body p {
+        margin: 0.75rem 0;
+      }
+
+      .markdown-body ul {
+        list-style: disc;
+        margin: 0.5rem 0 0.5rem 1.25rem;
+      }
+
+      .markdown-body li {
+        margin-bottom: 0.35rem;
+      }
+
+      .markdown-body strong {
+        color: #0f172a;
+      }
+
+      .report-markdown {
+        font-size: 14px;
+      }
+
       .citations {
         display: flex;
         flex-wrap: wrap;
@@ -1131,9 +1166,11 @@ defmodule LumainusWeb.ReportsLive do
                   <div style="margin-bottom: 12px; font-size: 12px; color: #94a3b8;">
                     Updated {format_timestamp(section_entry.last_run.updated_at)}
                   </div>
-                  <div class="markdown" style="font-size: 14px; color: #0f172a;">
-                    {Phoenix.HTML.raw(section_entry.last_run.output_markdown || "Awaiting output")}
-                  </div>
+                  <Markdown.markdown
+                    content={section_entry.last_run.output_markdown}
+                    fallback="Awaiting output"
+                    class="report-markdown"
+                  />
                 <% else %>
                   <div style="font-size: 13px; color: #94a3b8;">
                     No output generated yet. Run this section to produce the initial draft.

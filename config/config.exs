@@ -40,7 +40,7 @@ config :lumainus, Oban,
 config :lumainus, :llm,
   default_provider: "google",
   default_model: "gemini-flash-lite-latest",
-  client: Lumainus.LLM.GeminiClient,
+  client: Lumainus.LLM,
   enabled: true,
   default_options: [temperature: 0.2, max_output_tokens: 2048]
 

@@ -21,7 +21,7 @@ defmodule Lumainus.MixProject do
   def application do
     [
       mod: {Lumainus.Application, []},
-      extra_applications: [:logger, :runtime_tools, :crypto, :req_llm]
+      extra_applications: [:logger, :runtime_tools, :crypto]
     ]
   end
 
@@ -60,8 +60,8 @@ defmodule Lumainus.MixProject do
        depth: 1},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
-      {:req_llm, github: "nshkrdotcom/req_llm", ref: "67d7a53cf932aebff91bd1ecb1cd1d1e7c110e78"},
-      {:gemini_ex, "~> 0.4"},
+      {:gemini_ex, "~> 0.4.0"},
+      {:earmark, "~> 1.4"},
       {:oban, "~> 2.17"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
