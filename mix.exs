@@ -70,7 +70,7 @@ defmodule Lumainus.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:jose, "~> 1.11.10", override: true},  # Pin to 1.11.10 for OTP 25/26 compatibility
+      {:jose, "== 1.11.10", override: true},  # Pin to 1.11.10 for OTP 25/26 compatibility
       {:tidewave, "~> 0.5", only: :dev},
       {:bypass, "~> 2.1", only: :test}
     ]
