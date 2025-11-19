@@ -48,10 +48,6 @@ defmodule LumainusWeb.Markdown do
   defp render_fallback(nil), do: HTML.raw("")
   defp render_fallback(content), do: HTML.raw(content)
 
-  @doc """
-  Converts inline provenance references like `[doc-101:L001]` into clickable buttons
-  that trigger the document modal.
-  """
   defp process_provenance_links(html) when is_binary(html) do
     # Match patterns like [doc-123:L001] or [doc-uuid:label]
     # Captures the full doc-XXX part and the label separately
