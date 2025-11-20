@@ -106,10 +106,10 @@ if config_env() == :prod do
     adapter: Swoosh.Adapters.SMTP,
     relay: System.get_env("SMTP_RELAY") || "localhost",
     port: String.to_integer(System.get_env("SMTP_PORT") || "25"),
-    username: System.get_env("SMTP_USERNAME"),
-    password: System.get_env("SMTP_PASSWORD"),
+    username: System.get_env("SMTP_USERNAME") || "",
+    password: System.get_env("SMTP_PASSWORD") || "",
     tls: :if_available,
-    auth: :if_available,
+    auth: :never,
     retries: 2
 
   # Database configuration
