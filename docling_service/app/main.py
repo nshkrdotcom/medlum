@@ -42,7 +42,7 @@ app.add_middleware(
 
 _converter = DocumentConverter()
 _converter_lock = asyncio.Lock()
-_conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "90"))
+_conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "300"))
 
 
 async def _convert_source(source: str, source_kind: str) -> Dict[str, Any]:

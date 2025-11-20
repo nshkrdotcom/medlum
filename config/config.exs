@@ -26,7 +26,7 @@ config :lumainus,
 
 config :lumainus, :docling,
   base_url: "http://127.0.0.1:8042",
-  request_timeout: 60_000,
+  request_timeout: 300_000,
   health_cron: "*/5 * * * *"
 
 config :lumainus, Oban,
