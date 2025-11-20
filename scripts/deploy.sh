@@ -51,6 +51,20 @@ run_remote_env() {
   run_remote "set -a && source $ENV_FILE && set +a && MIX_ENV=\${MIX_ENV:-prod} $cmd"
 }
 
+ensure_dir_ownership() {
+  local dir="$1"
+  ssh "$SERVER" "sudo bash -s" <<EOF
+set -euo pipefail
+cd $REMOTE_DIR
+if [ -d "$dir" ]; then
+  if find "$dir" ! -user $REMOTE_USER -print -quit | grep -q .; then
+    echo "🔐 Fixing ownership for $dir"
+    chown -R $REMOTE_USER:$REMOTE_USER "$dir"
+  fi
+fi
+EOF
+}
+
 echo "🚀 Deploying Lumainus to dev.lumainus.com..."
 
 if $REFRESH_RUNTIME; then
@@ -60,6 +74,10 @@ fi
 
 echo "📥 Pulling latest code..."
 run_remote "git fetch origin main && git reset --hard origin/main"
+
+echo "🔐 Ensuring build/deps ownership..."
+ensure_dir_ownership "_build"
+ensure_dir_ownership "deps"
 
 echo "📦 Installing dependencies..."
 run_remote_env "mix deps.get --only prod"
