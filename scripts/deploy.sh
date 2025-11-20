@@ -1,8 +1,40 @@
 #!/usr/bin/env bash
 # Deploy script for Lumainus
-# Usage: ./scripts/deploy.sh
+# Usage: ./scripts/deploy.sh [--refresh-runtime]
 
 set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: $0 [--refresh-runtime]
+
+  --refresh-runtime    Stop the running Phoenix service before building,
+                       install prod deps, run MIX_ENV=prod mix compile,
+                       then start the service again. Use this when new
+                       dependencies (like SMTP adapters) are added so the
+                       long-running Mix server reloads everything cleanly.
+EOF
+}
+
+REFRESH_RUNTIME=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --refresh-runtime)
+      REFRESH_RUNTIME=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
 
 SERVER="lu"
 REMOTE_DIR="/var/www/lumainus"
@@ -21,11 +53,21 @@ run_remote_env() {
 
 echo "🚀 Deploying Lumainus to dev.lumainus.com..."
 
+if $REFRESH_RUNTIME; then
+  echo "🛑 Stopping service before build (refresh runtime)..."
+  ssh "$SERVER" "sudo systemctl stop lumainus"
+fi
+
 echo "📥 Pulling latest code..."
 run_remote "git fetch origin main && git reset --hard origin/main"
 
 echo "📦 Installing dependencies..."
 run_remote_env "mix deps.get --only prod"
+
+if $REFRESH_RUNTIME; then
+  echo "🛠️  Compiling application with MIX_ENV=prod..."
+  run_remote_env "mix compile"
+fi
 
 echo "🎨 Compiling assets..."
 run_remote_env "mix assets.deploy"
