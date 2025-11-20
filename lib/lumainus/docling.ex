@@ -15,6 +15,16 @@ defmodule Lumainus.Docling do
   def convert(binary, opts) when is_binary(binary) do
     filename = Keyword.fetch!(opts, :filename)
     content_type = Keyword.get(opts, :content_type, "application/pdf")
+    upload_id = Keyword.get(opts, :upload_id)
+    job_id = Keyword.get(opts, :job_id)
+    byte_size = Keyword.get(opts, :byte_size, byte_size(binary))
+    timeout_ms = timeout()
+    metadata = Logger.metadata()
+
+    Logger.metadata(
+      metadata ++
+        [docling_upload_id: upload_id, docling_job_id: job_id, docling_filename: filename]
+    )
 
     fields =
       [
@@ -26,10 +36,28 @@ defmodule Lumainus.Docling do
           size: Keyword.get(opts, :byte_size, byte_size(binary))}}
       ]
 
-    request(:post, "/convert",
-      form_multipart: fields,
-      receive_timeout: timeout()
-    )
+    Logger.info("Docling convert start (#{byte_size} bytes, timeout=#{timeout_ms}ms)")
+    started = System.monotonic_time(:millisecond)
+
+    response =
+      request(:post, "/convert",
+        form_multipart: fields,
+        receive_timeout: timeout_ms
+      )
+
+    duration = System.monotonic_time(:millisecond) - started
+
+    case response do
+      {:ok, _} = ok ->
+        Logger.info("Docling convert succeeded in #{duration}ms")
+        Logger.metadata(metadata)
+        ok
+
+      {:error, reason} = error ->
+        Logger.error("Docling convert errored in #{duration}ms: #{inspect(reason)}")
+        Logger.metadata(metadata)
+        error
+    end
   end
 
   @doc """

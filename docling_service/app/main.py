@@ -6,8 +6,9 @@ import asyncio
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +42,7 @@ app.add_middleware(
 
 _converter = DocumentConverter()
 _converter_lock = asyncio.Lock()
+_conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "90"))
 
 
 async def _convert_source(source: str, source_kind: str) -> Dict[str, Any]:
@@ -112,6 +114,7 @@ async def _persist_upload(upload: UploadFile) -> str:
     """Persist an uploaded file to a temporary path and return it."""
     suffix = Path(upload.filename or "document.pdf").suffix or ".pdf"
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    total_bytes = 0
 
     try:
         with os.fdopen(fd, "wb") as tmp:
@@ -119,9 +122,10 @@ async def _persist_upload(upload: UploadFile) -> str:
                 chunk = await upload.read(1_048_576)
                 if not chunk:
                     break
+                total_bytes += len(chunk)
                 tmp.write(chunk)
-        logger.info("Saved uploaded file to %s", tmp_path)
-        return tmp_path
+        logger.info("Saved uploaded file to %s (%s bytes)", tmp_path, total_bytes)
+        return tmp_path, total_bytes
     except Exception:
         os.unlink(tmp_path)
         raise
@@ -161,19 +165,58 @@ async def convert_document(
     source_kind = "url"
     source_to_convert = source_url
 
+    upload_size: Optional[int] = None
+
     if not source_url:
         source_kind = "upload"
-        temp_path = await _persist_upload(file)  # type: ignore[arg-type]
+        temp_path, upload_size = await _persist_upload(file)  # type: ignore[arg-type]
         source_to_convert = temp_path
+    elif source_to_convert:
+        try:
+            upload_size = Path(source_to_convert).stat().st_size
+        except OSError:
+            upload_size = None
+
+    logger.info(
+        "Docling request received (kind=%s, size=%s bytes, timeout=%ss)",
+        source_kind,
+        upload_size,
+        _conversion_timeout,
+    )
+    started = time.perf_counter()
 
     try:
-        result = await _convert_source(source_to_convert, source_kind)
+        result = await asyncio.wait_for(
+            _convert_source(source_to_convert, source_kind),
+            timeout=_conversion_timeout,
+        )
+    except asyncio.TimeoutError:
+        elapsed = time.perf_counter() - started
+        logger.error(
+            "Docling conversion timed out after %.2fs (kind=%s, size=%s bytes)",
+            elapsed,
+            source_kind,
+            upload_size,
+        )
+        raise HTTPException(status_code=504, detail="Docling conversion timed out")
     except Exception as err:  # pragma: no cover - surfaced to client
-        logger.exception("Docling conversion failed")
+        elapsed = time.perf_counter() - started
+        logger.exception(
+          "Docling conversion failed after %.2fs (kind=%s, size=%s bytes)",
+          elapsed,
+          source_kind,
+          upload_size,
+        )
         raise HTTPException(status_code=500, detail=str(err)) from err
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
+    logger.info(
+        "Docling conversion completed in %.2fs (kind=%s, size=%s bytes)",
+        time.perf_counter() - started,
+        source_kind,
+        upload_size,
+    )
 
     if not output_markdown:
         result.pop("markdown", None)

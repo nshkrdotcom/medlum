@@ -2,6 +2,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   use LumainusWeb, :live_view
 
   alias Lumainus.Accounts
+  alias Lumainus.Docling
   alias LumainusWeb.CoreComponents
 
   @impl true
@@ -12,6 +13,23 @@ defmodule LumainusWeb.Admin.InvitationsLive do
         <h1 class="text-3xl font-bold text-gray-900">Invitation Management</h1>
         <p class="mt-2 text-sm text-gray-600">
           Create and manage invitation links for new users
+        </p>
+      </div>
+
+      <div class="bg-white shadow-sm rounded-lg p-6 mb-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-slate-600">Docling ingestion service</p>
+            <p class="text-xs text-slate-500">
+              Last check: {docling_check_timestamp(@docling_health)}
+            </p>
+          </div>
+          <span class={docling_status_badge_class(@docling_health)}>
+            {docling_status_label(@docling_health)}
+          </span>
+        </div>
+        <p class="mt-3 text-sm text-slate-600">
+          {docling_status_message(@docling_health)}
         </p>
       </div>
 
@@ -151,10 +169,11 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   @impl true
   def mount(_params, _session, socket) do
     invitations = Accounts.list_invitations()
+    docling_health = Docling.latest_health_check()
 
     {:ok,
      socket
-     |> assign(invitations: invitations, form: to_form(%{}))}
+     |> assign(invitations: invitations, docling_health: docling_health, form: to_form(%{}))}
   end
 
   @impl true
@@ -213,6 +232,49 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   defp humanize_role("admin"), do: "Administrator"
   defp humanize_role("system_administrator"), do: "System Administrator"
   defp humanize_role(role), do: role
+
+  defp docling_status_label(%{status: "healthy"}), do: "Healthy"
+  defp docling_status_label(%{status: "unreachable"}), do: "Unreachable"
+  defp docling_status_label(nil), do: "Unknown"
+  defp docling_status_label(%{status: status}), do: String.capitalize(status)
+
+  defp docling_status_badge_class(%{status: "healthy"}) do
+    "inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800"
+  end
+
+  defp docling_status_badge_class(%{status: "unreachable"}) do
+    "inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800"
+  end
+
+  defp docling_status_badge_class(_),
+    do:
+      "inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-800"
+
+  defp docling_status_message(%{status: "healthy", details: details}) do
+    "Responding with #{details_description(details)}"
+  end
+
+  defp docling_status_message(%{status: "unreachable", details: details}) do
+    Map.get(details || %{}, "error", "Service unreachable")
+  end
+
+  defp docling_status_message(_), do: "No health checks recorded yet."
+
+  defp docling_check_timestamp(%{responded_at: timestamp}) when not is_nil(timestamp) do
+    Calendar.strftime(timestamp, "%b %d, %Y %H:%M UTC")
+  end
+
+  defp docling_check_timestamp(%{inserted_at: timestamp}) when not is_nil(timestamp) do
+    Calendar.strftime(timestamp, "%b %d, %Y %H:%M UTC")
+  end
+
+  defp docling_check_timestamp(_), do: "Never"
+
+  defp details_description(%{} = details) when map_size(details) > 0 do
+    inspect(details)
+  end
+
+  defp details_description(_), do: "no additional metadata"
 
   defp invitation_error_message(%Ecto.Changeset{} = changeset) do
     errors = changeset.errors

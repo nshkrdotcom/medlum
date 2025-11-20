@@ -218,22 +218,22 @@ defmodule LumainusWeb.ReportsLiveTest do
   end
 
   test "selecting a patient switches the workspace patient", %{conn: conn, scope: scope} do
-    {:ok, new_patient} = Reports.create_patient_for_scope(scope)
-
-    {:ok, new_patient} =
-      Lumainus.Clinical.Patients.update_profile(new_patient, %{
-        "given_name" => "New",
-        "family_name" => "Patient"
-      })
+    {:ok, _extra_patient} = Reports.create_patient_for_scope(scope)
 
     {:ok, view, _html} = live(conn, ~p"/reports")
-    refute view_assign(view, :patient).id == new_patient.id
+    current_patient_id = view_assign(view, :patient).id
+
+    target_patient =
+      view_assign(view, :patients)
+      |> Enum.find(fn patient -> patient.id != current_patient_id end)
+
+    assert target_patient, "expected at least two patients in selector"
 
     view
-    |> form("#patient-switcher", %{"patient_id" => new_patient.id})
+    |> form("#patient-switcher", %{"patient_id" => target_patient.id})
     |> render_change()
 
-    assert view_assign(view, :patient).id == new_patient.id
+    assert view_assign(view, :patient).id == target_patient.id
   end
 
   test "renders section error details when run fails", %{conn: conn, scope: scope} do

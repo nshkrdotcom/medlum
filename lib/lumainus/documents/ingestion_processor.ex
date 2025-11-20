@@ -68,7 +68,10 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
     case Docling.convert(upload.raw_blob,
            filename: upload.filename,
-           content_type: upload.content_type
+           content_type: upload.content_type,
+           byte_size: upload.byte_size,
+           upload_id: upload.id,
+           job_id: job.id
          ) do
       {:ok, response} -> {:ok, response, job}
       {:error, reason} -> {:error, reason, job}
