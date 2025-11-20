@@ -478,6 +478,7 @@ defmodule LumainusWeb.ReportsLive do
       ingestion_message = metadata["ingestion_message"]
       job_id = metadata["ingestion_job_id"]
       status = doc.status || metadata["status"] || ingestion_stage
+      timeout_at = metadata["ingestion_timeout_at"]
 
       %{
         id: doc.id,
@@ -496,6 +497,7 @@ defmodule LumainusWeb.ReportsLive do
         ingestion_progress: ingestion_progress,
         ingestion_message: ingestion_message,
         ingestion_job_id: job_id,
+        ingestion_timeout_at: timeout_at,
         uploaded_at: doc.inserted_at,
         ingested_at: doc.ingested_at,
         byte_size: doc.byte_size,
@@ -605,6 +607,7 @@ defmodule LumainusWeb.ReportsLive do
     progress = Map.get(payload, :progress) || Map.get(payload, "progress")
     message = Map.get(payload, :last_message) || Map.get(payload, "last_message")
     job_id = Map.get(payload, :job_id) || Map.get(payload, "job_id")
+    timeout_at = Map.get(payload, :timeout_at) || Map.get(payload, "timeout_at")
 
     Enum.map(documents, fn doc ->
       if doc.id == upload_id do
@@ -614,6 +617,7 @@ defmodule LumainusWeb.ReportsLive do
         |> Map.put(:ingestion_progress, progress || doc.ingestion_progress)
         |> Map.put(:ingestion_message, message || doc.ingestion_message)
         |> Map.put(:ingestion_job_id, job_id || doc.ingestion_job_id)
+        |> Map.put(:ingestion_timeout_at, timeout_at || doc.ingestion_timeout_at)
       else
         doc
       end
@@ -662,6 +666,34 @@ defmodule LumainusWeb.ReportsLive do
 
   defp document_status(%{ingestion_stage: stage, status: status}), do: stage || status
   defp document_status(_), do: nil
+
+  defp format_timeout_remaining(nil), do: "expired"
+
+  defp format_timeout_remaining(iso_string) do
+    with {:ok, datetime, _offset} <- DateTime.from_iso8601(iso_string) do
+      diff = DateTime.diff(datetime, DateTime.utc_now(), :second)
+
+      cond do
+        diff <= 0 ->
+          "expired"
+
+        diff < 60 ->
+          "#{diff}s"
+
+        diff < 3600 ->
+          minutes = div(diff, 60)
+          seconds = rem(diff, 60)
+          "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
+
+        true ->
+          minutes = div(diff, 60)
+          seconds = rem(diff, 60)
+          "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
+      end
+    else
+      _ -> "—"
+    end
+  end
 
   @impl true
   def render(assigns) do
@@ -1375,6 +1407,18 @@ defmodule LumainusWeb.ReportsLive do
                         {doc.ingestion_message}
                       </div>
                     <% end %>
+                    <%= if doc.ingestion_stage == "docling" && doc.ingestion_timeout_at do %>
+                      <div style="font-size: 11px; color: #f59e0b; margin-top: 4px;">
+                        Will timeout in
+                        <span
+                          id={"doc-timeout-#{doc.id}"}
+                          phx-hook="IngestionCountdown"
+                          data-deadline={doc.ingestion_timeout_at}
+                        >
+                          {format_timeout_remaining(doc.ingestion_timeout_at)}
+                        </span>
+                      </div>
+                    <% end %>
                   </div>
                 <% end %>
                 <div style="font-size: 11px; color: #94a3b8; margin-top: 6px;">
@@ -1440,6 +1484,22 @@ defmodule LumainusWeb.ReportsLive do
                   <div>
                     <span>Stage</span>
                     <strong>{@selected_document.ingestion_message}</strong>
+                  </div>
+                <% end %>
+                <%= if @selected_document.ingestion_stage == "docling" &&
+                      @selected_document.ingestion_timeout_at do %>
+                  <div>
+                    <span>Timeout</span>
+                    <strong>
+                      Will timeout in
+                      <span
+                        id={"doc-timeout-detail-#{@selected_document.id}"}
+                        phx-hook="IngestionCountdown"
+                        data-deadline={@selected_document.ingestion_timeout_at}
+                      >
+                        {format_timeout_remaining(@selected_document.ingestion_timeout_at)}
+                      </span>
+                    </strong>
                   </div>
                 <% end %>
               </div>

@@ -56,12 +56,20 @@ defmodule Lumainus.Documents.IngestionProcessor do
   end
 
   defp docling_convert(%IngestionJob{} = job) do
+    timeout_ms = Docling.timeout()
+
+    timeout_at =
+      DateTime.utc_now(:second)
+      |> DateTime.add(div(timeout_ms, 1000), :second)
+
     {job, _event} =
       Documents.record_job_stage!(
         job,
         "docling",
         message: "Sending binary to Docling service",
-        progress: 50
+        progress: 50,
+        timeout_at: timeout_at,
+        payload: %{timeout_at: timeout_at}
       )
 
     upload = job.upload

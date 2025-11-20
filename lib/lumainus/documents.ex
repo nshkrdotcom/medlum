@@ -43,6 +43,11 @@ defmodule Lumainus.Documents do
   end
 
   def notify_job_progress(%IngestionJob{} = job, event \\ nil) do
+    timeout_at =
+      job.upload
+      |> Map.get(:metadata, %{})
+      |> Map.get("ingestion_timeout_at")
+
     payload =
       %{
         job_id: job.id,
@@ -54,7 +59,8 @@ defmodule Lumainus.Documents do
         last_message: job.last_message,
         started_at: job.started_at,
         finished_at: job.finished_at,
-        updated_at: job.updated_at
+        updated_at: job.updated_at,
+        timeout_at: timeout_at
       }
       |> maybe_attach_event(event)
 
@@ -314,6 +320,11 @@ defmodule Lumainus.Documents do
     payload = Keyword.get(opts, :payload, %{})
     recorded_at = Keyword.get(opts, :recorded_at, DateTime.utc_now(:second))
     upload_status = Keyword.get(opts, :upload_status, job.upload.status)
+    timeout_at = Keyword.get(opts, :timeout_at)
+
+    event_payload =
+      payload
+      |> maybe_put_datetime(:timeout_at, timeout_at)
 
     event =
       %IngestionEvent{}
@@ -323,7 +334,7 @@ defmodule Lumainus.Documents do
         recorded_at: recorded_at,
         message: message,
         progress: progress,
-        payload: payload
+        payload: event_payload
       })
       |> Repo.insert!()
 
@@ -338,7 +349,8 @@ defmodule Lumainus.Documents do
         stage: stage,
         progress: progress,
         message: message,
-        job_id: job.id
+        job_id: job.id,
+        timeout_at: timeout_at
       })
 
     notify_job_progress(%{updated_job | upload: upload}, event)
@@ -440,6 +452,7 @@ defmodule Lumainus.Documents do
       |> maybe_put("ingestion_progress", Map.get(attrs, :progress))
       |> maybe_put("ingestion_message", Map.get(attrs, :message))
       |> maybe_put("ingestion_job_id", Map.get(attrs, :job_id))
+      |> maybe_put_datetime("ingestion_timeout_at", Map.get(attrs, :timeout_at))
       |> Map.put("ingestion_updated_at", DateTime.utc_now(:second))
 
     upload =
@@ -455,6 +468,14 @@ defmodule Lumainus.Documents do
   defp maybe_put(map, key, value) when is_binary(key), do: Map.put(map, key, value)
   defp maybe_put(map, key, value) when is_atom(key), do: Map.put(map, Atom.to_string(key), value)
 
+  defp maybe_put_datetime(map, _key, nil), do: map
+
+  defp maybe_put_datetime(map, key, %DateTime{} = dt) do
+    maybe_put(map, key, DateTime.to_iso8601(dt))
+  end
+
+  defp maybe_put_datetime(map, key, value), do: maybe_put(map, key, value)
+
   defp maybe_attach_event(payload, nil), do: payload
 
   defp maybe_attach_event(payload, event) do
@@ -463,7 +484,8 @@ defmodule Lumainus.Documents do
       type: event.event_type,
       progress: event.progress,
       message: event.message,
-      recorded_at: event.recorded_at
+      recorded_at: event.recorded_at,
+      payload: event.payload
     })
   end
 

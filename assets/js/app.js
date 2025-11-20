@@ -26,6 +26,45 @@ import topbar from "../vendor/topbar"
 
 const Hooks = {}
 
+Hooks.IngestionCountdown = {
+  mounted() {
+    this.start()
+  },
+  updated() {
+    this.start()
+  },
+  destroyed() {
+    this.stop()
+  },
+  start() {
+    this.stop()
+    const deadline = this.el.getAttribute("data-deadline")
+    if (!deadline) return
+    this.deadline = new Date(deadline)
+    if (isNaN(this.deadline)) return
+    this.tick()
+    this.timer = setInterval(() => this.tick(), 1000)
+  },
+  stop() {
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
+  },
+  tick() {
+    if (!this.deadline) return
+    const diff = this.deadline - new Date()
+    if (diff <= 0) {
+      this.el.textContent = "expired"
+      this.stop()
+      return
+    }
+    const minutes = Math.floor(diff / 60000)
+    const seconds = Math.floor((diff % 60000) / 1000)
+    this.el.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`
+  }
+}
+
 Hooks.CopyInvitationLink = {
   mounted() {
     this.handleClick = async event => {
