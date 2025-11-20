@@ -64,7 +64,10 @@ defmodule LumainusWeb.UserLive.Confirmation do
           <% end %>
         </.form>
 
-        <p :if={!@user.confirmed_at} class="alert alert-outline mt-8">
+        <p
+          :if={!@user.confirmed_at}
+          class="mt-8 rounded-xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm"
+        >
           Tip: If you prefer passwords, you can enable them in the user settings.
         </p>
       </div>

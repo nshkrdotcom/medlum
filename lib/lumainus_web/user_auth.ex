@@ -262,11 +262,22 @@ defmodule LumainusWeb.UserAuth do
 
   @doc "Returns the path to redirect to after log in."
   # the user was already logged in, redirect to settings
-  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %Accounts.User{}}}}) do
-    ~p"/users/settings"
+  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: user}}}) do
+    signed_in_path_for_user(user)
+  end
+
+  def signed_in_path(%Phoenix.LiveView.Socket{assigns: %{current_scope: %Scope{user: user}}}) do
+    signed_in_path_for_user(user)
   end
 
   def signed_in_path(_), do: ~p"/"
+
+  defp signed_in_path_for_user(%Accounts.User{role: role})
+       when role in ["doctor", "admin", "system_administrator"] do
+    ~p"/reports"
+  end
+
+  defp signed_in_path_for_user(%Accounts.User{}), do: ~p"/users/settings"
 
   @doc """
   Plug for routes that require the user to be authenticated.
