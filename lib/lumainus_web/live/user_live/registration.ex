@@ -34,9 +34,17 @@ defmodule LumainusWeb.UserLive.Registration do
           :if={@invitation}
           for={@form}
           id="registration_form"
+          action={~p"/users/register/#{@invitation.token}"}
+          method="post"
           phx-submit="save"
           phx-change="validate"
         >
+          <input
+            :if={@invitation.email}
+            type="hidden"
+            name={@form[:email].name}
+            value={@invitation.email}
+          />
           <.input
             field={@form[:name]}
             type="text"

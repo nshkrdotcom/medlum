@@ -4,7 +4,7 @@ defmodule LumainusWeb.UserRegistrationController do
   alias Lumainus.Accounts
   alias LumainusWeb.CoreComponents
 
-  def create(conn, %{"token" => token, "user" => user_params}) do
+  def create(conn, %{"token" => token} = params) do
     case Accounts.get_invitation_by_token(token) do
       nil ->
         conn
@@ -12,14 +12,16 @@ defmodule LumainusWeb.UserRegistrationController do
         |> redirect(to: ~p"/users/register")
 
       invitation ->
-        maybe_register_with_invitation(conn, invitation, user_params)
-    end
-  end
+        user_params = Map.get(params, "user", %{})
 
-  def create(conn, %{"token" => _token}) do
-    conn
-    |> put_flash(:error, "Please submit the registration form to continue.")
-    |> redirect(to: ~p"/users/register")
+        if map_size(user_params) == 0 do
+          conn
+          |> put_flash(:error, "Please submit the registration form to continue.")
+          |> redirect(to: ~p"/users/register/#{invitation.token}")
+        else
+          maybe_register_with_invitation(conn, invitation, user_params)
+        end
+    end
   end
 
   def create(conn, _params) do

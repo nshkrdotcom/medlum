@@ -24,6 +24,19 @@ defmodule LumainusWeb.UserRegistrationControllerTest do
       assert Accounts.get_user_by_email(email)
     end
 
+    test "registers when invitation requires a fixed email", %{conn: conn} do
+      invitation = invitation_fixture(%{email: unique_user_email()})
+
+      conn =
+        post(conn, ~p"/users/register/#{invitation.token}", %{
+          "user" => %{"password" => valid_user_password(), "name" => "Dr. Invite"}
+        })
+
+      assert redirected_to(conn) == ~p"/users/log-in"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Account created successfully"
+      assert Accounts.get_user_by_email(invitation.email)
+    end
+
     test "redirects with error for invalid token", %{conn: conn} do
       conn =
         post(conn, ~p"/users/register/invalid", %{
@@ -47,6 +60,17 @@ defmodule LumainusWeb.UserRegistrationControllerTest do
 
       assert redirected_to(conn) == ~p"/users/register/#{invitation.token}"
       assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "Email has already been taken"
+    end
+
+    test "requires form submission payload", %{conn: conn} do
+      invitation = invitation_fixture(%{email: unique_user_email()})
+
+      conn = post(conn, ~p"/users/register/#{invitation.token}", %{})
+
+      assert redirected_to(conn) == ~p"/users/register/#{invitation.token}"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Please submit the registration form to continue."
     end
 
     test "rejects already used invitation", %{conn: conn} do
