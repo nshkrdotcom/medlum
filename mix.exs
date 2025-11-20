@@ -59,6 +59,7 @@ defmodule Lumainus.MixProject do
        compile: false,
        depth: 1},
       {:swoosh, "~> 1.16"},
+      {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.5"},
       {:gemini_ex, "~> 0.4.0"},
       {:earmark, "~> 1.4"},
@@ -70,7 +71,8 @@ defmodule Lumainus.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:jose, "== 1.11.10", override: true},  # Pin to 1.11.10 for OTP 25/26 compatibility
+      # Pin to 1.11.10 for OTP 25/26 compatibility
+      {:jose, "== 1.11.10", override: true},
       {:tidewave, "~> 0.5", only: :dev},
       {:bypass, "~> 2.1", only: :test}
     ]

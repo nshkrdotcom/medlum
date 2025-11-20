@@ -1,5 +1,6 @@
 defmodule LumainusWeb.UserRegistrationController do
   use LumainusWeb, :controller
+  require Logger
 
   alias Lumainus.Accounts
   alias LumainusWeb.CoreComponents
@@ -33,11 +34,19 @@ defmodule LumainusWeb.UserRegistrationController do
   defp maybe_register_with_invitation(conn, invitation, user_params) do
     case Accounts.use_invitation(invitation, user_params) do
       {:ok, user} ->
-        {:ok, _} = Accounts.deliver_login_instructions(user, &url(~p"/users/log-in/#{&1}"))
+        case Accounts.deliver_login_instructions(user, &url(~p"/users/log-in/#{&1}")) do
+          {:ok, _} ->
+            conn
+            |> put_flash(:info, success_message(user))
+            |> redirect(to: ~p"/users/log-in")
 
-        conn
-        |> put_flash(:info, success_message(user))
-        |> redirect(to: ~p"/users/log-in")
+          {:error, reason} ->
+            Logger.error("Failed to send login email for #{user.email}: #{inspect(reason)}")
+
+            conn
+            |> put_flash(:error, email_delivery_failure_message(user))
+            |> redirect(to: ~p"/users/log-in")
+        end
 
       {:error, %Ecto.Changeset{} = changeset} ->
         conn
@@ -68,6 +77,11 @@ defmodule LumainusWeb.UserRegistrationController do
   defp success_message(user) do
     "Account created successfully as #{humanize_role(user.role)}! " <>
       "An email was sent to #{user.email}, please access it to confirm your account."
+  end
+
+  defp email_delivery_failure_message(user) do
+    "Account created for #{user.email}, but we couldn't send the confirmation email automatically. " <>
+      "Please contact an administrator to retrieve your magic link."
   end
 
   defp humanize_role("doctor"), do: "Doctor"

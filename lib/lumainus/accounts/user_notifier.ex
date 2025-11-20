@@ -1,5 +1,6 @@
 defmodule Lumainus.Accounts.UserNotifier do
   import Swoosh.Email
+  require Logger
 
   alias Lumainus.Mailer
   alias Lumainus.Accounts.User
@@ -13,8 +14,26 @@ defmodule Lumainus.Accounts.UserNotifier do
       |> subject(subject)
       |> text_body(body)
 
-    with {:ok, _metadata} <- Mailer.deliver(email) do
-      {:ok, email}
+    case deliver_email(email) do
+      {:ok, _metadata} -> {:ok, email}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp deliver_email(email) do
+    try do
+      case Mailer.deliver(email) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, reason} = error ->
+          Logger.error("Failed to deliver email: #{inspect(reason)}")
+          error
+      end
+    rescue
+      exception ->
+        Logger.error(Exception.format(:error, exception, __STACKTRACE__))
+        {:error, exception}
     end
   end
 

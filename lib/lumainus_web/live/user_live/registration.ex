@@ -1,5 +1,6 @@
 defmodule LumainusWeb.UserLive.Registration do
   use LumainusWeb, :live_view
+  require Logger
 
   alias Lumainus.Accounts
   alias Lumainus.Accounts.User
@@ -133,19 +134,21 @@ defmodule LumainusWeb.UserLive.Registration do
       when not is_nil(invitation) do
     case Accounts.use_invitation(invitation, user_params) do
       {:ok, user} ->
-        {:ok, _} =
-          Accounts.deliver_login_instructions(
-            user,
-            &url(~p"/users/log-in/#{&1}")
-          )
+        case Accounts.deliver_login_instructions(user, &url(~p"/users/log-in/#{&1}")) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, success_message(user))
+             |> push_navigate(to: ~p"/users/log-in")}
 
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "Account created successfully as #{humanize_role(user.role)}! An email was sent to #{user.email}, please access it to confirm your account."
-         )
-         |> push_navigate(to: ~p"/users/log-in")}
+          {:error, reason} ->
+            Logger.error("Failed to send login email for #{user.email}: #{inspect(reason)}")
+
+            {:noreply,
+             socket
+             |> put_flash(:error, email_delivery_failure_message(user))
+             |> push_navigate(to: ~p"/users/log-in")}
+        end
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
@@ -170,6 +173,14 @@ defmodule LumainusWeb.UserLive.Registration do
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
     form = to_form(changeset, as: "user")
     assign(socket, form: form)
+  end
+
+  defp success_message(user) do
+    "Account created successfully as #{humanize_role(user.role)}! An email was sent to #{user.email}, please access it to confirm your account."
+  end
+
+  defp email_delivery_failure_message(user) do
+    "Account created for #{user.email}, but we couldn't send the confirmation email automatically. Please contact an administrator to retrieve your magic link."
   end
 
   defp humanize_role("doctor"), do: "Doctor"
