@@ -1,9 +1,11 @@
 defmodule Lumainus.Accounts.Invitation do
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query
 
   alias Lumainus.Accounts.User
   alias Lumainus.Tenancy.Tenant
+  alias Lumainus.Repo
 
   schema "invitations" do
     field(:token, :string)
@@ -26,6 +28,7 @@ defmodule Lumainus.Accounts.Invitation do
     |> validate_required([:token, :role, :tenant_id])
     |> validate_inclusion(:role, @valid_roles)
     |> validate_format(:email, ~r/@/, message: "must be a valid email")
+    |> prevent_duplicate_user_email()
     |> unique_constraint(:token)
   end
 
@@ -48,5 +51,26 @@ defmodule Lumainus.Accounts.Invitation do
   """
   def valid?(invitation) do
     is_nil(invitation.used_at)
+  end
+
+  defp prevent_duplicate_user_email(changeset) do
+    case get_field(changeset, :email) do
+      email when is_binary(email) and email != "" ->
+        query =
+          from(u in User,
+            where: fragment("LOWER(?) = LOWER(?)", u.email, ^email),
+            select: 1,
+            limit: 1
+          )
+
+        if Repo.exists?(query) do
+          add_error(changeset, :email, "#{email} has already been taken")
+        else
+          changeset
+        end
+
+      _ ->
+        changeset
+    end
   end
 end

@@ -59,7 +59,9 @@ defmodule LumainusWeb.UserRegistrationControllerTest do
         })
 
       assert redirected_to(conn) == ~p"/users/register/#{invitation.token}"
-      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "Email has already been taken"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~
+               "#{user.email} has already been taken"
     end
 
     test "requires form submission payload", %{conn: conn} do

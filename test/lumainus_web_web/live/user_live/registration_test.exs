@@ -67,7 +67,7 @@ defmodule LumainusWeb.UserLive.RegistrationTest do
         )
         |> render_submit()
 
-      assert result =~ "has already been taken"
+      assert result =~ "#{user.email} has already been taken"
     end
   end
 

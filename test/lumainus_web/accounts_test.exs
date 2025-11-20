@@ -71,11 +71,11 @@ defmodule Lumainus.AccountsTest do
     test "validates email uniqueness" do
       %{email: email} = user_fixture()
       {:error, changeset} = Accounts.register_user(%{email: email})
-      assert "has already been taken" in errors_on(changeset).email
+      assert "#{email} has already been taken" in errors_on(changeset).email
 
       # Now try with the upper cased email too, to check that email case is ignored.
       {:error, changeset} = Accounts.register_user(%{email: String.upcase(email)})
-      assert "has already been taken" in errors_on(changeset).email
+      assert "#{String.upcase(email)} has already been taken" in errors_on(changeset).email
     end
 
     test "registers users without password" do
@@ -393,6 +393,18 @@ defmodule Lumainus.AccountsTest do
   describe "inspect/2 for the User module" do
     test "does not include password" do
       refute inspect(%User{password: "123456"}) =~ "password: \"123456\""
+    end
+  end
+
+  describe "create_invitation/2" do
+    test "prevents creating invitations for existing user emails" do
+      existing_user = user_fixture()
+      creator = user_fixture()
+
+      assert {:error, changeset} =
+               Accounts.create_invitation(%{role: "doctor", email: existing_user.email}, creator)
+
+      assert "#{existing_user.email} has already been taken" in errors_on(changeset).email
     end
   end
 end

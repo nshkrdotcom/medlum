@@ -2,6 +2,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   use LumainusWeb, :live_view
 
   alias Lumainus.Accounts
+  alias LumainusWeb.CoreComponents
 
   @impl true
   def render(assigns) do
@@ -172,8 +173,8 @@ defmodule LumainusWeb.Admin.InvitationsLive do
          |> put_flash(:info, "Invitation created successfully!")
          |> assign(invitations: invitations)}
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Failed to create invitation")}
+      {:error, changeset} ->
+        {:noreply, put_flash(socket, :error, invitation_error_message(changeset))}
     end
   end
 
@@ -212,4 +213,20 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   defp humanize_role("admin"), do: "Administrator"
   defp humanize_role("system_administrator"), do: "System Administrator"
   defp humanize_role(role), do: role
+
+  defp invitation_error_message(%Ecto.Changeset{} = changeset) do
+    errors = changeset.errors
+
+    if errors == [] do
+      "Failed to create invitation"
+    else
+      errors
+      |> Enum.map(fn {field, error} ->
+        label = field |> Phoenix.Naming.humanize() |> String.capitalize()
+        message = CoreComponents.translate_error(error)
+        label <> " " <> message
+      end)
+      |> Enum.join(". ")
+    end
+  end
 end

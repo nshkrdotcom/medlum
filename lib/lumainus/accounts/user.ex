@@ -1,7 +1,9 @@
 defmodule Lumainus.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query
 
+  alias Lumainus.Repo
   alias Lumainus.Tenancy.Tenant
 
   @roles ~w(guest doctor admin system_administrator)
@@ -52,7 +54,7 @@ defmodule Lumainus.Accounts.User do
 
     if Keyword.get(opts, :validate_unique, true) do
       changeset
-      |> unsafe_validate_unique(:email, Lumainus.Repo)
+      |> validate_email_available()
       |> unique_constraint(:email)
       |> validate_email_changed()
     else
@@ -65,6 +67,29 @@ defmodule Lumainus.Accounts.User do
       add_error(changeset, :email, "did not change")
     else
       changeset
+    end
+  end
+
+  defp validate_email_available(changeset) do
+    case get_field(changeset, :email) do
+      email when is_binary(email) and email != "" ->
+        current_id = changeset.data.id
+
+        query =
+          from(u in __MODULE__,
+            where: fragment("LOWER(?) = LOWER(?)", u.email, ^email),
+            select: %{id: u.id},
+            limit: 1
+          )
+
+        case Repo.one(query) do
+          nil -> changeset
+          %{id: ^current_id} -> changeset
+          _ -> add_error(changeset, :email, "#{email} has already been taken")
+        end
+
+      _ ->
+        changeset
     end
   end
 
