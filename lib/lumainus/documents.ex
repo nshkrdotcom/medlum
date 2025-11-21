@@ -17,6 +17,7 @@ defmodule Lumainus.Documents do
     SampleData
   }
 
+  alias Lumainus.Reports
   alias Lumainus.Repo
   alias Oban
   alias Path
@@ -44,9 +45,10 @@ defmodule Lumainus.Documents do
 
   def notify_job_progress(%IngestionJob{} = job, event \\ nil) do
     timeout_at =
-      job.upload
-      |> Map.get(:metadata, %{})
-      |> Map.get("ingestion_timeout_at")
+      job.timeout_at ||
+        job.upload
+        |> Map.get(:metadata, %{})
+        |> Map.get("ingestion_timeout_at")
 
     payload =
       %{
@@ -54,9 +56,11 @@ defmodule Lumainus.Documents do
         upload_id: job.upload_id,
         record_set_id: job.record_set_id,
         status: job.status,
+        state: job.state,
         stage: job.stage,
         progress: job.progress,
         last_message: job.last_message,
+        last_error: job.last_error,
         started_at: job.started_at,
         finished_at: job.finished_at,
         updated_at: job.updated_at,
@@ -134,19 +138,9 @@ defmodule Lumainus.Documents do
   end
 
   defp maybe_insert_upload(attrs) do
-    tenant_id = attrs.tenant_id
-    record_set_id = attrs.record_set_id
-    sha = attrs.sha256
-
-    case duplicate_upload(tenant_id, record_set_id, sha) do
-      nil ->
-        %DocumentUpload{}
-        |> DocumentUpload.changeset(attrs)
-        |> Repo.insert()
-
-      upload ->
-        {:error, {:duplicate, upload}}
-    end
+    %DocumentUpload{}
+    |> DocumentUpload.changeset(attrs)
+    |> Repo.insert()
   end
 
   defp ensure_sample_document(scope, patient, record_set, sample, timestamp) do
@@ -252,14 +246,6 @@ defmodule Lumainus.Documents do
     end)
   end
 
-  defp duplicate_upload(tenant_id, record_set_id, sha) do
-    DocumentUpload
-    |> where([d], d.tenant_id == ^tenant_id)
-    |> where([d], d.record_set_id == ^record_set_id)
-    |> where([d], d.sha256 == ^sha)
-    |> Repo.one()
-  end
-
   def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
     job =
       %IngestionJob{}
@@ -268,7 +254,8 @@ defmodule Lumainus.Documents do
         upload_id: upload.id,
         record_set_id: upload.record_set_id,
         job_type: "pdf_ingest",
-        status: "pending",
+        status: "queued",
+        state: "queued",
         stage: "queued",
         metadata: %{"template_id" => template.id},
         scheduled_at: DateTime.utc_now(:second)
@@ -277,7 +264,7 @@ defmodule Lumainus.Documents do
 
     worker = Keyword.get(opts, :worker, DoclingIngestionWorker)
 
-    job = Repo.update!(Changeset.change(job, status: "queued"))
+    job = Repo.update!(Changeset.change(job, %{status: "queued", state: "queued"}))
 
     {job, _event} =
       record_job_stage!(
@@ -313,6 +300,37 @@ defmodule Lumainus.Documents do
     end
   end
 
+  def retry_ingestion(upload_id, opts \\ [])
+
+  def retry_ingestion(upload_id, opts) when is_binary(upload_id) do
+    case Repo.get(DocumentUpload, upload_id) do
+      nil ->
+        {:error, :not_found}
+
+      upload ->
+        upload = Repo.preload(upload, [:patient, :record_set])
+
+        with {:ok, template} <- resolve_retry_template(opts) do
+          queue_ingestion(upload, template, opts)
+        end
+    end
+  end
+
+  defp resolve_retry_template(opts) do
+    cond do
+      Keyword.get(opts, :template) ->
+        {:ok, Keyword.get(opts, :template)}
+
+      Keyword.get(opts, :template_id) ->
+        {:ok, Reports.get_template!(Keyword.fetch!(opts, :template_id))}
+
+      true ->
+        {:error, :template_required}
+    end
+  rescue
+    _ -> {:error, :template_invalid}
+  end
+
   def record_job_stage!(%IngestionJob{} = job, stage, opts \\ []) do
     job = ensure_job_upload(job)
     message = Keyword.get(opts, :message)
@@ -321,10 +339,15 @@ defmodule Lumainus.Documents do
     recorded_at = Keyword.get(opts, :recorded_at, DateTime.utc_now(:second))
     upload_status = Keyword.get(opts, :upload_status, job.upload.status)
     timeout_at = Keyword.get(opts, :timeout_at)
+    state = Keyword.get(opts, :state, state_for_stage(stage))
+    last_error = Keyword.get(opts, :last_error)
+    broadcast? = Keyword.get(opts, :broadcast, true)
 
     event_payload =
       payload
       |> maybe_put_datetime(:timeout_at, timeout_at)
+      |> maybe_put(:state, state)
+      |> maybe_put(:last_error, last_error_for_stage(stage, last_error))
 
     event =
       %IngestionEvent{}
@@ -338,20 +361,37 @@ defmodule Lumainus.Documents do
       })
       |> Repo.insert!()
 
+    job_changes =
+      %{
+        stage: stage,
+        progress: progress,
+        last_message: message,
+        state: state,
+        last_error: last_error_for_stage(stage, last_error)
+      }
+      |> put_optional(:timeout_at, timeout_at)
+
     updated_job =
       job
-      |> Changeset.change(%{stage: stage, progress: progress, last_message: message})
+      |> Changeset.change(job_changes)
       |> Repo.update!()
       |> Map.put(:upload, job.upload)
 
     upload =
-      update_upload_status(job.upload, upload_status, %{
-        stage: stage,
-        progress: progress,
-        message: message,
-        job_id: job.id,
-        timeout_at: timeout_at
-      })
+      update_upload_status(
+        job.upload,
+        upload_status,
+        %{
+          stage: stage,
+          progress: progress,
+          message: message,
+          job_id: job.id,
+          state: state,
+          error_message: last_error_for_stage(stage, last_error),
+          timeout_at: timeout_at
+        },
+        broadcast: broadcast?
+      )
 
     notify_job_progress(%{updated_job | upload: upload}, event)
 
@@ -417,6 +457,19 @@ defmodule Lumainus.Documents do
   defp default_progress("failed"), do: 100
   defp default_progress(_), do: 0
 
+  defp state_for_stage("queued"), do: "queued"
+
+  defp state_for_stage(stage) when stage in ["downloading", "docling", "parsing"],
+    do: "running"
+
+  defp state_for_stage("completed"), do: "completed"
+  defp state_for_stage("failed"), do: "failed"
+  defp state_for_stage(_), do: "pending"
+
+  defp last_error_for_stage("failed", nil), do: "Ingestion failed"
+  defp last_error_for_stage("failed", error), do: to_string(error)
+  defp last_error_for_stage(_stage, _error), do: nil
+
   defp latest_job([]), do: nil
 
   defp latest_job(collection) do
@@ -444,15 +497,19 @@ defmodule Lumainus.Documents do
     :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
   end
 
-  defp update_upload_status(upload, status, attrs) do
+  defp update_upload_status(upload, status, attrs, opts) do
+    broadcast? = Keyword.get(opts, :broadcast, true)
+
     metadata =
       (upload.metadata || %{})
       |> Map.put("status", status)
+      |> maybe_put("ingestion_state", Map.get(attrs, :state))
       |> maybe_put("ingestion_stage", Map.get(attrs, :stage))
       |> maybe_put("ingestion_progress", Map.get(attrs, :progress))
       |> maybe_put("ingestion_message", Map.get(attrs, :message))
       |> maybe_put("ingestion_job_id", Map.get(attrs, :job_id))
       |> maybe_put_datetime("ingestion_timeout_at", Map.get(attrs, :timeout_at))
+      |> maybe_put_or_drop("ingestion_error", Map.get(attrs, :error_message))
       |> Map.put("ingestion_updated_at", DateTime.utc_now(:second))
 
     upload =
@@ -460,13 +517,29 @@ defmodule Lumainus.Documents do
       |> Changeset.change(%{status: status, metadata: metadata})
       |> Repo.update!()
 
-    notify_documents_changed(upload.record_set_id)
+    if broadcast? do
+      notify_documents_changed(upload.record_set_id)
+    end
+
     upload
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value) when is_binary(key), do: Map.put(map, key, value)
   defp maybe_put(map, key, value) when is_atom(key), do: Map.put(map, Atom.to_string(key), value)
+
+  defp put_optional(map, _key, nil), do: map
+  defp put_optional(map, key, value) when is_atom(key), do: Map.put(map, key, value)
+
+  defp maybe_put_or_drop(map, key, nil) when is_binary(key), do: Map.delete(map, key)
+
+  defp maybe_put_or_drop(map, key, nil) when is_atom(key),
+    do: Map.delete(map, Atom.to_string(key))
+
+  defp maybe_put_or_drop(map, key, value) when is_binary(key), do: Map.put(map, key, value)
+
+  defp maybe_put_or_drop(map, key, value) when is_atom(key),
+    do: Map.put(map, Atom.to_string(key), value)
 
   defp maybe_put_datetime(map, _key, nil), do: map
 

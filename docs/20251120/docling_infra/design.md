@@ -103,3 +103,18 @@ Remaining problems:
    - Document how to increase swap on the dev VM to prevent OOM during large conversions.
 
 Deliverables: migration, Ecto schemas, updated worker, Docling queue module, Python queue + logging, LiveView UI tweaks, scripts/doc updates.
+
+## Operational notes (2025-11-20)
+
+- Docling now exposes `/jobs` + `/jobs/{id}/status` and runs an asyncio queue with `DOC_CONVERTER_WORKERS` workers (default `1`). The legacy `/convert` endpoint still blocks but submits through the queue internally.
+- Phoenix ships `Lumainus.Docling.Queue` to correlate job IDs, broadcast PubSub progress, and attach `timeout_at/last_error` to `ingestion_jobs`.
+- CLI helpers: `mix docling.queue [limit]` lists recent jobs, `mix docling.retry <job_id>` requeues a failed job using the stored PDF, and `scripts/logs_docling.sh` tails journald for the Docling unit.
+- Swap quick-start for the single-VM dev stack (tweak sizes as needed):
+  ```bash
+  sudo fallocate -l 4G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+  ```
+  Consider pinning Docling under a `systemd` unit with `MemoryMax=` to prevent the OCR models from OOM-killing the host.

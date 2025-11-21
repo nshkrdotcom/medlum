@@ -2,6 +2,7 @@ defmodule LumainusWeb.ReportsLive do
   use LumainusWeb, :live_view
 
   alias Ecto.Changeset
+  alias Lumainus.Docling
   alias Lumainus.Documents
   alias Lumainus.Clinical.{Patients, RecordSets}
   alias Lumainus.Reports
@@ -171,6 +172,32 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
+  def handle_event("retry_ingestion", %{"doc-id" => doc_id}, socket) do
+    template = socket.assigns.template
+
+    case find_document_by_id(socket.assigns.documents, doc_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Document no longer exists.")}
+
+      doc ->
+        case Documents.retry_ingestion(doc.id, template: template) do
+          {:ok, _job} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Retry queued for #{doc.label}.")
+             |> load_workspace()}
+
+          {:error, :template_required} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "A template is required to retry ingestion.")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Unable to retry: #{inspect(reason)}")}
+        end
+    end
+  end
+
   def handle_event("open_patient_modal", _params, socket) do
     {:noreply, assign(socket, :patient_modal_open, true)}
   end
@@ -284,6 +311,7 @@ defmodule LumainusWeb.ReportsLive do
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
     documents = format_documents(workspace.documents)
     sections = format_sections(workspace.sections)
+    docling_health = Docling.latest_health_check()
 
     running_sections =
       sections
@@ -308,6 +336,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:record_set_latest_runs, record_set_latest_runs)
       |> assign(:recent_runs, recent_runs)
       |> assign(:patients, patients)
+      |> assign(:docling_health, docling_health)
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
       |> assign(:selected_document, nil)
@@ -410,15 +439,6 @@ defmodule LumainusWeb.ReportsLive do
          |> put_flash(:info, "#{meta.filename} queued for ingestion.")
          |> load_workspace()}
 
-      {:duplicate, upload} ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "#{meta.filename} already uploaded on #{format_timestamp(upload.inserted_at)}"
-         )
-         |> load_workspace(record_set_id: upload.record_set_id)}
-
       {:error, updated_socket} ->
         {:noreply, updated_socket}
     end
@@ -434,9 +454,6 @@ defmodule LumainusWeb.ReportsLive do
       {:ok, upload} ->
         Documents.queue_ingestion(upload, template)
         {:ok, socket}
-
-      {:error, {:duplicate, upload}} ->
-        {:duplicate, upload}
 
       {:error, changeset} ->
         Logger.error("Failed to persist upload #{meta.filename}: #{humanize_errors(changeset)}")
@@ -473,11 +490,13 @@ defmodule LumainusWeb.ReportsLive do
       summary = metadata["summary"] || "Awaiting ingestion"
       provider = metadata["provider"] || "Unknown source"
       date = metadata["date"] || Calendar.strftime(doc.inserted_at, "%Y-%m-%d")
+      ingestion_state = metadata["ingestion_state"]
       ingestion_stage = metadata["ingestion_stage"]
       ingestion_progress = metadata["ingestion_progress"] || 0
       ingestion_message = metadata["ingestion_message"]
+      ingestion_error = metadata["ingestion_error"]
       job_id = metadata["ingestion_job_id"]
-      status = doc.status || metadata["status"] || ingestion_stage
+      status = ingestion_state || doc.status || metadata["status"] || ingestion_stage
       timeout_at = metadata["ingestion_timeout_at"]
 
       %{
@@ -493,9 +512,11 @@ defmodule LumainusWeb.ReportsLive do
         cleaned_content: parse && parse.parsed_text,
         raw_content: doc.raw_blob,
         status: status,
+        ingestion_state: ingestion_state || status,
         ingestion_stage: ingestion_stage,
         ingestion_progress: ingestion_progress,
         ingestion_message: ingestion_message,
+        ingestion_error: ingestion_error,
         ingestion_job_id: job_id,
         ingestion_timeout_at: timeout_at,
         uploaded_at: doc.inserted_at,
@@ -605,17 +626,21 @@ defmodule LumainusWeb.ReportsLive do
     upload_id = Map.get(payload, :upload_id) || Map.get(payload, "upload_id")
     stage = Map.get(payload, :stage) || Map.get(payload, "stage")
     progress = Map.get(payload, :progress) || Map.get(payload, "progress")
+    state = Map.get(payload, :state) || Map.get(payload, "state")
     message = Map.get(payload, :last_message) || Map.get(payload, "last_message")
+    last_error = Map.get(payload, :last_error) || Map.get(payload, "last_error")
     job_id = Map.get(payload, :job_id) || Map.get(payload, "job_id")
     timeout_at = Map.get(payload, :timeout_at) || Map.get(payload, "timeout_at")
 
     Enum.map(documents, fn doc ->
       if doc.id == upload_id do
         doc
-        |> Map.put(:status, stage || doc.status)
+        |> Map.put(:status, state || stage || doc.status)
+        |> Map.put(:ingestion_state, state || doc.ingestion_state)
         |> Map.put(:ingestion_stage, stage || doc.ingestion_stage)
         |> Map.put(:ingestion_progress, progress || doc.ingestion_progress)
         |> Map.put(:ingestion_message, message || doc.ingestion_message)
+        |> Map.put(:ingestion_error, last_error || doc.ingestion_error)
         |> Map.put(:ingestion_job_id, job_id || doc.ingestion_job_id)
         |> Map.put(:ingestion_timeout_at, timeout_at || doc.ingestion_timeout_at)
       else
@@ -664,34 +689,62 @@ defmodule LumainusWeb.ReportsLive do
   defp run_status(%{latest_run: nil}), do: "not_started"
   defp run_status(%{latest_run: %{status: status}}), do: status
 
-  defp document_status(%{ingestion_stage: stage, status: status}), do: stage || status
+  defp document_status(%{ingestion_state: state, ingestion_stage: stage, status: status}) do
+    state || stage || status
+  end
+
   defp document_status(_), do: nil
+
+  defp docling_unreachable?(%{status: "unreachable"}), do: true
+  defp docling_unreachable?(_), do: false
+
+  defp format_health_timestamp(nil), do: "no recent checks"
+
+  defp format_health_timestamp(%{responded_at: %DateTime{} = dt}) do
+    format_timestamp(dt)
+  end
+
+  defp format_health_timestamp(%{inserted_at: %DateTime{} = dt}) do
+    format_timestamp(dt)
+  end
+
+  defp format_health_timestamp(_), do: "no recent checks"
 
   defp format_timeout_remaining(nil), do: "expired"
 
-  defp format_timeout_remaining(iso_string) do
+  defp format_timeout_remaining(%DateTime{} = dt) do
+    diff = DateTime.diff(dt, DateTime.utc_now(), :second)
+    format_timeout_diff(diff)
+  end
+
+  defp format_timeout_remaining(iso_string) when is_binary(iso_string) do
     with {:ok, datetime, _offset} <- DateTime.from_iso8601(iso_string) do
       diff = DateTime.diff(datetime, DateTime.utc_now(), :second)
-
-      cond do
-        diff <= 0 ->
-          "expired"
-
-        diff < 60 ->
-          "#{diff}s"
-
-        diff < 3600 ->
-          minutes = div(diff, 60)
-          seconds = rem(diff, 60)
-          "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
-
-        true ->
-          minutes = div(diff, 60)
-          seconds = rem(diff, 60)
-          "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
-      end
+      format_timeout_diff(diff)
     else
       _ -> "—"
+    end
+  end
+
+  defp format_timeout_remaining(_), do: "—"
+
+  defp format_timeout_diff(diff) do
+    cond do
+      diff <= 0 ->
+        "expired"
+
+      diff < 60 ->
+        "#{diff}s"
+
+      diff < 3600 ->
+        minutes = div(diff, 60)
+        seconds = rem(diff, 60)
+        "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
+
+      true ->
+        minutes = div(diff, 60)
+        seconds = rem(diff, 60)
+        "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
     end
   end
 
@@ -1250,6 +1303,21 @@ defmodule LumainusWeb.ReportsLive do
     </style>
 
     <div class="reports-shell">
+      <%= if docling_unreachable?(@docling_health) do %>
+        <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 flex items-start justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-semibold">Docling ingestion is unreachable</span>
+            <span class="text-xs text-amber-800">
+              Retries will stay queued until the service responds. Last check: {format_health_timestamp(
+                @docling_health
+              )}
+            </span>
+          </div>
+          <span class="text-xs font-medium px-3 py-1 rounded-full bg-amber-100 border border-amber-200">
+            Service down
+          </span>
+        </div>
+      <% end %>
       <section class="patient-banner">
         <div>
           <div style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; font-weight: 600;">
@@ -1421,6 +1489,12 @@ defmodule LumainusWeb.ReportsLive do
                     <% end %>
                   </div>
                 <% end %>
+                <%= if doc.ingestion_error &&
+                      (doc.ingestion_state == "failed" || doc.ingestion_stage == "failed") do %>
+                  <div style="font-size: 11px; color: #b91c1c; margin-top: 6px;">
+                    {doc.ingestion_error}
+                  </div>
+                <% end %>
                 <div style="font-size: 11px; color: #94a3b8; margin-top: 6px;">
                   {doc.provider} · {doc.date}
                 </div>
@@ -1445,6 +1519,15 @@ defmodule LumainusWeb.ReportsLive do
                   <button class="btn btn-outline btn-xs text-slate-600" phx-click="clear_document">
                     Collapse
                   </button>
+                  <%= if @selected_document.ingestion_state == "failed" do %>
+                    <button
+                      class="btn btn-primary btn-xs"
+                      phx-click="retry_ingestion"
+                      phx-value-doc-id={@selected_document.id}
+                    >
+                      Retry ingestion
+                    </button>
+                  <% end %>
                   <button
                     class="btn btn-error btn-xs"
                     phx-click="delete_document"
@@ -1484,6 +1567,14 @@ defmodule LumainusWeb.ReportsLive do
                   <div>
                     <span>Stage</span>
                     <strong>{@selected_document.ingestion_message}</strong>
+                  </div>
+                <% end %>
+                <%= if @selected_document.ingestion_error do %>
+                  <div>
+                    <span>Error</span>
+                    <strong class="text-rose-600">
+                      {@selected_document.ingestion_error}
+                    </strong>
                   </div>
                 <% end %>
                 <%= if @selected_document.ingestion_stage == "docling" &&

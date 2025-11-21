@@ -44,3 +44,6 @@ config :lumainus, Oban,
   testing: :inline,
   queues: false,
   plugins: false
+
+# Keep Docling inline for tests so Bypass expectations on /convert stay valid
+config :lumainus, :docling, queue_mode: :inline

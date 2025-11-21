@@ -18,7 +18,7 @@ defmodule Lumainus.Docling do
     upload_id = Keyword.get(opts, :upload_id)
     job_id = Keyword.get(opts, :job_id)
     byte_size = Keyword.get(opts, :byte_size, byte_size(binary))
-    timeout_ms = timeout()
+    timeout_ms = Keyword.get(opts, :timeout_ms, timeout())
     metadata = Logger.metadata()
 
     Logger.metadata(
@@ -58,6 +58,37 @@ defmodule Lumainus.Docling do
         Logger.metadata(metadata)
         error
     end
+  end
+
+  def enqueue_job(binary, opts) when is_binary(binary) do
+    filename = Keyword.fetch!(opts, :filename)
+    content_type = Keyword.get(opts, :content_type, "application/pdf")
+    job_id = Keyword.get(opts, :job_id)
+    byte_size = Keyword.get(opts, :byte_size, byte_size(binary))
+    timeout_ms = Keyword.get(opts, :timeout_ms, timeout())
+
+    fields =
+      [
+        {:output_markdown, "true"},
+        {:wait, "false"},
+        {:file,
+         {binary,
+          filename: filename,
+          content_type: content_type,
+          size: Keyword.get(opts, :byte_size, byte_size(binary))}}
+      ]
+      |> maybe_add_job_id(job_id)
+
+    Logger.info("Docling enqueue start (#{byte_size} bytes, timeout=#{timeout_ms}ms)")
+
+    request(:post, "/jobs",
+      form_multipart: fields,
+      receive_timeout: timeout_ms
+    )
+  end
+
+  def job_status(job_id) when is_binary(job_id) do
+    request(:get, "/jobs/#{job_id}/status", receive_timeout: min(timeout(), 15_000))
   end
 
   @doc """
@@ -138,4 +169,7 @@ defmodule Lumainus.Docling do
   end
 
   defp decode_body(body), do: body
+
+  defp maybe_add_job_id(fields, nil), do: fields
+  defp maybe_add_job_id(fields, job_id), do: [{:job_id, job_id} | fields]
 end

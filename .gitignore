@@ -52,3 +52,4 @@ __pycache__/
 
 # Docling service virtual environment
 /docling_service/.venv/
+/docling/

@@ -16,15 +16,20 @@ defmodule Lumainus.DocumentsTest do
     {:ok, scope: scope, workspace: workspace}
   end
 
-  test "create_upload rejects duplicates", %{scope: scope, workspace: workspace} do
+  test "create_upload allows duplicates (dedup handled post-parse)", %{
+    scope: scope,
+    workspace: workspace
+  } do
     pdf = "%PDF-1.4"
     meta = %{filename: "lab.pdf", content_type: "application/pdf", byte_size: byte_size(pdf)}
 
-    assert {:ok, %DocumentUpload{} = upload} =
+    assert {:ok, %DocumentUpload{} = upload1} =
              Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
 
-    assert {:error, {:duplicate, ^upload}} =
+    assert {:ok, %DocumentUpload{} = upload2} =
              Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
+
+    refute upload1.id == upload2.id
   end
 
   test "delete_upload removes document", %{scope: scope, workspace: workspace} do

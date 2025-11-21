@@ -8,6 +8,8 @@ PYTHON_BIN=${PYTHON_BIN:-python3}
 PORT=${PORT:-8042}
 HOST=${HOST:-0.0.0.0}
 PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+DOCLING_SRC=${DOCLING_SRC:-"$APP_ROOT/../docling"}
+USE_LOCAL_DOCLING=${USE_LOCAL_DOCLING:-true}
 
 if [ ! -d "$VENV_DIR" ]; then
   echo "[+] Creating virtual environment at $VENV_DIR"
@@ -19,6 +21,11 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 export PIP_EXTRA_INDEX_URL
 pip install --requirement "$REQUIREMENTS_FILE"
+
+if [ "$USE_LOCAL_DOCLING" = "true" ] && [ -d "$DOCLING_SRC" ] && [ -f "$DOCLING_SRC/pyproject.toml" ]; then
+  echo "[+] Installing local docling from $DOCLING_SRC"
+  pip install --editable "$DOCLING_SRC"
+fi
 
 export PYTHONPATH="$APP_ROOT:${PYTHONPATH:-}"
 

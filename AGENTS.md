@@ -712,3 +712,13 @@ When working with this codebase:
 
 **Last Updated:** November 16, 2025
 **Maintainer:** AI Agents working on Lumainus project
+
+---
+
+## Telemetry Follow-Up Addendum (2025-11-20)
+
+For ongoing Docling ingestion work:
+- Default Docling queue mode is set to `:http_queue` in `config/config.exs` (test env remains inline). Docling service now exposes `/jobs/:id/stream` (SSE) and richer `/jobs/:id/status`.
+- LiveView crash on timeout values is fixed; `format_timeout_remaining/1` accepts both `DateTime` structs and ISO strings.
+- Docling progress updates are deduped server-side to reduce churn; intermediate Docling polling updates do not broadcast document reloads.
+- Next steps are captured in `docs/CONTINUATION_PROMPT.md` for the handoff task (wiring SSE into Phoenix, slow poll fallback, and silencing Docling access logs).

@@ -357,8 +357,14 @@ defmodule Lumainus.Reports do
 
   defp record_set_for(patient, opts) do
     case opts[:record_set_id] do
-      nil -> RecordSets.primary_for_patient(patient)
-      id -> RecordSets.get_for_patient!(patient, id)
+      nil ->
+        RecordSets.primary_for_patient(patient)
+
+      id ->
+        case record_set_for_patient(patient, id) do
+          nil -> RecordSets.primary_for_patient(patient)
+          record_set -> record_set
+        end
     end
   end
 
@@ -413,6 +419,11 @@ defmodule Lumainus.Reports do
       {:error, changeset} ->
         {:error, changeset}
     end
+  end
+
+  defp record_set_for_patient(patient, id) do
+    RecordSets.list_for_patient(patient)
+    |> Enum.find(&(&1.id == id))
   end
 
   defp default_template!(tenant_id) do

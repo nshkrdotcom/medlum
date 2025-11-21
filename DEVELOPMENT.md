@@ -95,6 +95,12 @@ To prototype new sections, update the section prompt in `/prompts`, adjust the o
 
 - `mix lumainus.purge_uploads` – Remove all persisted uploads/ingestion jobs. Useful when iterating on the `/reports` UI and you need a clean slate.
 
+### Docling ingestion debugging
+
+- `mix docling.queue [limit]` – List the most recent ingestion jobs with their state/progress.
+- `mix docling.retry <job_id>` – Re-queue a failed job using the stored PDF and last template.
+- `scripts/logs_docling.sh` – Tail the Docling service logs (defaults to `docling.service`).
+
 ### Run Phoenix + Docling ingestion together (dev only)
 
 The new helper script starts the PDF ingestion microservice (inside its Python virtualenv) and the Phoenix server in one go so `/reports` always has a local Docling endpoint:
