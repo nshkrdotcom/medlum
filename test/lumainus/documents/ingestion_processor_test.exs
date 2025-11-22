@@ -3,7 +3,7 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
 
   import Lumainus.AccountsFixtures
 
-  alias Lumainus.Documents.{DocumentUpload, IngestionJob}
+  alias Lumainus.Documents.{DocumentUpload, IngestionJob, IngestionProcessor}
   alias Lumainus.{Documents, Reports, Repo}
   alias Plug.Conn
 
@@ -44,8 +44,16 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
 
     assert {:ok, job} = Documents.queue_ingestion(upload, workspace.template)
 
-    upload = Repo.get!(DocumentUpload, upload.id) |> Repo.preload(:parses)
-    job = Repo.get!(IngestionJob, job.id) |> Repo.preload(:events)
+    job = ensure_job_performed(job.id)
+
+    upload =
+      wait_for_upload(upload.id, fn record ->
+        record.metadata["ingestion_stage"] == "completed"
+      end)
+      |> Repo.preload(:parses)
+
+    job = Repo.preload(job, :events)
+    assert job.stage == "completed"
 
     assert upload.status == "parsed"
     assert upload.metadata["summary"] =~ "Lab Results"
@@ -82,7 +90,7 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
 
     assert {:ok, job} = Documents.queue_ingestion(upload, workspace.template)
 
-    job = Repo.get!(IngestionJob, job.id) |> Repo.preload(:events)
+    job = ensure_job_performed(job.id) |> Repo.preload(:events)
     upload = wait_for_upload(upload.id, fn record -> record.metadata["ingestion_stage"] end)
 
     assert job.status == "failed"
@@ -96,7 +104,7 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
     assert upload.metadata["ingestion_progress"] == 100
   end
 
-  defp wait_for_upload(id, predicate, attempts \\ 10)
+  defp wait_for_upload(id, predicate, attempts \\ 100)
 
   defp wait_for_upload(id, _predicate, 0) do
     Repo.get!(DocumentUpload, id)
@@ -110,6 +118,21 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
     else
       Process.sleep(20)
       wait_for_upload(id, predicate, attempts - 1)
+    end
+  end
+
+  defp ensure_job_performed(job_id) do
+    job = Repo.get!(IngestionJob, job_id)
+
+    cond do
+      job.stage in ["completed", "failed"] ->
+        job
+
+      true ->
+        case IngestionProcessor.process(job.id) do
+          :ok -> Repo.get!(IngestionJob, job.id)
+          {:error, reason} -> flunk("IngestionProcessor failed: #{inspect(reason)}")
+        end
     end
   end
 end

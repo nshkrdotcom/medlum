@@ -1,13 +1,17 @@
 defmodule Lumainus.Documents.IngestionJobLifecycleTest do
   use Lumainus.DataCase
 
+  import Ecto.Query
+
   alias Lumainus.Documents
   alias Lumainus.Documents.{IngestionJob, IngestionConfig}
 
   # Test fixtures
   defp create_test_tenant do
+    slug = "test-tenant-#{System.unique_integer([:positive])}"
+
     %Lumainus.Tenancy.Tenant{}
-    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant"})
+    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant", slug: slug})
     |> Repo.insert!()
   end
 
@@ -289,10 +293,8 @@ defmodule Lumainus.Documents.IngestionJobLifecycleTest do
         |> Repo.insert!()
 
       # Manually set updated_at to past
-      Repo.query!("UPDATE ingestion_jobs SET updated_at = $1 WHERE id = $2", [
-        stale_time,
-        stale_job.id
-      ])
+      from(j in IngestionJob, where: j.id == ^stale_job.id)
+      |> Repo.update_all(set: [updated_at: stale_time])
 
       stale_jobs = Documents.find_stale_jobs()
 

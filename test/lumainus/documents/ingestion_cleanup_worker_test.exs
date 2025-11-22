@@ -1,13 +1,17 @@
 defmodule Lumainus.Documents.IngestionCleanupWorkerTest do
   use Lumainus.DataCase
 
+  import Ecto.Query
+
   alias Lumainus.Documents
   alias Lumainus.Documents.{IngestionCleanupWorker, IngestionJob}
 
   # Test fixtures
   defp create_test_tenant do
+    slug = "test-tenant-#{System.unique_integer([:positive])}"
+
     %Lumainus.Tenancy.Tenant{}
-    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant"})
+    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant", slug: slug})
     |> Repo.insert!()
   end
 
@@ -84,10 +88,8 @@ defmodule Lumainus.Documents.IngestionCleanupWorkerTest do
       # Manually set updated_at to past
       stale_time = DateTime.add(DateTime.utc_now(), -120, :minute)
 
-      Repo.query!("UPDATE ingestion_jobs SET updated_at = $1 WHERE id = $2", [
-        stale_time,
-        stale_job.id
-      ])
+      from(j in IngestionJob, where: j.id == ^stale_job.id)
+      |> Repo.update_all(set: [updated_at: stale_time])
 
       # Run cleanup
       :ok = IngestionCleanupWorker.perform(%Oban.Job{})

@@ -455,20 +455,14 @@ defmodule Lumainus.Documents do
   end
 
   defp ensure_job_upload(job) do
-    # Phase 3: Only preload if not already loaded to avoid N+1 queries
-    # Check if upload and its associations are already loaded
     case job.upload do
-      %DocumentUpload{
-        patient: %Lumainus.Clinical.Patient{},
-        record_set: %Lumainus.Clinical.PatientRecordSet{}
-      } ->
-        # Already fully loaded, return as-is
-        job
-
       %DocumentUpload{} = upload ->
-        # Upload loaded but associations might not be
-        loaded_upload = Repo.preload(upload, [:patient, :record_set])
-        %{job | upload: loaded_upload}
+        refreshed =
+          upload
+          |> Repo.reload!()
+          |> Repo.preload([:patient, :record_set])
+
+        %{job | upload: refreshed}
 
       _ ->
         # Not loaded at all, do full preload
@@ -529,7 +523,8 @@ defmodule Lumainus.Documents do
   """
   def mark_job_processing(%IngestionJob{} = job, attempt_number) do
     timeout_ms = IngestionConfig.conversion_timeout_ms()
-    timeout_at = DateTime.utc_now() |> DateTime.add(div(timeout_ms, 1000), :second)
+    now = DateTime.utc_now(:second)
+    timeout_at = now |> DateTime.add(div(timeout_ms, 1000), :second)
 
     job
     |> Changeset.change(%{
@@ -538,7 +533,7 @@ defmodule Lumainus.Documents do
       status: "processing",
       attempt_number: attempt_number,
       attempts: (job.attempts || 0) + 1,
-      started_at: DateTime.utc_now(:second),
+      started_at: now,
       timeout_at: timeout_at,
       last_error: nil
     })

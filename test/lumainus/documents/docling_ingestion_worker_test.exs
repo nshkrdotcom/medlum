@@ -6,8 +6,10 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
 
   # Test fixtures - same as lifecycle test
   defp create_test_tenant do
+    slug = "test-tenant-#{System.unique_integer([:positive])}"
+
     %Lumainus.Tenancy.Tenant{}
-    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant"})
+    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant", slug: slug})
     |> Repo.insert!()
   end
 

@@ -12,13 +12,21 @@ defmodule Lumainus.Documents.IngestionIntegrationTest do
   # 5 min timeout for real conversion
   @moduletag timeout: 300_000
 
+  @docling_available match?({:ok, _}, Lumainus.Docling.health())
+
+  if not @docling_available do
+    @moduletag skip: "Docling unavailable"
+  end
+
   alias Lumainus.Documents
   alias Lumainus.Documents.{DocumentUpload, IngestionConfig, IngestionJob}
 
   # Test fixtures
   defp create_test_tenant do
+    slug = "integration-test-tenant-#{System.unique_integer([:positive])}"
+
     %Lumainus.Tenancy.Tenant{}
-    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Integration Test Tenant"})
+    |> Lumainus.Tenancy.Tenant.changeset(%{name: "Integration Test Tenant", slug: slug})
     |> Repo.insert!()
   end
 
@@ -59,25 +67,14 @@ defmodule Lumainus.Documents.IngestionIntegrationTest do
   end
 
   setup do
-    # Check if Docling is available
-    case Lumainus.Docling.health_check() do
-      {:ok, _} ->
-        tenant = create_test_tenant()
-        scope = create_test_scope(tenant)
-        patient = create_test_patient(tenant)
-        record_set = create_test_record_set(patient)
-        template = create_test_template(tenant)
+    tenant = create_test_tenant()
+    scope = create_test_scope(tenant)
+    patient = create_test_patient(tenant)
+    record_set = create_test_record_set(patient)
+    template = create_test_template(tenant)
 
-        {:ok,
-         tenant: tenant,
-         scope: scope,
-         patient: patient,
-         record_set: record_set,
-         template: template}
-
-      {:error, _} ->
-        :skip
-    end
+    {:ok,
+     tenant: tenant, scope: scope, patient: patient, record_set: record_set, template: template}
   end
 
   describe "queue system configuration" do

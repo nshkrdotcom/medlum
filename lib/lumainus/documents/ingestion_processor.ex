@@ -47,7 +47,6 @@ defmodule Lumainus.Documents.IngestionProcessor do
       |> Changeset.change(%{
         status: "processing",
         state: "running",
-        attempts: (job.attempts || 0) + 1,
         started_at: DateTime.utc_now(:second)
       })
       |> Repo.update!()

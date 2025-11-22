@@ -48,13 +48,15 @@ defmodule Lumainus.Documents.IngestionHealthChecker do
   @impl GenServer
   def init(opts) do
     check_interval = Keyword.get(opts, :check_interval_ms, @default_check_interval_ms)
+    docling_health_fun = Keyword.get(opts, :docling_health_fun, &Docling.health/0)
 
     state = %{
       check_interval: check_interval,
       last_check: nil,
       docling_healthy: nil,
       stuck_jobs_count: 0,
-      last_error: nil
+      last_error: nil,
+      docling_health_fun: docling_health_fun
     }
 
     # Schedule first check
@@ -87,10 +89,10 @@ defmodule Lumainus.Documents.IngestionHealthChecker do
     Process.send_after(self(), :check_health, interval)
   end
 
-  defp perform_health_check(state) do
+  defp perform_health_check(%{docling_health_fun: health_fun} = state) do
     Logger.debug("Running ingestion health check")
 
-    docling_healthy = check_docling_health()
+    docling_healthy = check_docling_health(health_fun)
     stuck_jobs = heal_stuck_jobs()
 
     if not docling_healthy do
@@ -110,8 +112,8 @@ defmodule Lumainus.Documents.IngestionHealthChecker do
       %{state | last_error: inspect(error), last_check: DateTime.utc_now()}
   end
 
-  defp check_docling_health do
-    case Docling.health_check() do
+  defp check_docling_health(health_fun) do
+    case health_fun.() do
       {:ok, _} ->
         true
 
