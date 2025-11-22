@@ -135,7 +135,7 @@ defmodule Lumainus.Docling do
   end
 
   def timeout do
-    config()[:request_timeout] || 60_000
+    config()[:request_timeout] || 1_200_000
   end
 
   def config do

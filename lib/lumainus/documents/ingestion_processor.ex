@@ -8,6 +8,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
   alias Lumainus.Docling.Queue, as: DoclingQueue
   alias Lumainus.Documents
   alias Lumainus.Documents.{DocumentChunk, DocumentParse, DocumentUpload, IngestionJob}
+  alias Lumainus.Documents.ProgressTracker
   alias Lumainus.Clinical.PatientProfile
   alias Lumainus.Repo
 
@@ -367,42 +368,52 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
   defp maybe_track_progress(job, %{"state" => "running"} = status) do
     state_key = {:docling_progress_state, job.id}
-    state = Process.get(state_key, %{last_progress: job.progress, last_message: job.last_message})
+    state = Process.get(state_key, ProgressTracker.initial_state())
 
-    progress = Map.get(status, "progress")
-    pages_done = Map.get(status, "pages_done")
-    pages_total = Map.get(status, "pages_total")
-    last_message = Map.get(status, "last_message")
+    event_type = Map.get(status, "type")
+    stage_name = Map.get(status, "stage")
+    pages_done = Map.get(status, "pages_done", 0)
+    pages_total = Map.get(status, "pages_total", 1)
 
-    unchanged? =
-      (is_nil(progress) or progress == state[:last_progress]) and
-        (is_nil(last_message) or last_message == state[:last_message])
+    # Determine which stage this event belongs to
+    stage_num =
+      cond do
+        stage_name -> ProgressTracker.docling_stage_to_number(stage_name)
+        event_type -> ProgressTracker.event_type_to_stage(event_type) || 2
+        true -> 2
+      end
 
-    cond do
-      unchanged? ->
-        :ok
+    # Calculate stage internal progress based on pages
+    stage_internal =
+      if pages_total > 0 do
+        trunc(pages_done / pages_total * 100)
+      else
+        0
+      end
 
-      is_nil(progress) and is_nil(last_message) ->
-        :ok
+    # Update stage progress
+    updated_state = ProgressTracker.update_stage(state, stage_num, stage_internal)
 
-      true ->
-        message = last_message || job.last_message || "Docling processing"
+    # Calculate overall progress
+    stage_progress_map = Enum.into(updated_state.stages, %{}, fn {k, v} -> {k, v.progress} end)
+    overall = ProgressTracker.calculate_overall(stage_progress_map)
 
-        Documents.record_job_stage!(job, "docling",
-          progress: progress,
-          message: message,
-          payload: %{
-            pages_done: pages_done,
-            pages_total: pages_total
-          },
-          upload_status: "processing",
-          broadcast: false
-        )
+    # Only emit if integer percentage changed (debouncing)
+    if ProgressTracker.should_emit?(state.last_emitted_progress, overall) do
+      payload = ProgressTracker.build_progress_payload(updated_state, pages_done, pages_total)
+      message = ProgressTracker.progress_message(updated_state, pages_done, pages_total)
 
-        Process.put(state_key, %{
-          last_progress: progress || state[:last_progress],
-          last_message: message
-        })
+      Documents.record_job_stage!(job, "docling",
+        progress: overall,
+        message: message,
+        payload: payload,
+        upload_status: "processing",
+        broadcast: true
+      )
+
+      Process.put(state_key, %{updated_state | last_emitted_progress: overall})
+    else
+      Process.put(state_key, updated_state)
     end
   end
 

@@ -29,4 +29,6 @@ fi
 
 export PYTHONPATH="$APP_ROOT:${PYTHONPATH:-}"
 
-exec uvicorn app.main:app --host "$HOST" --port "$PORT"
+# Disable uvicorn access logs to reduce noise (use --access-log for verbose mode)
+# SSE streaming creates many requests; rely on structured app logs instead
+exec uvicorn app.main:app --host "$HOST" --port "$PORT" --no-access-log

@@ -28,6 +28,17 @@ defmodule Lumainus.Documents.IngestionJob do
     field(:finished_at, :utc_datetime)
     field(:timeout_at, :utc_datetime)
 
+    # Robust queue fields
+    field(:attempt_number, :integer, default: 1)
+    field(:max_attempts, :integer, default: 3)
+    field(:next_retry_at, :utc_datetime)
+    field(:deadline_at, :utc_datetime)
+    field(:cancelled_at, :utc_datetime)
+    field(:archived_at, :utc_datetime)
+    field(:error_history, {:array, :map}, default: [])
+    field(:oban_job_id, :integer)
+    field(:docling_job_id, :string)
+
     belongs_to(:tenant, Tenant)
     belongs_to(:upload, DocumentUpload)
     belongs_to(:record_set, PatientRecordSet)
@@ -54,6 +65,15 @@ defmodule Lumainus.Documents.IngestionJob do
       :started_at,
       :finished_at,
       :timeout_at,
+      :attempt_number,
+      :max_attempts,
+      :next_retry_at,
+      :deadline_at,
+      :cancelled_at,
+      :archived_at,
+      :error_history,
+      :oban_job_id,
+      :docling_job_id,
       :tenant_id,
       :upload_id,
       :record_set_id

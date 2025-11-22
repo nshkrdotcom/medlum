@@ -8,7 +8,10 @@ config :lumainus, Lumainus.Repo,
   database: "lumainus_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 10,
+  # Phase 4: Reduce Ecto query log verbosity
+  # Set to :info to hide debug query logs, or false to disable entirely
+  log: :info
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

@@ -10,6 +10,7 @@ defmodule LumainusWeb.ReportsLive do
   alias Path
   alias Phoenix.LiveView.JS
   alias LumainusWeb.Markdown
+  import LumainusWeb.Components.ProgressStages
   require Logger
 
   @document_modal_tabs [
@@ -498,6 +499,7 @@ defmodule LumainusWeb.ReportsLive do
       job_id = metadata["ingestion_job_id"]
       status = ingestion_state || doc.status || metadata["status"] || ingestion_stage
       timeout_at = metadata["ingestion_timeout_at"]
+      progress_payload = metadata["progress"] || %{}
 
       %{
         id: doc.id,
@@ -519,6 +521,7 @@ defmodule LumainusWeb.ReportsLive do
         ingestion_error: ingestion_error,
         ingestion_job_id: job_id,
         ingestion_timeout_at: timeout_at,
+        progress: progress_payload,
         uploaded_at: doc.inserted_at,
         ingested_at: doc.ingested_at,
         byte_size: doc.byte_size,
@@ -631,6 +634,8 @@ defmodule LumainusWeb.ReportsLive do
     last_error = Map.get(payload, :last_error) || Map.get(payload, "last_error")
     job_id = Map.get(payload, :job_id) || Map.get(payload, "job_id")
     timeout_at = Map.get(payload, :timeout_at) || Map.get(payload, "timeout_at")
+    event = Map.get(payload, :event) || Map.get(payload, "event") || %{}
+    progress_payload = Map.get(event, :payload) || Map.get(event, "payload")
 
     Enum.map(documents, fn doc ->
       if doc.id == upload_id do
@@ -643,11 +648,31 @@ defmodule LumainusWeb.ReportsLive do
         |> Map.put(:ingestion_error, last_error || doc.ingestion_error)
         |> Map.put(:ingestion_job_id, job_id || doc.ingestion_job_id)
         |> Map.put(:ingestion_timeout_at, timeout_at || doc.ingestion_timeout_at)
+        |> maybe_put_progress(progress_payload)
       else
         doc
       end
     end)
   end
+
+  defp maybe_put_progress(doc, nil), do: doc
+
+  defp maybe_put_progress(doc, payload) when is_map(payload) do
+    # Convert atom keys to string keys for consistency with component
+    progress = %{
+      "overall" => payload[:overall] || payload["overall"] || doc.ingestion_progress,
+      "stage" => payload[:stage] || payload["stage"],
+      "stage_name" => payload[:stage_name] || payload["stage_name"],
+      "stage_progress" => payload[:stage_progress] || payload["stage_progress"],
+      "pages_done" => payload[:pages_done] || payload["pages_done"],
+      "pages_total" => payload[:pages_total] || payload["pages_total"],
+      "stages" => payload[:stages] || payload["stages"] || %{}
+    }
+
+    Map.put(doc, :progress, progress)
+  end
+
+  defp maybe_put_progress(doc, _), do: doc
 
   defp format_byte_size(nil), do: "—"
 
@@ -1462,14 +1487,18 @@ defmodule LumainusWeb.ReportsLive do
                 </div>
                 <%= if doc.ingestion_stage && doc.ingestion_stage != "completed" do %>
                   <div style="margin-top: 8px;">
-                    <div style="height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
-                      <div style={"height: 6px; background: #3b82f6; border-radius: 999px; width: #{doc.ingestion_progress || 0}%; transition: width 200ms ease;"}>
+                    <%= if map_size(doc.progress) > 0 && doc.progress["stages"] && map_size(doc.progress["stages"]) > 0 do %>
+                      <.progress_stages progress={doc.progress} compact={true} />
+                    <% else %>
+                      <div style="height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
+                        <div style={"height: 6px; background: #3b82f6; border-radius: 999px; width: #{doc.ingestion_progress || 0}%; transition: width 200ms ease;"}>
+                        </div>
                       </div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 4px;">
-                      <span>{String.capitalize(doc.ingestion_stage)}</span>
-                      <span>{doc.ingestion_progress || 0}%</span>
-                    </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 4px;">
+                        <span>{String.capitalize(doc.ingestion_stage)}</span>
+                        <span>{doc.ingestion_progress || 0}%</span>
+                      </div>
+                    <% end %>
                     <%= if doc.ingestion_message do %>
                       <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">
                         {doc.ingestion_message}

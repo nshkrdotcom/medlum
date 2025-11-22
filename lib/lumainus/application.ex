@@ -14,8 +14,12 @@ defmodule Lumainus.Application do
       {Oban, Application.fetch_env!(:lumainus, Oban)},
       {DNSCluster, query: Application.get_env(:lumainus_web, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: LumainusWeb.PubSub},
-      # Start a worker by calling: LumainusWeb.Worker.start_link(arg)
-      # {LumainusWeb.Worker, arg},
+      # Finch for HTTP client (used by SSE consumer)
+      {Finch, name: Lumainus.Finch},
+      # Task supervisor for SSE streaming tasks
+      {Task.Supervisor, name: Lumainus.TaskSupervisor},
+      # Ingestion health checker for self-healing
+      Lumainus.Documents.IngestionHealthChecker,
       # Start to serve requests, typically the last entry
       LumainusWeb.Endpoint
     ]

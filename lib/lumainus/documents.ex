@@ -12,6 +12,7 @@ defmodule Lumainus.Documents do
     DocumentChunk,
     DocumentParse,
     DocumentUpload,
+    IngestionConfig,
     IngestionEvent,
     IngestionJob,
     SampleData
@@ -247,6 +248,9 @@ defmodule Lumainus.Documents do
   end
 
   def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
+    max_attempts = IngestionConfig.max_retries()
+    deadline = IngestionConfig.calculate_deadline(max_retries: max_attempts)
+
     job =
       %IngestionJob{}
       |> IngestionJob.changeset(%{
@@ -257,6 +261,8 @@ defmodule Lumainus.Documents do
         status: "queued",
         state: "queued",
         stage: "queued",
+        max_attempts: max_attempts,
+        deadline_at: deadline,
         metadata: %{"template_id" => template.id},
         scheduled_at: DateTime.utc_now(:second)
       })
@@ -275,10 +281,12 @@ defmodule Lumainus.Documents do
         upload_status: "queued"
       )
 
-    Logger.info("Queueing ingestion for upload #{upload.id}")
+    Logger.info("Queueing ingestion for upload #{upload.id} (deadline: #{deadline})")
 
     case worker.new(%{"ingestion_job_id" => job.id}) |> Oban.insert() do
-      {:ok, _oban_job} ->
+      {:ok, oban_job} ->
+        # Link Oban job ID for cancellation support
+        {:ok, job} = link_oban_job(job, oban_job.id)
         {:ok, job}
 
       {:error, reason} ->
@@ -388,7 +396,8 @@ defmodule Lumainus.Documents do
           job_id: job.id,
           state: state,
           error_message: last_error_for_stage(stage, last_error),
-          timeout_at: timeout_at
+          timeout_at: timeout_at,
+          payload: event_payload
         },
         broadcast: broadcast?
       )
@@ -446,7 +455,25 @@ defmodule Lumainus.Documents do
   end
 
   defp ensure_job_upload(job) do
-    Repo.preload(job, [upload: [:patient, :record_set]], force: true)
+    # Phase 3: Only preload if not already loaded to avoid N+1 queries
+    # Check if upload and its associations are already loaded
+    case job.upload do
+      %DocumentUpload{
+        patient: %Lumainus.Clinical.Patient{},
+        record_set: %Lumainus.Clinical.PatientRecordSet{}
+      } ->
+        # Already fully loaded, return as-is
+        job
+
+      %DocumentUpload{} = upload ->
+        # Upload loaded but associations might not be
+        loaded_upload = Repo.preload(upload, [:patient, :record_set])
+        %{job | upload: loaded_upload}
+
+      _ ->
+        # Not loaded at all, do full preload
+        Repo.preload(job, upload: [:patient, :record_set])
+    end
   end
 
   defp default_progress("queued"), do: 5
@@ -493,6 +520,203 @@ defmodule Lumainus.Documents do
 
   defp tenant_id_from_scope(%Scope{tenant_id: tenant_id}), do: tenant_id
 
+  # =============================================================================
+  # Job Lifecycle Management
+  # =============================================================================
+
+  @doc """
+  Marks a job as processing and records the attempt.
+  """
+  def mark_job_processing(%IngestionJob{} = job, attempt_number) do
+    timeout_ms = IngestionConfig.conversion_timeout_ms()
+    timeout_at = DateTime.utc_now() |> DateTime.add(div(timeout_ms, 1000), :second)
+
+    job
+    |> Changeset.change(%{
+      state: "running",
+      stage: "downloading",
+      status: "processing",
+      attempt_number: attempt_number,
+      attempts: (job.attempts || 0) + 1,
+      started_at: DateTime.utc_now(:second),
+      timeout_at: timeout_at,
+      last_error: nil
+    })
+    |> Repo.update()
+  end
+
+  @doc """
+  Marks a job as completed successfully.
+  """
+  def mark_job_completed(%IngestionJob{} = job) do
+    job
+    |> Changeset.change(%{
+      state: "completed",
+      status: "completed",
+      finished_at: DateTime.utc_now(:second),
+      last_error: nil
+    })
+    |> Repo.update()
+  end
+
+  @doc """
+  Marks a job as failed with an error message.
+  """
+  def mark_job_failed(%IngestionJob{} = job, error_message) do
+    job
+    |> Changeset.change(%{
+      state: "failed",
+      status: "failed",
+      finished_at: DateTime.utc_now(:second),
+      last_error: error_message
+    })
+    |> Repo.update()
+  end
+
+  @doc """
+  Records an error in the job's error history.
+  """
+  def record_job_error(%IngestionJob{} = job, attempt, reason) do
+    error_entry = %{
+      "attempt" => attempt,
+      "reason" => inspect(reason),
+      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    job
+    |> Changeset.change(%{
+      error_history: (job.error_history || []) ++ [error_entry],
+      last_error: inspect(reason)
+    })
+    |> Repo.update()
+  end
+
+  @doc """
+  Cancels an ingestion job.
+  """
+  def cancel_ingestion_job(job_id) when is_binary(job_id) do
+    job = Repo.get!(IngestionJob, job_id)
+
+    cond do
+      job.cancelled_at != nil ->
+        {:error, :already_cancelled}
+
+      job.state == "completed" ->
+        {:error, :already_completed}
+
+      true ->
+        job
+        |> Changeset.change(%{
+          cancelled_at: DateTime.utc_now(:second),
+          state: "failed",
+          status: "failed",
+          last_error: "Cancelled by user",
+          finished_at: DateTime.utc_now(:second)
+        })
+        |> Repo.update!()
+
+        # Cancel Oban job if linked
+        if job.oban_job_id do
+          Oban.cancel_job(job.oban_job_id)
+        end
+
+        :ok
+    end
+  end
+
+  @doc """
+  Checks if a job should be retried.
+  """
+  def should_retry?(%IngestionJob{} = job) do
+    cond do
+      job.cancelled_at != nil ->
+        false
+
+      job.deadline_at && DateTime.compare(DateTime.utc_now(), job.deadline_at) == :gt ->
+        false
+
+      job.attempt_number >= job.max_attempts ->
+        false
+
+      true ->
+        true
+    end
+  end
+
+  @doc """
+  Sets the hard deadline for a job based on configuration.
+  """
+  def set_deadline(%IngestionJob{} = job, _opts \\ []) do
+    deadline =
+      IngestionConfig.calculate_deadline(
+        timeout_ms: IngestionConfig.conversion_timeout_ms(),
+        max_retries: job.max_attempts
+      )
+
+    job
+    |> Changeset.change(%{deadline_at: deadline})
+    |> Repo.update()
+  end
+
+  @doc """
+  Links an Oban job ID to the ingestion job.
+  """
+  def link_oban_job(%IngestionJob{} = job, oban_job_id) do
+    job
+    |> Changeset.change(%{oban_job_id: oban_job_id})
+    |> Repo.update()
+  end
+
+  @doc """
+  Links a Docling job ID to the ingestion job.
+  """
+  def link_docling_job(%IngestionJob{} = job, docling_job_id) do
+    job
+    |> Changeset.change(%{docling_job_id: docling_job_id})
+    |> Repo.update()
+  end
+
+  @doc """
+  Archives a completed or failed job.
+  """
+  def archive_job(%IngestionJob{} = job) do
+    if job.state in ["completed", "failed"] do
+      job
+      |> Changeset.change(%{archived_at: DateTime.utc_now(:second)})
+      |> Repo.update()
+    else
+      {:error, :not_terminal}
+    end
+  end
+
+  @doc """
+  Finds jobs that are stuck in processing state.
+  """
+  def find_stale_jobs do
+    threshold = IngestionConfig.stale_job_threshold_minutes()
+    cutoff = DateTime.add(DateTime.utc_now(), -threshold, :minute)
+
+    IngestionJob
+    |> where([j], j.state == "running")
+    |> where([j], is_nil(j.archived_at))
+    |> where([j], j.updated_at < ^cutoff)
+    |> Repo.all()
+  end
+
+  @doc """
+  Finds jobs ready for archival.
+  """
+  def find_jobs_for_archival do
+    days = IngestionConfig.archive_after_days()
+    cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    IngestionJob
+    |> where([j], j.state in ["completed", "failed"])
+    |> where([j], is_nil(j.archived_at))
+    |> where([j], j.finished_at < ^cutoff)
+    |> Repo.all()
+  end
+
   defp sha256(binary) do
     :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
   end
@@ -510,6 +734,7 @@ defmodule Lumainus.Documents do
       |> maybe_put("ingestion_job_id", Map.get(attrs, :job_id))
       |> maybe_put_datetime("ingestion_timeout_at", Map.get(attrs, :timeout_at))
       |> maybe_put_or_drop("ingestion_error", Map.get(attrs, :error_message))
+      |> maybe_put_progress_payload(Map.get(attrs, :payload))
       |> Map.put("ingestion_updated_at", DateTime.utc_now(:second))
 
     upload =
@@ -540,6 +765,21 @@ defmodule Lumainus.Documents do
 
   defp maybe_put_or_drop(map, key, value) when is_atom(key),
     do: Map.put(map, Atom.to_string(key), value)
+
+  defp maybe_put_progress_payload(map, nil), do: map
+
+  defp maybe_put_progress_payload(map, payload) when is_map(payload) do
+    # Convert atom keys to string keys for JSON storage
+    progress =
+      Enum.into(payload, %{}, fn
+        {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+        {k, v} -> {k, v}
+      end)
+
+    Map.put(map, "progress", progress)
+  end
+
+  defp maybe_put_progress_payload(map, _), do: map
 
   defp maybe_put_datetime(map, _key, nil), do: map
 

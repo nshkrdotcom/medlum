@@ -26,17 +26,34 @@ config :lumainus,
 
 config :lumainus, :docling,
   base_url: "http://127.0.0.1:8042",
-  request_timeout: 300_000,
+  request_timeout: 1_200_000,
   health_cron: "*/5 * * * *",
-  queue_mode: :http_queue
+  queue_mode: :http_queue,
+  # Fallback poll interval when SSE fails (ms)
+  poll_interval_ms: 5_000
+
+# Ingestion queue configuration
+config :lumainus, :ingestion,
+  # 20 minutes
+  conversion_timeout_ms: 1_200_000,
+  max_retries: 3,
+  stale_job_threshold_minutes: 60,
+  archive_after_days: 7,
+  # 50 MB
+  max_file_size_bytes: 50_000_000,
+  max_pages: 1000
 
 config :lumainus, Oban,
   repo: Lumainus.Repo,
   plugins: [
     {Oban.Plugins.Pruner, max_age: 86_400},
-    {Oban.Plugins.Cron, crontab: [{"*/5 * * * *", Lumainus.Docling.HealthCheckWorker}]}
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"*/5 * * * *", Lumainus.Docling.HealthCheckWorker},
+       {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker}
+     ]}
   ],
-  queues: [ingestion: 5, reports: 5, health_checks: 1]
+  queues: [ingestion: 5, reports: 5, health_checks: 1, maintenance: 1]
 
 config :lumainus, :llm,
   default_provider: "google",

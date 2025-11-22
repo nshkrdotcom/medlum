@@ -43,8 +43,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "300"))
-_worker_count = int(os.getenv("DOC_CONVERTER_WORKERS", "1"))
+_conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "1200"))
+_worker_count = int(os.getenv("DOC_CONVERTER_WORKERS", "8"))
 
 JOB_QUEUE: asyncio.Queue["ConversionJob"] = asyncio.Queue()
 JOB_STORE: Dict[str, "ConversionJob"] = {}
@@ -192,6 +192,7 @@ async def _worker_loop(worker_id: int) -> None:
                     job.source,
                     job.source_kind,
                     progress_cb=_page_progress_cb(job),
+                    docling_progress_cb=_docling_progress_cb(job),
                 ),
                 timeout=_conversion_timeout,
             )
@@ -269,16 +270,64 @@ def _page_progress_cb(job: ConversionJob):
     return _cb
 
 
+def _docling_progress_cb(job: ConversionJob):
+    """Create a progress callback for Docling's internal progress events."""
+    started = job.started_at or _now()
+
+    def _cb(event: Dict[str, Any]) -> None:
+        event_type = event.get("event", "unknown")
+
+        # Update job state based on event
+        if "pages_done" in event:
+            job.pages_done = event["pages_done"]
+        if "pages_total" in event:
+            job.pages_total = event["pages_total"]
+        if "progress" in event:
+            job.progress = event["progress"]
+
+        # Map Docling events to our event format
+        mapped_type = {
+            "conversion_started": "docling_started",
+            "page_processed": "page_processed",
+            "page_failed": "page_failed",
+            "stage_batch_complete": "stage_complete",
+            "conversion_completed": "docling_completed",
+            "conversion_timeout": "docling_timeout",
+            "conversion_failed": "docling_failed",
+        }.get(event_type, event_type)
+
+        _push_event(
+            job,
+            {
+                "type": mapped_type,
+                "elapsed_ms": int((_now() - started) * 1000),
+                **{k: v for k, v in event.items() if k != "event"},
+            },
+        )
+
+        # Log significant events
+        if event_type in ("page_processed", "stage_batch_complete"):
+            logger.info(
+                "Job %s: %s - %s",
+                job.id,
+                event_type,
+                event.get("message", ""),
+            )
+
+    return _cb
+
+
 async def _convert_source(
     converter: DocumentConverter,
     source: str,
     source_kind: str,
     progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
+    docling_progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """Run Docling conversion in a worker thread."""
 
     def _sync_convert() -> Dict[str, Any]:
-        conversion = converter.convert(source)
+        conversion = converter.convert(source, progress_callback=docling_progress_cb)
         document = conversion.document
         if document is None:
             raise RuntimeError("Docling returned an empty document")
