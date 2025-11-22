@@ -12,7 +12,7 @@ defmodule Lumainus.Documents.IngestionCleanupWorker do
 
   alias Ecto.Changeset
   alias Lumainus.Documents
-  alias Lumainus.Documents.{DocumentUpload, IngestionConfig, IngestionJob}
+  alias Lumainus.Documents.{DocumentUpload, IngestionConfig}
   alias Lumainus.Repo
 
   import Ecto.Query

@@ -86,15 +86,10 @@ defmodule Lumainus.Docling.Queue do
   defp await_sse(job, deadline, on_status) do
     timeout = max(0, deadline - System.monotonic_time(:millisecond))
 
-    case SSEConsumer.subscribe(job.job_id, timeout: timeout) do
-      {:ok, task} ->
-        result = receive_sse_events(job.job_id, task, deadline, on_status)
-        SSEConsumer.cancel(task)
-        result
-
-      {:error, reason} ->
-        {:fallback, reason}
-    end
+    {:ok, task} = SSEConsumer.subscribe(job.job_id, timeout: timeout)
+    result = receive_sse_events(job.job_id, task, deadline, on_status)
+    SSEConsumer.cancel(task)
+    result
   end
 
   defp receive_sse_events(job_id, task, deadline, on_status) do

@@ -879,8 +879,10 @@ defmodule LumainusWeb.ReportsLive do
 
       .doc-detail-actions {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .modal-backdrop {
@@ -1548,6 +1550,15 @@ defmodule LumainusWeb.ReportsLive do
                   <button class="btn btn-outline btn-xs text-slate-600" phx-click="clear_document">
                     Collapse
                   </button>
+                  <%= if @selected_document.status in ["parsed", "completed"] do %>
+                    <a
+                      href={"/api/uploads/#{@selected_document.id}/download"}
+                      download
+                      class="btn btn-primary btn-xs"
+                    >
+                      Download MD
+                    </a>
+                  <% end %>
                   <%= if @selected_document.ingestion_state == "failed" do %>
                     <button
                       class="btn btn-primary btn-xs"
@@ -1719,7 +1730,18 @@ defmodule LumainusWeb.ReportsLive do
                 Uploaded {format_timestamp(@document_modal_document.uploaded_at)} • {@document_modal_document.filename}
               </div>
             </div>
-            <button class="btn btn-ghost btn-sm" phx-click="close_document_modal">Close</button>
+            <div class="flex gap-2">
+              <%= if @document_modal_document.status in ["parsed", "completed"] do %>
+                <a
+                  href={"/api/uploads/#{@document_modal_document.id}/download"}
+                  download
+                  class="btn btn-primary btn-sm"
+                >
+                  Download Markdown
+                </a>
+              <% end %>
+              <button class="btn btn-ghost btn-sm" phx-click="close_document_modal">Close</button>
+            </div>
           </header>
 
           <div class="document-meta">

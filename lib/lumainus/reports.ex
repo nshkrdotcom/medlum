@@ -116,7 +116,7 @@ defmodule Lumainus.Reports do
     DocumentUpload
     |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
     |> where([d], d.record_set_id == ^record_set.id)
-    |> order_by([d], asc: d.inserted_at)
+    |> order_by([d], desc: d.inserted_at)
     |> preload(parses: [:chunks])
     |> Repo.all()
   end

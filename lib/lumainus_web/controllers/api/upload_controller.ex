@@ -1,6 +1,8 @@
 defmodule LumainusWeb.Api.UploadController do
   use LumainusWeb, :controller
 
+  import Ecto.Query
+
   alias Lumainus.Accounts.Scope
   alias Lumainus.Documents
   alias Lumainus.Documents.DocumentUpload
@@ -36,6 +38,33 @@ defmodule LumainusWeb.Api.UploadController do
         job: job_payload(status.job),
         latest_event: event_payload(status.latest_event)
       })
+    end
+  end
+
+  def download_markdown(conn, %{"id" => upload_id}) do
+    alias Lumainus.Documents.DocumentParse
+
+    case Repo.one(
+           from(p in DocumentParse,
+             where: p.upload_id == ^upload_id,
+             select: {p.parsed_text, p.id},
+             limit: 1
+           )
+         ) do
+      {content, _parse_id} when is_binary(content) ->
+        # Get the upload for filename
+        upload = Repo.get(DocumentUpload, upload_id)
+        filename = Path.rootname(upload.filename || "document") <> ".md"
+
+        conn
+        |> put_resp_content_type("text/markdown")
+        |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+        |> send_resp(200, content)
+
+      _ ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Parsed content not found for this document"})
     end
   end
 

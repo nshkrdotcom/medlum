@@ -23,6 +23,7 @@ defmodule LumainusWeb.Router do
 
     post "/uploads", Api.UploadController, :create
     get "/uploads/:id/status", Api.UploadController, :status
+    get "/uploads/:id/download", Api.UploadController, :download_markdown
     get "/jobs/:id/status", Api.JobController, :status
     get "/jobs/:id/stream", Api.JobController, :stream
   end

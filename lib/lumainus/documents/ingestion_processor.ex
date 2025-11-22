@@ -371,8 +371,8 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
     event_type = Map.get(status, "type")
     stage_name = Map.get(status, "stage")
-    pages_done = Map.get(status, "pages_done", 0)
-    pages_total = Map.get(status, "pages_total", 1)
+    pages_done = Map.get(status, "pages_done") || 0
+    pages_total = Map.get(status, "pages_total") || 1
 
     # Determine which stage this event belongs to
     stage_num =
