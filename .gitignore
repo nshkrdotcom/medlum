@@ -53,3 +53,4 @@ __pycache__/
 # Docling service virtual environment
 /docling_service/.venv/
 /docling/
+docs/vast-ai/docs/

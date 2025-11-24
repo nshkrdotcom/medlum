@@ -54,6 +54,22 @@ print_file "docs/CONTINUATION_PROMPT.md"
 # The design proposal itself
 print_file "docs/20251123/docling_backend_abstraction.md"
 
+# New Implementation Files
+print_file "lib/lumainus/docling/backend.ex"
+print_file "lib/lumainus/docling/http.ex"
+print_file "lib/lumainus/docling/backends/local.ex"
+print_file "lib/lumainus/docling/backends/remote.ex"
+print_file "lib/lumainus/docling/backends/vast_ai.ex"
+print_file "lib/lumainus/docling/vast_ai/instance_manager.ex"
+
+# Test Files
+print_file "test/lumainus/docling/http_test.exs"
+print_file "test/lumainus/docling/docling_test.exs"
+print_file "test/lumainus/docling/backends/local_test.exs"
+print_file "test/lumainus/docling/backends/remote_test.exs"
+print_file "test/lumainus/docling/backends/vast_ai_test.exs"
+print_file "test/lumainus/docling/vast_ai/instance_manager_test.exs"
+
 echo ""
 echo "==============================================================================="
 echo "END OF CONTEXT FILES"

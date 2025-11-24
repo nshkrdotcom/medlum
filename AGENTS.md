@@ -710,7 +710,7 @@ When working with this codebase:
 - Search existing code for patterns
 - Ask user for clarification on design decisions
 
-**Last Updated:** November 16, 2025
+**Last Updated:** November 23, 2025
 **Maintainer:** AI Agents working on Lumainus project
 
 ---
@@ -718,7 +718,8 @@ When working with this codebase:
 ## Telemetry Follow-Up Addendum (2025-11-20)
 
 For ongoing Docling ingestion work:
-- Default Docling queue mode is set to `:http_queue` in `config/config.exs` (test env remains inline). Docling service now exposes `/jobs/:id/stream` (SSE) and richer `/jobs/:id/status`.
+- Default Docling queue mode is set to `:http_queue` in `config/config.exs` (test env remains inline). Docling service exposes `/jobs/:id/stream` (SSE) and `/jobs/:id/status`; prefer SSE when available, otherwise poll.
 - LiveView crash on timeout values is fixed; `format_timeout_remaining/1` accepts both `DateTime` structs and ISO strings.
 - Docling progress updates are deduped server-side to reduce churn; intermediate Docling polling updates do not broadcast document reloads.
-- Next steps are captured in `docs/CONTINUATION_PROMPT.md` for the handoff task (wiring SSE into Phoenix, slow poll fallback, and silencing Docling access logs).
+- Next steps for dual Docling backends (local CPU default, remote GPU/Vast “Fast” mode with per-user toggle) are captured in `docs/20251123/docling_dual_backend_rollout.md` and `docs/20251123/docling_backend_abstraction.md`. Follow those for backend selection, user setting persistence, and remote endpoint wiring.
+- Earlier handoff items remain in `docs/CONTINUATION_PROMPT.md` (SSE wiring, slow poll fallback, silencing Docling access logs).

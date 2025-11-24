@@ -1,6 +1,31 @@
 defmodule Lumainus.Docling do
   @moduledoc """
-  HTTP client and helpers for interacting with the Docling ingestion service.
+  Unified API for Docling PDF-to-Markdown conversion.
+
+  This module provides a single entry point regardless of which backend
+  is configured. The backend is selected via configuration.
+
+  ## Configuration
+
+      config :lumainus, :docling,
+        backend: :local,  # or :remote, :vast_ai
+        timeout_ms: 1_200_000,
+        # Backend-specific options
+        local_url: "http://127.0.0.1:8042",
+        remote_url: "http://gpu-server:8042"
+
+  ## Usage
+
+      # Synchronous conversion (through backend)
+      {:ok, result} = Lumainus.Docling.convert(pdf_binary, filename: "doc.pdf")
+
+      # Check health (through backend)
+      {:ok, status} = Lumainus.Docling.health()
+
+  ## Legacy API
+
+  The module also maintains backward compatibility with the original
+  direct HTTP client functions used by Queue and SSEConsumer.
   """
 
   import Ecto.Query, warn: false
@@ -8,6 +33,56 @@ defmodule Lumainus.Docling do
   alias Lumainus.Repo
 
   require Logger
+
+  @backends %{
+    local: Lumainus.Docling.Backends.Local,
+    remote: Lumainus.Docling.Backends.Remote,
+    vast_ai: Lumainus.Docling.Backends.VastAI
+  }
+
+  # =============================================================================
+  # Backend API
+  # =============================================================================
+
+  @doc """
+  Get the configured backend module.
+  """
+  def backend do
+    backend_name = config()[:backend] || :local
+    @backends[backend_name] || raise "Unknown backend: #{backend_name}"
+  end
+
+  @doc """
+  Get backend capabilities.
+  """
+  def capabilities do
+    backend_module = backend()
+    Code.ensure_loaded(backend_module)
+
+    if function_exported?(backend_module, :capabilities, 0) do
+      backend_module.capabilities()
+    else
+      []
+    end
+  end
+
+  @doc """
+  Cancel a running job (delegates to backend).
+  """
+  def cancel(job_id) when is_binary(job_id) do
+    backend_module = backend()
+    Code.ensure_loaded(backend_module)
+
+    if function_exported?(backend_module, :cancel, 1) do
+      backend_module.cancel(job_id)
+    else
+      {:error, :not_supported}
+    end
+  end
+
+  # =============================================================================
+  # Legacy Direct HTTP API (used by Queue and SSEConsumer)
+  # =============================================================================
 
   @doc """
   Convert a binary PDF into markdown using the Docling REST API.
