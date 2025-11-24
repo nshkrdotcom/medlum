@@ -38,7 +38,7 @@ defmodule Lumainus.DoclingTest do
         Application.put_env(:lumainus, :docling, original_config)
       end)
 
-      assert_raise RuntimeError, ~r/Unknown backend/, fn ->
+      assert_raise ArgumentError, ~r/Unknown backend/, fn ->
         Docling.backend()
       end
     end

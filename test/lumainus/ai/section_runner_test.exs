@@ -1,6 +1,8 @@
 defmodule Lumainus.AI.SectionRunnerTest do
   use Lumainus.DataCase
 
+  @moduletag :capture_log
+
   import Lumainus.AccountsFixtures
 
   alias Ecto.Changeset

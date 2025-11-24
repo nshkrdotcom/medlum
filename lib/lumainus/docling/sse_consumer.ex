@@ -22,7 +22,7 @@ defmodule Lumainus.Docling.SSEConsumer do
   def subscribe(job_id, opts \\ []) do
     caller = self()
     timeout = Keyword.get(opts, :timeout, 300_000)
-    base_url = Lumainus.Docling.base_url()
+    base_url = Keyword.fetch!(opts, :base_url)
     url = "#{base_url}/jobs/#{job_id}/stream"
 
     task =

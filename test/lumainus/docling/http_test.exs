@@ -1,13 +1,15 @@
 defmodule Lumainus.Docling.HTTPTest do
   use ExUnit.Case, async: true
 
-  alias Lumainus.Docling.HTTP
-
   @moduledoc """
   Tests for Lumainus.Docling.HTTP module.
 
   Uses Bypass to mock the Docling service endpoints.
   """
+
+  @moduletag :capture_log
+
+  alias Lumainus.Docling.HTTP
 
   setup do
     bypass = Bypass.open()
@@ -208,9 +210,12 @@ defmodule Lumainus.Docling.HTTPTest do
     end
 
     test "returns error when service is down", %{bypass: bypass, base_url: base_url} do
-      Bypass.down(bypass)
+      Bypass.expect_once(bypass, "GET", "/health", fn conn ->
+        Plug.Conn.resp(conn, 503, ~s({"error":"unavailable"}))
+      end)
 
-      assert {:error, _reason} = HTTP.health(base_url: base_url)
+      assert {:error, {:http_error, 503, %{"error" => "unavailable"}}} =
+               HTTP.health(base_url: base_url)
     end
   end
 

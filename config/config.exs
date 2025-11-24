@@ -25,8 +25,10 @@ config :lumainus,
   generators: [timestamp_type: :utc_datetime]
 
 config :lumainus, :docling,
-  base_url: "http://127.0.0.1:8042",
-  request_timeout: 1_200_000,
+  backend: :local,
+  timeout_ms: 1_200_000,
+  local_url: "http://127.0.0.1:8042",
+  remote_url: System.get_env("DOCLING_REMOTE_URL"),
   health_cron: "*/5 * * * *",
   queue_mode: :http_queue,
   # Fallback poll interval when SSE fails (ms)

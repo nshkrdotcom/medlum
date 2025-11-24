@@ -6,6 +6,7 @@ defmodule Lumainus.Documents do
   import Ecto.Query, warn: false
   alias Ecto.Changeset
   alias Lumainus.Accounts.Scope
+  alias Lumainus.Docling
 
   alias Lumainus.Documents.{
     DoclingIngestionWorker,
@@ -65,7 +66,8 @@ defmodule Lumainus.Documents do
         started_at: job.started_at,
         finished_at: job.finished_at,
         updated_at: job.updated_at,
-        timeout_at: timeout_at
+        timeout_at: timeout_at,
+        backend: job.backend
       }
       |> maybe_attach_event(event)
 
@@ -248,8 +250,11 @@ defmodule Lumainus.Documents do
   end
 
   def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
+    {backend, backend_reason} = resolve_docling_backend(opts)
+    backend_string = Atom.to_string(backend)
     max_attempts = IngestionConfig.max_retries()
     deadline = IngestionConfig.calculate_deadline(max_retries: max_attempts)
+    upload = persist_backend_choice(upload, backend_string, backend_reason)
 
     job =
       %IngestionJob{}
@@ -263,7 +268,8 @@ defmodule Lumainus.Documents do
         stage: "queued",
         max_attempts: max_attempts,
         deadline_at: deadline,
-        metadata: %{"template_id" => template.id},
+        metadata: backend_metadata(template, backend_string, backend_reason, opts),
+        backend: backend_string,
         scheduled_at: DateTime.utc_now(:second)
       })
       |> Repo.insert!()
@@ -278,7 +284,12 @@ defmodule Lumainus.Documents do
         "queued",
         message: "Queued for ingestion",
         progress: 5,
-        upload_status: "queued"
+        upload_status: "queued",
+        backend: backend_string,
+        payload: %{
+          backend: backend_string,
+          backend_status: backend_status(backend_reason)
+        }
       )
 
     Logger.info("Queueing ingestion for upload #{upload.id} (deadline: #{deadline})")
@@ -351,11 +362,15 @@ defmodule Lumainus.Documents do
     last_error = Keyword.get(opts, :last_error)
     broadcast? = Keyword.get(opts, :broadcast, true)
 
+    backend_value =
+      Keyword.get(opts, :backend, job.backend) |> maybe_backend_string() || job.backend
+
     event_payload =
       payload
       |> maybe_put_datetime(:timeout_at, timeout_at)
       |> maybe_put(:state, state)
       |> maybe_put(:last_error, last_error_for_stage(stage, last_error))
+      |> maybe_put(:backend, backend_value)
 
     event =
       %IngestionEvent{}
@@ -375,7 +390,8 @@ defmodule Lumainus.Documents do
         progress: progress,
         last_message: message,
         state: state,
-        last_error: last_error_for_stage(stage, last_error)
+        last_error: last_error_for_stage(stage, last_error),
+        backend: backend_value
       }
       |> put_optional(:timeout_at, timeout_at)
 
@@ -397,7 +413,8 @@ defmodule Lumainus.Documents do
           state: state,
           error_message: last_error_for_stage(stage, last_error),
           timeout_at: timeout_at,
-          payload: event_payload
+          payload: event_payload,
+          backend: backend_value
         },
         broadcast: broadcast?
       )
@@ -712,6 +729,90 @@ defmodule Lumainus.Documents do
     |> Repo.all()
   end
 
+  @doc """
+  Basic usage summary for fast (GPU) Docling jobs grouped by day.
+  """
+  def fast_usage_summary(opts \\ []) do
+    since = Keyword.get(opts, :since, DateTime.add(DateTime.utc_now(), -7, :day))
+
+    IngestionJob
+    |> where([j], j.backend == "fast")
+    |> where([j], j.inserted_at >= ^since)
+    |> group_by([j], fragment("date(?)", j.inserted_at))
+    |> select([j], %{
+      date: fragment("date(?)", j.inserted_at),
+      jobs: count(j.id),
+      pages: fragment("COALESCE(sum((metadata->>'pages_total')::int), 0)"),
+      duration_ms: fragment("COALESCE(sum((metadata->>'duration_ms')::bigint), 0)")
+    })
+    |> Repo.all()
+  end
+
+  defp resolve_docling_backend(opts) do
+    requested =
+      opts
+      |> Keyword.get(:backend, Docling.user_backend_default())
+      |> Docling.normalize_user_backend()
+
+    health_fun = Keyword.get(opts, :docling_health_fun, &Docling.health/1)
+
+    case requested do
+      :fast ->
+        case health_fun.(backend: :fast) do
+          {:ok, _} ->
+            {:fast, nil}
+
+          {:error, reason} ->
+            Logger.warning(
+              "Fast Docling backend unavailable, falling back to local: #{inspect(reason)}"
+            )
+
+            {:local, reason}
+        end
+
+      other ->
+        {other, nil}
+    end
+  end
+
+  defp persist_backend_choice(upload, backend_string, backend_reason) do
+    metadata =
+      (upload.metadata || %{})
+      |> Map.put("docling_backend", backend_string)
+      |> maybe_put("docling_backend_status", backend_status(backend_reason))
+
+    upload
+    |> Changeset.change(%{metadata: metadata})
+    |> Repo.update!()
+  end
+
+  defp backend_metadata(template, backend_string, backend_reason, opts) do
+    requested_backend =
+      opts
+      |> Keyword.get(:backend)
+      |> maybe_backend_string()
+
+    %{"template_id" => template.id, "backend" => backend_string}
+    |> maybe_put("requested_backend", requested_backend)
+    |> maybe_put("backend_fallback_reason", format_backend_reason(backend_reason))
+  end
+
+  defp maybe_backend_string(nil), do: nil
+
+  defp maybe_backend_string(backend) do
+    backend
+    |> Docling.normalize_user_backend()
+    |> Atom.to_string()
+  rescue
+    _ -> nil
+  end
+
+  defp backend_status(nil), do: "available"
+  defp backend_status(_reason), do: "fallback_to_local"
+
+  defp format_backend_reason(nil), do: nil
+  defp format_backend_reason(reason), do: inspect(reason)
+
   defp sha256(binary) do
     :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
   end
@@ -722,6 +823,7 @@ defmodule Lumainus.Documents do
     metadata =
       (upload.metadata || %{})
       |> Map.put("status", status)
+      |> maybe_put("docling_backend", Map.get(attrs, :backend) || Map.get(attrs, "backend"))
       |> maybe_put("ingestion_state", Map.get(attrs, :state))
       |> maybe_put("ingestion_stage", Map.get(attrs, :stage))
       |> maybe_put("ingestion_progress", Map.get(attrs, :progress))

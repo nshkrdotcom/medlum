@@ -1,8 +1,11 @@
 defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
   use Lumainus.DataCase, async: false
 
+  @moduletag :capture_log
+
   alias Lumainus.Documents
   alias Lumainus.Documents.{DoclingIngestionWorker, IngestionJob}
+  alias Plug.Conn
 
   # Test fixtures - same as lifecycle test
   defp create_test_tenant do
@@ -74,7 +77,28 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
     upload = create_test_upload(tenant, patient, record_set)
     job = create_test_job(tenant, upload, record_set)
 
-    {:ok, tenant: tenant, patient: patient, record_set: record_set, upload: upload, job: job}
+    bypass = Bypass.open()
+    original = Application.get_env(:lumainus, :docling, [])
+
+    Application.put_env(
+      :lumainus,
+      :docling,
+      Keyword.merge(original,
+        backend: :local,
+        local_url: "http://127.0.0.1:#{bypass.port}",
+        prefer_sse: false
+      )
+    )
+
+    on_exit(fn -> Application.put_env(:lumainus, :docling, original) end)
+
+    {:ok,
+     tenant: tenant,
+     patient: patient,
+     record_set: record_set,
+     upload: upload,
+     job: job,
+     bypass: bypass}
   end
 
   describe "perform/1" do
@@ -123,27 +147,30 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
       assert updated_job.state == "failed"
     end
 
-    test "updates attempt info when processing", %{job: job} do
-      # Mock the processor to avoid actual Docling call
-      # For now, this test just verifies the setup
+    test "updates attempt info when processing", %{job: job, bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/jobs", fn conn ->
+        Conn.resp(conn, 200, ~s({"job_id":"job-123"}))
+      end)
+
+      Bypass.expect_once(bypass, "GET", "/jobs/job-123/status", fn conn ->
+        Conn.resp(conn, 200, ~s({"state":"completed","result":{"markdown":"ok"}}))
+      end)
 
       oban_job = %Oban.Job{args: %{"ingestion_job_id" => job.id}, attempt: 1}
 
-      # This will fail because Docling isn't running, but we can check setup
-      # In a real test, we'd mock IngestionProcessor
-      _result = DoclingIngestionWorker.perform(oban_job)
+      assert :ok = DoclingIngestionWorker.perform(oban_job)
 
       updated_job = Repo.get!(IngestionJob, job.id)
       assert updated_job.attempt_number == 1
       assert updated_job.attempts == 1
+      assert updated_job.state == "completed"
     end
   end
 
   describe "timeout handling" do
     @tag :slow
-    test "records error on timeout", %{job: job} do
-      # This would require mocking the processor with a delay
-      # For now, documenting the expected behavior
+    test "records error on timeout", %{job: _job} do
+      # Placeholder to keep structure; real timeout handled in integration tests
       assert true
     end
   end

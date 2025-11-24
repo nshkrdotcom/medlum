@@ -20,10 +20,30 @@ if System.get_env("PHX_SERVER") do
   config :lumainus, LumainusWeb.Endpoint, server: true
 end
 
-if docling_url = System.get_env("DOCLING_URL") do
-  docling_config = Application.get_env(:lumainus, :docling, [])
+docling_env_config =
+  Application.get_env(:lumainus, :docling, [])
+  |> then(fn docling_config ->
+    case System.get_env("DOCLING_REMOTE_URL") do
+      nil -> docling_config
+      remote_url -> Keyword.merge(docling_config, remote_url: remote_url)
+    end
+  end)
+  |> then(fn docling_config ->
+    case System.get_env("DOCLING_URL") do
+      nil ->
+        docling_config
 
-  config :lumainus, :docling, Keyword.merge(docling_config, base_url: docling_url)
+      docling_url ->
+        Keyword.merge(docling_config,
+          base_url: docling_url,
+          remote_url: Keyword.get(docling_config, :remote_url, docling_url),
+          local_url: Keyword.get(docling_config, :local_url, docling_url)
+        )
+    end
+  end)
+
+if System.get_env("DOCLING_URL") || System.get_env("DOCLING_REMOTE_URL") do
+  config :lumainus, :docling, docling_env_config
 end
 
 gemini_key =

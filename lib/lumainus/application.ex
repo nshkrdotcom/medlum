@@ -18,11 +18,16 @@ defmodule Lumainus.Application do
       {Finch, name: Lumainus.Finch},
       # Task supervisor for SSE streaming tasks
       {Task.Supervisor, name: Lumainus.TaskSupervisor},
-      # Ingestion health checker for self-healing
-      Lumainus.Documents.IngestionHealthChecker,
       # Start to serve requests, typically the last entry
       LumainusWeb.Endpoint
     ]
+
+    children =
+      if Application.get_env(:lumainus, :disable_ingestion_health_checker, false) do
+        children
+      else
+        children ++ [Lumainus.Documents.IngestionHealthChecker]
+      end
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options

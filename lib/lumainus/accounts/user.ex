@@ -7,6 +7,9 @@ defmodule Lumainus.Accounts.User do
   alias Lumainus.Tenancy.Tenant
 
   @roles ~w(guest doctor admin system_administrator)
+  @docling_backends ~w(local fast)
+
+  def docling_backends, do: @docling_backends
 
   schema "users" do
     field(:email, :string)
@@ -18,6 +21,7 @@ defmodule Lumainus.Accounts.User do
     field(:name, :string)
     field(:locale, :string)
     field(:timezone, :string)
+    field(:docling_backend, :string, default: "local")
 
     belongs_to(:tenant, Tenant, type: :binary_id)
 
@@ -157,6 +161,15 @@ defmodule Lumainus.Accounts.User do
   def confirm_changeset(user) do
     now = DateTime.utc_now(:second)
     change(user, confirmed_at: now)
+  end
+
+  @doc """
+  Changeset for updating a user's Docling backend preference.
+  """
+  def docling_backend_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:docling_backend])
+    |> validate_inclusion(:docling_backend, @docling_backends)
   end
 
   @doc """

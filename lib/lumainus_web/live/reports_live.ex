@@ -2,6 +2,7 @@ defmodule LumainusWeb.ReportsLive do
   use LumainusWeb, :live_view
 
   alias Ecto.Changeset
+  alias Lumainus.Accounts
   alias Lumainus.Docling
   alias Lumainus.Documents
   alias Lumainus.Clinical.{Patients, RecordSets}
@@ -131,6 +132,42 @@ defmodule LumainusWeb.ReportsLive do
   @impl true
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
+  def handle_event("set_docling_backend", %{"backend" => backend}, socket) do
+    backend_atom =
+      backend
+      |> String.downcase()
+      |> Docling.normalize_user_backend()
+
+    cond do
+      backend_atom == :fast and not socket.assigns.fast_available? ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Fast (GPU) is unavailable right now. Using Standard until it recovers."
+         )}
+
+      true ->
+        case Accounts.update_docling_backend(socket.assigns.current_scope.user, backend_atom) do
+          {:ok, user} ->
+            scope = %{socket.assigns.current_scope | user: user}
+
+            {:noreply,
+             socket
+             |> assign(:docling_backend, backend_atom)
+             |> assign(:current_scope, scope)
+             |> maybe_fast_cost_flash(backend_atom)}
+
+          {:error, changeset} ->
+            {:noreply,
+             put_flash(socket, :error, "Unable to save preference: #{humanize_errors(changeset)}")}
+        end
+    end
+  rescue
+    _ ->
+      {:noreply, put_flash(socket, :error, "Unknown processing mode.")}
+  end
+
   @impl true
   def handle_event("run_full_report", _params, socket) do
     section_ids = Enum.map(socket.assigns.sections, & &1.section.id)
@@ -181,7 +218,10 @@ defmodule LumainusWeb.ReportsLive do
         {:noreply, put_flash(socket, :error, "Document no longer exists.")}
 
       doc ->
-        case Documents.retry_ingestion(doc.id, template: template) do
+        case Documents.retry_ingestion(doc.id,
+               template: template,
+               backend: socket.assigns.docling_backend
+             ) do
           {:ok, _job} ->
             {:noreply,
              socket
@@ -313,6 +353,15 @@ defmodule LumainusWeb.ReportsLive do
     documents = format_documents(workspace.documents)
     sections = format_sections(workspace.sections)
     docling_health = Docling.latest_health_check()
+    {fast_available?, fast_reason} = fast_backend_health()
+    preferred_backend = Accounts.docling_backend_for_user(scope.user)
+
+    selected_backend =
+      if preferred_backend == :fast and not fast_available? do
+        :local
+      else
+        preferred_backend
+      end
 
     running_sections =
       sections
@@ -338,6 +387,9 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:recent_runs, recent_runs)
       |> assign(:patients, patients)
       |> assign(:docling_health, docling_health)
+      |> assign(:docling_backend, selected_backend)
+      |> assign(:fast_available?, fast_available?)
+      |> assign(:fast_unavailable_reason, format_backend_reason(fast_reason))
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
       |> assign(:selected_document, nil)
@@ -453,7 +505,7 @@ defmodule LumainusWeb.ReportsLive do
 
     case Documents.create_upload(scope, patient, record_set, meta, binary) do
       {:ok, upload} ->
-        Documents.queue_ingestion(upload, template)
+        Documents.queue_ingestion(upload, template, backend: socket.assigns.docling_backend)
         {:ok, socket}
 
       {:error, changeset} ->
@@ -500,6 +552,8 @@ defmodule LumainusWeb.ReportsLive do
       status = ingestion_state || doc.status || metadata["status"] || ingestion_stage
       timeout_at = metadata["ingestion_timeout_at"]
       progress_payload = metadata["progress"] || %{}
+      backend = metadata["docling_backend"] || metadata["backend"] || "local"
+      backend_status = metadata["docling_backend_status"]
 
       %{
         id: doc.id,
@@ -522,6 +576,8 @@ defmodule LumainusWeb.ReportsLive do
         ingestion_job_id: job_id,
         ingestion_timeout_at: timeout_at,
         progress: progress_payload,
+        backend: backend,
+        backend_status: backend_status,
         uploaded_at: doc.inserted_at,
         ingested_at: doc.ingested_at,
         byte_size: doc.byte_size,
@@ -625,6 +681,66 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
+  defp fast_backend_health do
+    remote_url = Docling.config() |> Keyword.get(:remote_url)
+
+    cond do
+      is_nil(remote_url) ->
+        {false, "DOCLING_REMOTE_URL not set"}
+
+      true ->
+        try do
+          case Docling.health(backend: :fast) do
+            {:ok, _} -> {true, nil}
+            {:error, reason} -> {false, reason}
+          end
+        rescue
+          error -> {false, error}
+        end
+    end
+  end
+
+  defp maybe_fast_cost_flash(socket, :fast) do
+    put_flash(socket, :info, "Fast (GPU) uses remote GPUs and may incur cost.")
+  end
+
+  defp maybe_fast_cost_flash(socket, _), do: socket
+
+  defp format_backend_reason(nil), do: nil
+  defp format_backend_reason(reason), do: inspect(reason)
+
+  defp backend_label(backend) do
+    case normalize_backend_atom(backend) do
+      :fast -> "Fast (GPU)"
+      _ -> "Standard"
+    end
+  end
+
+  defp backend_badge_class(backend, status \\ nil) do
+    base_class =
+      case normalize_backend_atom(backend) do
+        :fast -> "bg-sky-100 text-sky-700 border border-sky-200"
+        _ -> "bg-slate-100 text-slate-700 border border-slate-200"
+      end
+
+    if status == "fallback_to_local" do
+      base_class <> " opacity-70"
+    else
+      base_class
+    end
+  end
+
+  defp backend_badge_title("fallback_to_local"), do: "Fast unavailable; fell back to Standard"
+  defp backend_badge_title(_), do: "Docling backend"
+
+  defp normalize_backend_atom(nil), do: :local
+
+  defp normalize_backend_atom(value) do
+    Docling.normalize_user_backend(value)
+  rescue
+    _ -> :local
+  end
+
   defp update_document_progress(documents, payload) do
     upload_id = Map.get(payload, :upload_id) || Map.get(payload, "upload_id")
     stage = Map.get(payload, :stage) || Map.get(payload, "stage")
@@ -637,6 +753,18 @@ defmodule LumainusWeb.ReportsLive do
     event = Map.get(payload, :event) || Map.get(payload, "event") || %{}
     progress_payload = Map.get(event, :payload) || Map.get(event, "payload")
 
+    backend =
+      Map.get(payload, :backend) ||
+        Map.get(payload, "backend") ||
+        Map.get(progress_payload || %{}, :backend) ||
+        Map.get(progress_payload || %{}, "backend")
+
+    backend_status =
+      Map.get(payload, :backend_status) ||
+        Map.get(payload, "backend_status") ||
+        Map.get(progress_payload || %{}, :backend_status) ||
+        Map.get(progress_payload || %{}, "backend_status")
+
     Enum.map(documents, fn doc ->
       if doc.id == upload_id do
         doc
@@ -648,6 +776,8 @@ defmodule LumainusWeb.ReportsLive do
         |> Map.put(:ingestion_error, last_error || doc.ingestion_error)
         |> Map.put(:ingestion_job_id, job_id || doc.ingestion_job_id)
         |> Map.put(:ingestion_timeout_at, timeout_at || doc.ingestion_timeout_at)
+        |> Map.put(:backend, backend || doc.backend)
+        |> Map.put(:backend_status, backend_status || doc.backend_status)
         |> maybe_put_progress(progress_payload)
       else
         doc
@@ -1407,6 +1537,72 @@ defmodule LumainusWeb.ReportsLive do
             <div style="font-size: 13px; font-weight: 600; color: #0f172a;">Source Documents</div>
             <div style="font-size: 12px; color: #94a3b8;">{length(@documents)} files</div>
           </div>
+          <div class="mt-1 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex flex-col">
+                <span class="text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                  Processing speed
+                </span>
+                <span class="text-sm text-slate-700">
+                  Choose Standard (free) or Fast (GPU, $$)
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  phx-click="set_docling_backend"
+                  phx-value-backend="local"
+                  class={[
+                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                    @docling_backend == :local &&
+                      "bg-slate-900 text-white border-slate-900 shadow-sm",
+                    @docling_backend != :local &&
+                      "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                  ]}
+                >
+                  Standard
+                </button>
+                <button
+                  type="button"
+                  phx-click="set_docling_backend"
+                  phx-value-backend="fast"
+                  disabled={!@fast_available?}
+                  class={[
+                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                    @docling_backend == :fast &&
+                      @fast_available? && "bg-sky-600 text-white border-sky-600 shadow-sm",
+                    @docling_backend != :fast &&
+                      "bg-white text-slate-700 border-slate-200 hover:border-slate-300",
+                    !@fast_available? && "opacity-60 cursor-not-allowed"
+                  ]}
+                >
+                  Fast (GPU)
+                </button>
+              </div>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <span class={[
+                "inline-flex h-6 items-center rounded-full border px-2 font-semibold",
+                backend_badge_class(@docling_backend)
+              ]}>
+                {backend_label(@docling_backend)}
+              </span>
+              <%= if @docling_backend == :fast do %>
+                <span>Fast uses remote GPU processing and may incur cost.</span>
+              <% else %>
+                <span>Standard uses the local CPU Docling service.</span>
+              <% end %>
+              <%= unless @fast_available? do %>
+                <span class="text-amber-600">
+                  GPU service unavailable
+                  <%= if @fast_unavailable_reason do %>
+                    — {format_backend_reason(@fast_unavailable_reason)}
+                  <% end %>
+                  — falling back to Standard.
+                </span>
+              <% end %>
+            </div>
+          </div>
           <form
             phx-change="noop"
             phx-submit="noop"
@@ -1474,11 +1670,22 @@ defmodule LumainusWeb.ReportsLive do
               >
                 <div class="flex items-center justify-between text-xs uppercase tracking-[0.15em] text-slate-400">
                   <span>Doc {doc.sequence}</span>
-                  <%= if status_label = document_status(doc) do %>
-                    <span class="text-[10px] rounded-full border border-slate-200 px-2 py-0.5 normal-case tracking-normal">
-                      {String.capitalize(status_label)}
+                  <div class="flex items-center gap-2">
+                    <span
+                      class={[
+                        "text-[10px] rounded-full px-2 py-0.5 normal-case tracking-normal border",
+                        backend_badge_class(doc.backend, doc.backend_status)
+                      ]}
+                      title={backend_badge_title(doc.backend_status)}
+                    >
+                      {backend_label(doc.backend)}
                     </span>
-                  <% end %>
+                    <%= if status_label = document_status(doc) do %>
+                      <span class="text-[10px] rounded-full border border-slate-200 px-2 py-0.5 normal-case tracking-normal">
+                        {String.capitalize(status_label)}
+                      </span>
+                    <% end %>
+                  </div>
                 </div>
                 <div style="font-size: 13px; font-weight: 600; color: #0f172a;">
                   {doc.label}
@@ -1591,6 +1798,15 @@ defmodule LumainusWeb.ReportsLive do
                   <span>Status</span>
                   <strong>
                     {String.capitalize(document_status(@selected_document) || "pending")}
+                  </strong>
+                </div>
+                <div>
+                  <span>Backend</span>
+                  <strong>
+                    {backend_label(@selected_document.backend)}
+                    <%= if @selected_document.backend_status == "fallback_to_local" do %>
+                      <span class="text-amber-600 text-[11px] font-normal ml-1">(fallback)</span>
+                    <% end %>
                   </strong>
                 </div>
                 <div>

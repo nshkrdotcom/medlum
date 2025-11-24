@@ -1,176 +1,170 @@
 defmodule Lumainus.Docling do
   @moduledoc """
-  Unified API for Docling PDF-to-Markdown conversion.
+  Unified API for Docling PDF-to-Markdown conversion with pluggable backends.
 
-  This module provides a single entry point regardless of which backend
-  is configured. The backend is selected via configuration.
-
-  ## Configuration
-
-      config :lumainus, :docling,
-        backend: :local,  # or :remote, :vast_ai
-        timeout_ms: 1_200_000,
-        # Backend-specific options
-        local_url: "http://127.0.0.1:8042",
-        remote_url: "http://gpu-server:8042"
-
-  ## Usage
-
-      # Synchronous conversion (through backend)
-      {:ok, result} = Lumainus.Docling.convert(pdf_binary, filename: "doc.pdf")
-
-      # Check health (through backend)
-      {:ok, status} = Lumainus.Docling.health()
-
-  ## Legacy API
-
-  The module also maintains backward compatibility with the original
-  direct HTTP client functions used by Queue and SSEConsumer.
+  Backends are selected via configuration or per-call overrides. The default
+  setup keeps the local CPU Docling service as `:local` while allowing a remote
+  GPU-backed service as `:fast` (aliased to the remote HTTP backend).
   """
 
   import Ecto.Query, warn: false
+
   alias Lumainus.Docling.HealthCheck
   alias Lumainus.Repo
 
-  require Logger
-
-  @backends %{
+  @backend_modules %{
     local: Lumainus.Docling.Backends.Local,
     remote: Lumainus.Docling.Backends.Remote,
+    fast: Lumainus.Docling.Backends.Remote,
     vast_ai: Lumainus.Docling.Backends.VastAI
   }
 
-  # =============================================================================
-  # Backend API
-  # =============================================================================
+  @backend_aliases %{
+    :local => :local,
+    "local" => :local,
+    :remote => :remote,
+    "remote" => :remote,
+    :fast => :fast,
+    "fast" => :fast,
+    :vast_ai => :vast_ai,
+    "vast_ai" => :vast_ai
+  }
 
   @doc """
-  Get the configured backend module.
+  Convert a PDF binary synchronously using the configured (or provided) backend.
   """
-  def backend do
-    backend_name = config()[:backend] || :local
-    @backends[backend_name] || raise "Unknown backend: #{backend_name}"
+  def convert(binary, opts \\ []) when is_binary(binary) do
+    backend_module_from_opts(opts).convert(binary, with_timeout(opts))
   end
 
   @doc """
-  Get backend capabilities.
+  Enqueue an asynchronous conversion job.
   """
-  def capabilities do
-    backend_module = backend()
-    Code.ensure_loaded(backend_module)
+  def enqueue(binary, opts \\ []) when is_binary(binary) do
+    backend_name = backend_name_from_opts(opts)
+    backend = backend_module(backend_name)
 
-    if function_exported?(backend_module, :capabilities, 0) do
-      backend_module.capabilities()
+    with {:ok, job} <- backend.enqueue(binary, with_timeout(opts)) do
+      {:ok, ensure_job_backend(job, backend, backend_name)}
+    end
+  end
+
+  @doc """
+  Await completion of a queued job.
+  """
+  def await(job, opts \\ []) do
+    backend_module = job_backend(job, opts[:backend])
+    backend_module.await(job, opts)
+  end
+
+  @doc """
+  Hit the health endpoint for a backend (default: configured backend).
+  """
+  def health(opts \\ []) do
+    backend_name = backend_name_from_opts(opts)
+
+    backend_module(backend_name).health()
+  rescue
+    e in RuntimeError ->
+      {:error, e.message}
+  end
+
+  @doc """
+  Cancel a running job (best-effort).
+  """
+  def cancel(job_id, opts \\ []) when is_binary(job_id) do
+    backend_name = backend_name_from_opts(opts)
+    backend_module(backend_name).cancel(job_id)
+  end
+
+  @doc """
+  List backend capabilities (if the backend exposes them).
+  """
+  def capabilities(opts \\ []) do
+    backend = backend_module_from_opts(opts)
+
+    if function_exported?(backend, :capabilities, 0) do
+      backend.capabilities()
     else
       []
     end
   end
 
   @doc """
-  Cancel a running job (delegates to backend).
+  Resolve the backend module for an optional override.
   """
-  def cancel(job_id) when is_binary(job_id) do
-    backend_module = backend()
-    Code.ensure_loaded(backend_module)
-
-    if function_exported?(backend_module, :cancel, 1) do
-      backend_module.cancel(job_id)
-    else
-      {:error, :not_supported}
-    end
-  end
-
-  # =============================================================================
-  # Legacy Direct HTTP API (used by Queue and SSEConsumer)
-  # =============================================================================
-
-  @doc """
-  Convert a binary PDF into markdown using the Docling REST API.
-  """
-  def convert(binary, opts) when is_binary(binary) do
-    filename = Keyword.fetch!(opts, :filename)
-    content_type = Keyword.get(opts, :content_type, "application/pdf")
-    upload_id = Keyword.get(opts, :upload_id)
-    job_id = Keyword.get(opts, :job_id)
-    byte_size = Keyword.get(opts, :byte_size, byte_size(binary))
-    timeout_ms = Keyword.get(opts, :timeout_ms, timeout())
-    metadata = Logger.metadata()
-
-    Logger.metadata(
-      metadata ++
-        [docling_upload_id: upload_id, docling_job_id: job_id, docling_filename: filename]
-    )
-
-    fields =
-      [
-        {:output_markdown, "true"},
-        {:file,
-         {binary,
-          filename: filename,
-          content_type: content_type,
-          size: Keyword.get(opts, :byte_size, byte_size(binary))}}
-      ]
-
-    Logger.info("Docling convert start (#{byte_size} bytes, timeout=#{timeout_ms}ms)")
-    started = System.monotonic_time(:millisecond)
-
-    response =
-      request(:post, "/convert",
-        form_multipart: fields,
-        receive_timeout: timeout_ms
-      )
-
-    duration = System.monotonic_time(:millisecond) - started
-
-    case response do
-      {:ok, _} = ok ->
-        Logger.info("Docling convert succeeded in #{duration}ms")
-        Logger.metadata(metadata)
-        ok
-
-      {:error, reason} = error ->
-        Logger.error("Docling convert errored in #{duration}ms: #{inspect(reason)}")
-        Logger.metadata(metadata)
-        error
-    end
-  end
-
-  def enqueue_job(binary, opts) when is_binary(binary) do
-    filename = Keyword.fetch!(opts, :filename)
-    content_type = Keyword.get(opts, :content_type, "application/pdf")
-    job_id = Keyword.get(opts, :job_id)
-    byte_size = Keyword.get(opts, :byte_size, byte_size(binary))
-    timeout_ms = Keyword.get(opts, :timeout_ms, timeout())
-
-    fields =
-      [
-        {:output_markdown, "true"},
-        {:wait, "false"},
-        {:file,
-         {binary,
-          filename: filename,
-          content_type: content_type,
-          size: Keyword.get(opts, :byte_size, byte_size(binary))}}
-      ]
-      |> maybe_add_job_id(job_id)
-
-    Logger.info("Docling enqueue start (#{byte_size} bytes, timeout=#{timeout_ms}ms)")
-
-    request(:post, "/jobs",
-      form_multipart: fields,
-      receive_timeout: timeout_ms
-    )
-  end
-
-  def job_status(job_id) when is_binary(job_id) do
-    request(:get, "/jobs/#{job_id}/status", receive_timeout: min(timeout(), 15_000))
+  def backend(opts \\ []) do
+    backend_module_from_opts(opts)
   end
 
   @doc """
-  Hit the Docling health endpoint.
+  Resolve a backend module by name or alias.
   """
-  def health do
-    request(:get, "/health", receive_timeout: min(timeout(), 15_000))
+  def backend_module(name) do
+    canonical = normalize_backend_name(name)
+
+    case Map.fetch(@backend_modules, canonical) do
+      {:ok, module} -> module
+      :error -> raise "Unknown backend: #{inspect(canonical)}"
+    end
+  end
+
+  @doc """
+  Return the backend name for a given set of options or the configured backend.
+  """
+  def backend_name_from_opts(opts) do
+    normalize_backend_name(Keyword.get(opts, :backend, config_backend_name()))
+  end
+
+  @doc """
+  The configured backend name (normalized).
+  """
+  def config_backend_name do
+    normalize_backend_name(config()[:backend] || :local)
+  end
+
+  @doc """
+  Default backend for user-facing preferences (local vs fast).
+  """
+  def user_backend_default do
+    normalize_user_backend(config_backend_name())
+  end
+
+  @doc """
+  Normalize a backend value (atom or string) to a canonical atom.
+  """
+  def normalize_backend_name(nil), do: :local
+
+  def normalize_backend_name(name) when is_atom(name) do
+    Map.get(@backend_aliases, name) ||
+      raise ArgumentError, "Unknown backend: #{inspect(name)}"
+  end
+
+  def normalize_backend_name(name) when is_binary(name) do
+    key = String.downcase(name)
+
+    Map.get(@backend_aliases, key) ||
+      raise ArgumentError, "Unknown backend: #{inspect(name)}"
+  end
+
+  @doc """
+  Normalize to the user-facing backend options (`:local` | `:fast`).
+  """
+  def normalize_user_backend(name) do
+    case normalize_backend_name(name) do
+      :fast -> :fast
+      :remote -> :fast
+      :vast_ai -> :fast
+      _ -> :local
+    end
+  end
+
+  @doc """
+  Fetch job status for a given backend/base URL.
+  """
+  def job_status(job_id, opts \\ []) do
+    base_url = Keyword.get(opts, :base_url, base_url(opts))
+    Lumainus.Docling.HTTP.job_status(job_id, base_url: base_url)
   end
 
   def record_health(result) do
@@ -205,46 +199,78 @@ defmodule Lumainus.Docling do
     |> Repo.one()
   end
 
-  def base_url do
-    config()[:base_url] || raise ArgumentError, "set :docling base_url config"
+  def base_url(opts \\ []) do
+    backend_name = normalize_backend_name(Keyword.get(opts, :backend, config_backend_name()))
+
+    case backend_name do
+      :local -> local_url!()
+      :fast -> remote_url!()
+      :remote -> remote_url!()
+      :vast_ai -> remote_url!()
+    end
   end
 
   def timeout do
-    config()[:request_timeout] || 1_200_000
+    config()[:request_timeout] || config()[:timeout_ms] || 1_200_000
+  end
+
+  def poll_interval_ms do
+    config()[:poll_interval_ms] || 5_000
   end
 
   def config do
     Application.get_env(:lumainus, :docling, [])
   end
 
-  defp request(method, path, opts) do
-    url = base_url() <> path
+  # Private helpers
 
-    case Req.request([method: method, url: url] ++ opts) do
-      {:ok, %{status: status} = resp} when status in 200..299 ->
-        {:ok, decode_body(resp.body)}
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("Docling returned status #{status}")
-        {:error, {:http_error, status, decode_body(body)}}
-
-      {:error, reason} ->
-        Logger.error("Docling request failed: #{inspect(reason)}")
-        {:error, reason}
-    end
+  defp with_timeout(opts) do
+    opts
+    |> Keyword.put_new(:timeout_ms, timeout())
+    |> Keyword.put_new(:poll_interval_ms, poll_interval_ms())
   end
 
-  defp decode_body(%{} = body), do: body
-
-  defp decode_body(body) when is_binary(body) do
-    case Jason.decode(body) do
-      {:ok, decoded} -> decoded
-      _ -> %{"raw" => body}
-    end
+  defp job_backend(%{backend: backend_module}, _override) when is_atom(backend_module) do
+    backend_module
   end
 
-  defp decode_body(body), do: body
+  defp job_backend(job, override) do
+    name =
+      cond do
+        not is_nil(override) -> normalize_backend_name(override)
+        job[:backend_name] -> normalize_backend_name(job[:backend_name])
+        job[:backend] -> module_to_backend_name(job[:backend])
+        true -> config_backend_name()
+      end
 
-  defp maybe_add_job_id(fields, nil), do: fields
-  defp maybe_add_job_id(fields, job_id), do: [{:job_id, job_id} | fields]
+    backend_module(name)
+  end
+
+  defp module_to_backend_name(module) when is_atom(module) do
+    Enum.find_value(@backend_modules, config_backend_name(), fn {name, mod} ->
+      if mod == module, do: name
+    end)
+  end
+
+  defp module_to_backend_name(_module), do: config_backend_name()
+
+  defp ensure_job_backend(job, backend_module, backend_name) do
+    job
+    |> Map.put_new(:backend, backend_module)
+    |> Map.put_new(:backend_name, backend_name)
+  end
+
+  defp backend_module_from_opts(opts) do
+    opts |> backend_name_from_opts() |> backend_module()
+  end
+
+  defp local_url! do
+    config()[:local_url] || config()[:base_url] ||
+      raise ArgumentError, "set :docling local_url config"
+  end
+
+  defp remote_url! do
+    config()[:remote_url] || config()[:base_url] ||
+      raise ArgumentError, "set :docling remote_url config"
+  end
 end

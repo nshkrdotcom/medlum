@@ -7,6 +7,7 @@ defmodule Lumainus.Accounts do
   alias Lumainus.Repo
 
   alias Lumainus.Accounts.{User, UserToken, UserNotifier, Invitation}
+  alias Lumainus.Docling
   alias Lumainus.Tenancy.Tenant
 
   ## Database getters
@@ -254,6 +255,39 @@ defmodule Lumainus.Accounts do
   end
 
   ## Settings
+
+  @doc """
+  Returns the user's preferred Docling backend, falling back to the configured default.
+  """
+  def docling_backend_for_user(%User{} = user, opts \\ []) do
+    default = Docling.user_backend_default()
+
+    user.docling_backend
+    |> Kernel.||(default |> Atom.to_string())
+    |> Docling.normalize_user_backend()
+    |> apply_backend_override(opts)
+  end
+
+  defp apply_backend_override(current, opts) do
+    override = Keyword.get(opts, :backend)
+
+    case override do
+      nil -> current
+      backend -> Docling.normalize_user_backend(backend)
+    end
+  end
+
+  @doc """
+  Persist a user's Docling backend preference (`:local` | `:fast`).
+  """
+  def update_docling_backend(%User{} = user, backend) do
+    backend_atom = Docling.normalize_user_backend(backend)
+    backend_string = Atom.to_string(backend_atom)
+
+    user
+    |> User.docling_backend_changeset(%{docling_backend: backend_string})
+    |> Repo.update()
+  end
 
   @doc """
   Checks whether the user is in sudo mode.

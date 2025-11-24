@@ -110,7 +110,7 @@ defmodule Lumainus.Docling.Backends.VastAITest do
         metadata: %{endpoint: endpoint}
       }
 
-      assert {:ok, result} = VastAI.await(job, poll_interval_ms: 100)
+      assert {:ok, result} = VastAI.await(job, poll_interval_ms: 100, prefer_sse: false)
       assert result["markdown"] == "# GPU Done"
     end
   end

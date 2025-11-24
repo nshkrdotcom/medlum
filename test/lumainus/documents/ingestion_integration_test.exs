@@ -19,7 +19,7 @@ defmodule Lumainus.Documents.IngestionIntegrationTest do
   end
 
   alias Lumainus.Documents
-  alias Lumainus.Documents.{DocumentUpload, IngestionConfig, IngestionJob}
+  alias Lumainus.Documents.{IngestionConfig, IngestionJob}
 
   # Test fixtures
   defp create_test_tenant do

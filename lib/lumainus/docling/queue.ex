@@ -85,14 +85,15 @@ defmodule Lumainus.Docling.Queue do
 
   defp await_sse(job, deadline, on_status) do
     timeout = max(0, deadline - System.monotonic_time(:millisecond))
+    base_url = Docling.base_url()
 
-    {:ok, task} = SSEConsumer.subscribe(job.job_id, timeout: timeout)
-    result = receive_sse_events(job.job_id, task, deadline, on_status)
+    {:ok, task} = SSEConsumer.subscribe(job.job_id, timeout: timeout, base_url: base_url)
+    result = receive_sse_events(job.job_id, task, deadline, on_status, base_url)
     SSEConsumer.cancel(task)
     result
   end
 
-  defp receive_sse_events(job_id, task, deadline, on_status) do
+  defp receive_sse_events(job_id, task, deadline, on_status, base_url) do
     remaining = max(0, deadline - System.monotonic_time(:millisecond))
 
     receive do
@@ -100,11 +101,11 @@ defmodule Lumainus.Docling.Queue do
         # Forward event to status handler
         status = sse_event_to_status(event)
         on_status.(status)
-        receive_sse_events(job_id, task, deadline, on_status)
+        receive_sse_events(job_id, task, deadline, on_status, base_url)
 
       {:sse_done, ^job_id, :completed} ->
         # Fetch final result from status endpoint
-        case Docling.job_status(job_id) do
+        case Docling.job_status(job_id, base_url: base_url) do
           {:ok, %{"state" => "completed", "result" => result}} when not is_nil(result) ->
             {:ok, result}
 
@@ -119,7 +120,7 @@ defmodule Lumainus.Docling.Queue do
         end
 
       {:sse_done, ^job_id, :failed} ->
-        case Docling.job_status(job_id) do
+        case Docling.job_status(job_id, base_url: base_url) do
           {:ok, %{"last_error" => error}} ->
             {:error, {:docling_failed, error}}
 
@@ -166,17 +167,16 @@ defmodule Lumainus.Docling.Queue do
   end
 
   defp enqueue_remote(job) do
-    case Docling.enqueue_job(
-           job.binary,
-           Keyword.put(job.convert_opts, :timeout_ms, job.timeout_ms)
-         ) do
-      {:ok, %{"job_id" => remote_id}} ->
+    case Docling.enqueue(job.binary, Keyword.put(job.convert_opts, :timeout_ms, job.timeout_ms)) do
+      {:ok, %{job_id: remote_id} = backend_job} ->
         {:ok,
          %{
            job
            | job_id: remote_id,
              convert_opts: Keyword.put(job.convert_opts, :job_id, remote_id),
-             binary: nil
+             binary: nil,
+             backend: backend_job[:backend],
+             backend_name: backend_job[:backend_name]
          }}
 
       {:error, reason} ->

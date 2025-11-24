@@ -1,9 +1,10 @@
 defmodule Lumainus.Documents.IngestionCleanupWorkerTest do
   use Lumainus.DataCase
 
+  @moduletag :capture_log
+
   import Ecto.Query
 
-  alias Lumainus.Documents
   alias Lumainus.Documents.{IngestionCleanupWorker, IngestionJob}
 
   # Test fixtures
@@ -51,7 +52,7 @@ defmodule Lumainus.Documents.IngestionCleanupWorkerTest do
     |> Repo.insert!()
   end
 
-  defp create_test_job(tenant, upload, record_set, attrs \\ %{}) do
+  defp create_test_job(tenant, upload, record_set, attrs) do
     base_attrs = %{
       tenant_id: tenant.id,
       upload_id: upload.id,

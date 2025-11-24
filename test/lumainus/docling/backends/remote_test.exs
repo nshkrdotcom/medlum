@@ -94,7 +94,7 @@ defmodule Lumainus.Docling.Backends.RemoteTest do
         metadata: %{}
       }
 
-      assert {:ok, result} = Remote.await(job, poll_interval_ms: 100)
+      assert {:ok, result} = Remote.await(job, poll_interval_ms: 100, prefer_sse: false)
       assert result["markdown"] == "# Remote Done"
     end
   end

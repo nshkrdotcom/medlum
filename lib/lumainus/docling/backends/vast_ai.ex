@@ -46,11 +46,7 @@ defmodule Lumainus.Docling.Backends.VastAI do
   @impl true
   def await(job, opts \\ []) do
     endpoint = job.metadata.endpoint
-    on_status = Keyword.get(opts, :on_status, fn _ -> :ok end)
-    poll_ms = Keyword.get(opts, :poll_interval_ms, 5_000)
-    deadline = System.monotonic_time(:millisecond) + job.timeout_ms
-
-    result = poll_until_complete(job.job_id, endpoint, deadline, poll_ms, on_status)
+    result = HTTP.await(job, opts, base_url: endpoint)
 
     # Update activity after job completes
     InstanceManager.update_activity()
@@ -91,36 +87,15 @@ defmodule Lumainus.Docling.Backends.VastAI do
     %{
       job_id: response["job_id"],
       timeout_ms: timeout_ms,
-      timeout_at: DateTime.add(DateTime.utc_now(), timeout_ms, :millisecond),
+      timeout_at:
+        DateTime.utc_now()
+        |> DateTime.add(timeout_ms, :millisecond)
+        |> DateTime.truncate(:second),
       backend: __MODULE__,
       metadata: %{
         endpoint: endpoint,
         instance_id: InstanceManager.current_instance_id()
       }
     }
-  end
-
-  defp poll_until_complete(job_id, endpoint, deadline, poll_ms, on_status) do
-    if System.monotonic_time(:millisecond) > deadline do
-      {:error, :timeout}
-    else
-      case HTTP.job_status(job_id, base_url: endpoint) do
-        {:ok, %{"state" => "completed"} = body} ->
-          on_status.(body)
-          {:ok, Map.get(body, "result") || Map.get(body, "payload") || body}
-
-        {:ok, %{"state" => "failed"} = body} ->
-          on_status.(body)
-          {:error, {:docling_failed, body["last_error"]}}
-
-        {:ok, pending} ->
-          on_status.(pending)
-          Process.sleep(poll_ms)
-          poll_until_complete(job_id, endpoint, deadline, poll_ms, on_status)
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
   end
 end

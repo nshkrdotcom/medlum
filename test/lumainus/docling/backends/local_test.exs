@@ -1,6 +1,8 @@
 defmodule Lumainus.Docling.Backends.LocalTest do
   use ExUnit.Case, async: false
 
+  @moduletag :capture_log
+
   alias Lumainus.Docling.Backends.Local
 
   @moduledoc """
@@ -108,7 +110,7 @@ defmodule Lumainus.Docling.Backends.LocalTest do
         metadata: %{}
       }
 
-      assert {:ok, result} = Local.await(job, poll_interval_ms: 100)
+      assert {:ok, result} = Local.await(job, poll_interval_ms: 100, prefer_sse: false)
       assert result["markdown"] == "# Done"
     end
 
@@ -142,7 +144,8 @@ defmodule Lumainus.Docling.Backends.LocalTest do
         :ok
       end
 
-      {:ok, _result} = Local.await(job, on_status: on_status, poll_interval_ms: 100)
+      {:ok, _result} =
+        Local.await(job, on_status: on_status, poll_interval_ms: 100, prefer_sse: false)
 
       assert_receive {:status, %{"state" => "completed"}}
     end

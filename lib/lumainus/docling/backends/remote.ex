@@ -41,11 +41,7 @@ defmodule Lumainus.Docling.Backends.Remote do
 
   @impl true
   def await(job, opts \\ []) do
-    on_status = Keyword.get(opts, :on_status, fn _ -> :ok end)
-    poll_ms = Keyword.get(opts, :poll_interval_ms, 5_000)
-    deadline = System.monotonic_time(:millisecond) + job.timeout_ms
-
-    poll_until_complete(job.job_id, deadline, poll_ms, on_status)
+    HTTP.await(job, opts, base_url: url())
   end
 
   @impl true
@@ -64,9 +60,9 @@ defmodule Lumainus.Docling.Backends.Remote do
   # Private functions
 
   defp url do
-    Application.get_env(:lumainus, :docling, [])
-    |> Keyword.get(:remote_url)
-    |> case do
+    config = Application.get_env(:lumainus, :docling, [])
+
+    case Keyword.get(config, :remote_url) || Keyword.get(config, :base_url) do
       nil -> raise "Remote backend requires :docling :remote_url config"
       url -> url
     end
@@ -78,33 +74,12 @@ defmodule Lumainus.Docling.Backends.Remote do
     %{
       job_id: response["job_id"],
       timeout_ms: timeout_ms,
-      timeout_at: DateTime.add(DateTime.utc_now(), timeout_ms, :millisecond),
+      timeout_at:
+        DateTime.utc_now()
+        |> DateTime.add(timeout_ms, :millisecond)
+        |> DateTime.truncate(:second),
       backend: __MODULE__,
       metadata: %{url: url()}
     }
-  end
-
-  defp poll_until_complete(job_id, deadline, poll_ms, on_status) do
-    if System.monotonic_time(:millisecond) > deadline do
-      {:error, :timeout}
-    else
-      case HTTP.job_status(job_id, base_url: url()) do
-        {:ok, %{"state" => "completed"} = body} ->
-          on_status.(body)
-          {:ok, Map.get(body, "result") || Map.get(body, "payload") || body}
-
-        {:ok, %{"state" => "failed"} = body} ->
-          on_status.(body)
-          {:error, {:docling_failed, body["last_error"]}}
-
-        {:ok, pending} ->
-          on_status.(pending)
-          Process.sleep(poll_ms)
-          poll_until_complete(job_id, deadline, poll_ms, on_status)
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
   end
 end

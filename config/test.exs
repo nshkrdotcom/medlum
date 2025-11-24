@@ -46,4 +46,14 @@ config :lumainus, Oban,
   plugins: false
 
 # Keep Docling inline for tests so Bypass expectations on /convert stay valid
-config :lumainus, :docling, queue_mode: :inline
+config :lumainus, :docling,
+  queue_mode: :inline,
+  backend: :local,
+  local_url: "http://127.0.0.1:8042",
+  timeout_ms: 1_200_000,
+  request_timeout: 1_200_000,
+  poll_interval_ms: 1_000,
+  prefer_sse: false,
+  suppress_logs: true
+
+config :lumainus, :disable_ingestion_health_checker, true

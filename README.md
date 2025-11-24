@@ -118,6 +118,11 @@ mix test
 iex -S mix phx.server
 ```
 
+### Docling Backends
+
+- **Standard (local CPU)** – default, uses `http://127.0.0.1:8042`
+- **Fast (GPU)** – set `DOCLING_REMOTE_URL=http://<gpu-host>:8042` to expose the remote Docling service. Users can toggle Fast vs Standard in `/reports`; if the GPU endpoint is unhealthy, the app will fall back to Standard automatically.
+
 ### Database Commands
 
 ```bash

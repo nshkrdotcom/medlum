@@ -1,6 +1,8 @@
 defmodule Lumainus.Documents.IngestionProcessorTest do
   use Lumainus.DataCase
 
+  @moduletag :capture_log
+
   import Lumainus.AccountsFixtures
 
   alias Lumainus.Documents.{DocumentUpload, IngestionJob, IngestionProcessor}
@@ -11,7 +13,13 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
     bypass = Bypass.open()
     original = Application.get_env(:lumainus, :docling, [])
 
-    new_config = Keyword.put(original, :base_url, "http://127.0.0.1:#{bypass.port}")
+    new_config =
+      original
+      |> Keyword.put(:local_url, "http://127.0.0.1:#{bypass.port}")
+      |> Keyword.put(:backend, :local)
+      |> Keyword.put(:queue_mode, :inline)
+      |> Keyword.put(:prefer_sse, false)
+
     Application.put_env(:lumainus, :docling, new_config)
 
     on_exit(fn -> Application.put_env(:lumainus, :docling, original) end)
@@ -32,11 +40,20 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
     {:ok, upload} =
       Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
 
-    Bypass.expect_once(bypass, "POST", "/convert", fn conn ->
+    Bypass.expect_once(bypass, "POST", "/jobs", fn conn ->
+      body = Jason.encode!(%{"job_id" => "job-1"})
+      Conn.resp(conn, 200, body)
+    end)
+
+    Bypass.expect_once(bypass, "GET", "/jobs/job-1/status", fn conn ->
       body =
         Jason.encode!(%{
-          "markdown" => "# Lab Results\nLDL elevated",
-          "metadata" => %{"page_count" => 1, "source_kind" => "upload", "has_tables" => false}
+          "job_id" => "job-1",
+          "state" => "completed",
+          "result" => %{
+            "markdown" => "# Lab Results\nLDL elevated",
+            "metadata" => %{"page_count" => 1, "source_kind" => "upload", "has_tables" => false}
+          }
         })
 
       Conn.resp(conn, 200, body)
@@ -84,7 +101,7 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
     {:ok, upload} =
       Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
 
-    Bypass.expect_once(bypass, "POST", "/convert", fn conn ->
+    Bypass.expect_once(bypass, "POST", "/jobs", fn conn ->
       Conn.resp(conn, 500, ~s({"error":"nope"}))
     end)
 

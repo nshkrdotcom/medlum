@@ -5,12 +5,13 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
   alias Ecto.Changeset
   alias Lumainus.Docling
-  alias Lumainus.Docling.Queue, as: DoclingQueue
   alias Lumainus.Documents
   alias Lumainus.Documents.{DocumentChunk, DocumentParse, DocumentUpload, IngestionJob}
   alias Lumainus.Documents.ProgressTracker
   alias Lumainus.Clinical.PatientProfile
   alias Lumainus.Repo
+
+  require Logger
 
   @duplicate_min_length 8
 
@@ -18,7 +19,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
     job =
       IngestionJob
       |> Repo.get!(job_id)
-      |> Repo.preload(upload: [:patient, :record_set])
+      |> Repo.preload(upload: [:patient, :record_set, :uploader])
 
     job = mark_processing(job)
 
@@ -66,16 +67,28 @@ defmodule Lumainus.Documents.IngestionProcessor do
   defp docling_convert(%IngestionJob{} = job) do
     upload = job.upload
 
-    with {:ok, queue_job} <-
-           DoclingQueue.enqueue(upload.raw_blob,
-             filename: upload.filename,
-             content_type: upload.content_type,
-             byte_size: upload.byte_size,
-             upload_id: upload.id,
-             job_id: job.id,
-             timeout_ms: Docling.timeout()
-           ) do
+    backend =
+      try do
+        job.backend |> Docling.normalize_user_backend()
+      rescue
+        _ -> Docling.user_backend_default()
+      end
+
+    docling_opts =
+      [
+        filename: upload.filename,
+        content_type: upload.content_type,
+        byte_size: upload.byte_size,
+        upload_id: upload.id,
+        job_id: job.id,
+        timeout_ms: Docling.timeout(),
+        backend: backend
+      ]
+
+    with {:ok, queue_job} <- Docling.enqueue(upload.raw_blob, docling_opts) do
       timeout_at = queue_job.timeout_at
+      {:ok, _linked} = Documents.link_docling_job(job, queue_job.job_id)
+      job = %{job | docling_job_id: queue_job.job_id}
 
       {job, _event} =
         Documents.record_job_stage!(
@@ -85,10 +98,11 @@ defmodule Lumainus.Documents.IngestionProcessor do
           progress: 50,
           timeout_at: timeout_at,
           payload: %{timeout_at: timeout_at, docling_job_id: queue_job.job_id},
-          state: "running"
+          state: "running",
+          backend: Atom.to_string(backend)
         )
 
-      case DoclingQueue.await(queue_job,
+      case Docling.await(queue_job,
              on_status: fn status -> maybe_track_progress(job, status) end
            ) do
         {:ok, response} -> {:ok, response, job}
@@ -138,12 +152,13 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
     maybe_update_patient(upload, response)
 
-    refresh_upload_metadata(upload, markdown, metadata,
-      duplicate_of: duplicate_of,
-      dedup_target?: dedup_target
-    )
+    updated_upload =
+      refresh_upload_metadata(upload, markdown, metadata,
+        duplicate_of: duplicate_of,
+        dedup_target?: dedup_target
+      )
 
-    {:ok, parse, job}
+    {:ok, parse, %{job | upload: updated_upload}}
   end
 
   defp refresh_upload_metadata(upload, markdown, docling_metadata, opts) do
@@ -164,15 +179,17 @@ defmodule Lumainus.Documents.IngestionProcessor do
       |> Map.put("has_tables", docling_metadata["has_tables"])
       |> Map.put("parsed_digest", docling_metadata["parsed_digest"])
 
-    upload
-    |> Changeset.change(%{
-      status: "parsed",
-      metadata: updated_metadata,
-      ingested_at: DateTime.utc_now(:second)
-    })
-    |> Repo.update!()
+    updated_upload =
+      upload
+      |> Changeset.change(%{
+        status: "parsed",
+        metadata: updated_metadata,
+        ingested_at: DateTime.utc_now(:second)
+      })
+      |> Repo.update!()
 
     Documents.notify_documents_changed(upload.record_set_id)
+    updated_upload
   end
 
   defp maybe_update_patient(%DocumentUpload{patient: nil}, _response), do: :ok
@@ -196,16 +213,22 @@ defmodule Lumainus.Documents.IngestionProcessor do
   end
 
   defp finalize_job(job, :ok) do
+    finished_at = DateTime.utc_now(:second)
+    metrics = job_metrics(job, finished_at)
+
     job =
       job
       |> Changeset.change(%{
         status: "completed",
         state: "completed",
-        finished_at: DateTime.utc_now(:second),
-        last_error: nil
+        finished_at: finished_at,
+        last_error: nil,
+        metadata: merge_metrics(job.metadata || %{}, metrics)
       })
       |> Repo.update!()
       |> Map.put(:upload, job.upload)
+
+    log_job_cost(job, metrics, "completed")
 
     Documents.record_job_stage!(
       job,
@@ -217,18 +240,23 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
   defp finalize_job(job, {:error, reason}) do
     error_message = friendly_error(reason)
+    finished_at = DateTime.utc_now(:second)
+    metrics = job_metrics(job, finished_at)
 
     job =
       job
       |> Changeset.change(%{
         status: "failed",
         state: "failed",
-        finished_at: DateTime.utc_now(:second),
+        finished_at: finished_at,
         error: %{message: inspect(reason)},
-        last_error: error_message
+        last_error: error_message,
+        metadata: merge_metrics(job.metadata || %{}, metrics)
       })
       |> Repo.update!()
       |> Map.put(:upload, job.upload)
+
+    log_job_cost(job, metrics, "failed")
 
     Documents.record_job_stage!(
       job,
@@ -330,6 +358,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
   end
 
   defp maybe_put_duplicate(metadata, nil), do: metadata
+  defp maybe_put_duplicate(metadata, duplicate) when duplicate in [false, true], do: metadata
 
   defp maybe_put_duplicate(metadata, %{upload: upload}) do
     metadata
@@ -346,6 +375,9 @@ defmodule Lumainus.Documents.IngestionProcessor do
   defp dedup_message(_duplicate_of, _), do: "Docling ingestion finished"
 
   defp maybe_put_duplicate_metadata(metadata, nil), do: metadata
+
+  defp maybe_put_duplicate_metadata(metadata, duplicate) when duplicate in [false, true],
+    do: metadata
 
   defp maybe_put_duplicate_metadata(metadata, %{upload: upload}) do
     metadata
@@ -364,6 +396,42 @@ defmodule Lumainus.Documents.IngestionProcessor do
   defp friendly_error({:timeout, _}), do: "Docling queue did not return before the timeout"
   defp friendly_error(reason) when is_binary(reason), do: reason
   defp friendly_error(reason), do: inspect(reason)
+
+  defp job_metrics(job, finished_at) do
+    %{
+      "backend" => job.backend || "local",
+      "duration_ms" => duration_ms(job, finished_at),
+      "pages_total" => pages_total(job)
+    }
+  end
+
+  defp duration_ms(%{started_at: %DateTime{} = started_at}, finished_at) do
+    end_time = finished_at || DateTime.utc_now(:second)
+    max(DateTime.diff(end_time, started_at, :millisecond), 0)
+  end
+
+  defp duration_ms(_job, _finished_at), do: nil
+
+  defp pages_total(job) do
+    upload_metadata = (job.upload && job.upload.metadata) || %{}
+
+    get_in(upload_metadata, ["progress", "pages_total"]) ||
+      upload_metadata["page_count"] ||
+      (job.metadata || %{})["pages_total"]
+  end
+
+  defp merge_metrics(metadata, metrics) do
+    Enum.reduce(metrics, metadata, fn
+      {_k, nil}, acc -> acc
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
+  end
+
+  defp log_job_cost(job, metrics, status) do
+    Logger.info(
+      "DOCLOG backend=#{metrics["backend"]} pages=#{metrics["pages_total"] || 0} duration_ms=#{metrics["duration_ms"] || 0} user_id=#{job.upload && job.upload.uploader_id} job_id=#{job.id} upload_id=#{job.upload_id} status=#{status}"
+    )
+  end
 
   defp maybe_track_progress(job, %{"state" => "running"} = status) do
     state_key = {:docling_progress_state, job.id}

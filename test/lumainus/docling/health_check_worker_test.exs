@@ -13,7 +13,11 @@ defmodule Lumainus.Docling.HealthCheckWorkerTest do
     Application.put_env(
       :lumainus,
       :docling,
-      Keyword.put(original, :base_url, "http://127.0.0.1:#{bypass.port}")
+      Keyword.merge(original,
+        backend: :local,
+        local_url: "http://127.0.0.1:#{bypass.port}",
+        prefer_sse: false
+      )
     )
 
     on_exit(fn -> Application.put_env(:lumainus, :docling, original) end)

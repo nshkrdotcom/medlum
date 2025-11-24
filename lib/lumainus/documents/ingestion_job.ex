@@ -11,6 +11,7 @@ defmodule Lumainus.Documents.IngestionJob do
   @stages ~w(queued downloading docling parsing completed failed)
   # Lifecycle states roll up the more granular @stages into coarse job health.
   @states ~w(pending queued running completed failed retrying)
+  @docling_backends ~w(local fast)
 
   schema "ingestion_jobs" do
     field(:job_type, :string)
@@ -38,6 +39,7 @@ defmodule Lumainus.Documents.IngestionJob do
     field(:error_history, {:array, :map}, default: [])
     field(:oban_job_id, :integer)
     field(:docling_job_id, :string)
+    field(:backend, :string, default: "local")
 
     belongs_to(:tenant, Tenant)
     belongs_to(:upload, DocumentUpload)
@@ -74,6 +76,7 @@ defmodule Lumainus.Documents.IngestionJob do
       :error_history,
       :oban_job_id,
       :docling_job_id,
+      :backend,
       :tenant_id,
       :upload_id,
       :record_set_id
@@ -89,6 +92,7 @@ defmodule Lumainus.Documents.IngestionJob do
     ])
     |> validate_inclusion(:stage, @stages)
     |> validate_inclusion(:state, @states)
+    |> validate_inclusion(:backend, @docling_backends)
     |> validate_number(:progress, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
   end
 
