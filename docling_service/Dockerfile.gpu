@@ -1,0 +1,84 @@
+# Dockerfile.gpu - GPU-enabled Docling service for Vast.ai
+# Build: docker build -f Dockerfile.gpu -t ghcr.io/YOUR_ORG/lumainus-docling-gpu:latest ..
+# Run:   docker run --gpus all -p 8042:8042 ghcr.io/YOUR_ORG/lumainus-docling-gpu:latest
+
+# =============================================================================
+# Stage 1: Base with CUDA + PyTorch
+# =============================================================================
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime AS base
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    libgl1 \
+    libglib2.0-0 \
+    curl \
+    wget \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# =============================================================================
+# Stage 2: Install Python dependencies
+# =============================================================================
+FROM base AS deps
+
+# Copy only requirements first for better layer caching
+COPY docling_service/requirements.txt /app/requirements.txt
+
+# Install service dependencies (fastapi, uvicorn, etc.)
+# Note: We'll install local docling, so skip the PyPI version
+RUN pip install --upgrade pip && \
+    pip install fastapi uvicorn[standard] python-multipart
+
+# Copy and install local docling fork
+COPY docling /app/docling
+RUN pip install -e /app/docling
+
+# =============================================================================
+# Stage 3: Download models (cached in image)
+# =============================================================================
+FROM deps AS models
+
+# Set model cache directories
+ENV HF_HOME=/app/models/huggingface
+ENV TORCH_HOME=/app/models/torch
+ENV DOCLING_ARTIFACTS_PATH=/app/models/docling
+
+# Download docling models (layout, table structure, etc.)
+RUN python -c "from docling.document_converter import DocumentConverter; DocumentConverter()" || true
+
+# Pre-download common HuggingFace models used by docling
+RUN docling-tools models download || echo "Model download completed (some may have failed)"
+
+# =============================================================================
+# Stage 4: Final image
+# =============================================================================
+FROM models AS final
+
+# Copy the service application
+COPY docling_service/app /app/service/app
+COPY docling_service/run.sh /app/service/run.sh
+
+# Set environment for GPU inference
+ENV CUDA_VISIBLE_DEVICES=0
+ENV OMP_NUM_THREADS=4
+ENV HOST=0.0.0.0
+ENV PORT=8042
+
+# Health check - verify service responds
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8042/health || exit 1
+
+EXPOSE 8042
+
+WORKDIR /app/service
+
+# Run uvicorn directly (not through run.sh to avoid venv creation)
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8042", "--no-access-log"]

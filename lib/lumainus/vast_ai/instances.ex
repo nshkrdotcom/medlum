@@ -9,12 +9,18 @@ defmodule Lumainus.VastAI.Instances do
 
   def get(instance_id, opts \\ []), do: Client.get("/instances/#{instance_id}/", opts)
 
-  def create(offer_id, params, opts \\ []) do
+  @doc """
+  Create instance from an offer.
+
+  Uses PUT /api/v0/asks/{ask_id}/ endpoint.
+  The ask_id is the offer's "id" field from search results.
+  """
+  def create(ask_id, params, opts \\ []) do
     body =
       params
       |> Map.put_new(:client_id, "me")
 
-    Client.put("/instances/#{offer_id}/", body, opts)
+    Client.put("/asks/#{ask_id}/", body, opts)
   end
 
   def destroy(instance_id, opts \\ []), do: Client.delete("/instances/#{instance_id}/", opts)

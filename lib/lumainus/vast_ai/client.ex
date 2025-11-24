@@ -1,9 +1,19 @@
 defmodule Lumainus.VastAI.Client do
   @moduledoc """
   Thin HTTP client for Vast.ai API using Req.
+
+  ## Endpoints Used
+  - GET /api/v0/instances/ - list user instances
+  - GET /api/v0/instances/{id}/ - get instance details
+  - PUT /api/v0/asks/{ask_id}/ - create instance from offer (ask_id = offer["id"])
+  - PUT /api/v0/instances/{id}/ - update instance (start/stop/label)
+  - DELETE /api/v0/instances/{id}/ - destroy instance
+  - POST /api/v0/bundles/ - search offers (JSON body with filters)
   """
 
-  @base_url "https://console.vast.ai/api/v0"
+  # Use cloud.vast.ai - verified working with curl
+  # console.vast.ai redirects to cloud and returns SPA HTML
+  @base_url "https://cloud.vast.ai/api/v0"
 
   def get(path, opts \\ []), do: request(:get, path, nil, opts)
   def post(path, body, opts \\ []), do: request(:post, path, body, opts)
@@ -12,11 +22,10 @@ defmodule Lumainus.VastAI.Client do
 
   defp request(method, path, body, opts) do
     api_key = Keyword.get(opts, :api_key) || fetch_api_key!()
-    url = build_url(path, api_key, method)
+    url = build_url(path, api_key)
 
     headers =
       [
-        {"authorization", "Bearer #{api_key}"},
         {"content-type", "application/json"},
         {"accept", "application/json"}
       ] ++ Keyword.get(opts, :headers, [])
@@ -26,12 +35,12 @@ defmodule Lumainus.VastAI.Client do
       url: url,
       headers: headers,
       body: encode_body(body),
-      follow_redirects: true
+      redirect: false
     ]
 
     case Req.request(req_opts) do
       {:ok, %{status: status, body: body}} when status in 200..299 ->
-        {:ok, body}
+        parse_response(body)
 
       {:ok, %{status: status, body: body}} ->
         {:error, %{status: status, body: body}}
@@ -41,18 +50,28 @@ defmodule Lumainus.VastAI.Client do
     end
   end
 
-  defp build_url(path, api_key, method) do
-    uri = URI.merge(@base_url, path) |> URI.to_string()
+  defp build_url(path, api_key) do
+    # Build full URL with api_key as query param (works for all methods)
+    base = @base_url <> path
+    separator = if String.contains?(base, "?"), do: "&", else: "?"
+    base <> "#{separator}api_key=#{api_key}"
+  end
 
-    case method do
-      :get ->
-        separator = if String.contains?(uri, "?"), do: "&", else: "?"
-        uri <> "#{separator}api_key=#{api_key}"
+  defp parse_response(body) when is_map(body), do: {:ok, body}
 
-      _ ->
-        uri
+  defp parse_response(body) when is_binary(body) do
+    # Detect HTML responses (SPA redirect issue)
+    if String.contains?(body, "<!DOCTYPE") or String.contains?(body, "<html") do
+      {:error, :html_response}
+    else
+      case Jason.decode(body) do
+        {:ok, decoded} -> {:ok, decoded}
+        {:error, _} -> {:error, {:invalid_json, body}}
+      end
     end
   end
+
+  defp parse_response(body), do: {:error, {:unexpected_body, body}}
 
   defp encode_body(nil), do: ""
   defp encode_body(body) when is_map(body), do: Jason.encode!(body)

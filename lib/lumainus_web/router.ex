@@ -100,6 +100,7 @@ defmodule LumainusWeb.Router do
       on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}] do
       live "/invitations", Admin.InvitationsLive
       live "/docling", Admin.DoclingSettingsLive
+      live "/vast_ai", Admin.VastAILive
     end
   end
 end

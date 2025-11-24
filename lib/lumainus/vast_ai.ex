@@ -3,9 +3,11 @@ defmodule Lumainus.VastAI do
   High-level Vast.ai operations (search, provision, destroy, status).
   """
 
-  alias Lumainus.VastAI.{Instances, Offers, Search}
+  alias Lumainus.VastAI.{Instances, Offers}
 
-  @default_image "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime"
+  # Custom GPU image with docling pre-installed
+  # See docling_service/DEPLOYMENT.md for build instructions
+  @default_image "ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest"
 
   def provision(opts \\ []) do
     max_price = Keyword.get(opts, :max_price, 0.18)
@@ -13,17 +15,17 @@ defmodule Lumainus.VastAI do
     label = Keyword.get(opts, :label, "docling-dev")
     onstart = Keyword.get(opts, :onstart)
 
-    query =
-      Search.build_query(
-        gpu_name: "RTX_3090",
+    filters =
+      Offers.build_filters(
+        gpu_name: "RTX 3090",
         num_gpus: 1,
         verified: true,
         rentable: true,
         geolocation: Keyword.get(opts, :geolocation, ["US", "CA"]),
-        dph_total: {:lt, max_price}
+        dph_total: {:lte, max_price}
       )
 
-    with {:ok, offer} <- Offers.cheapest(query: query, storage: disk_gb),
+    with {:ok, offer} <- Offers.cheapest(filters: filters),
          true <- offer["dph_total"] <= max_price || {:error, :price_too_high},
          {:ok, resp} <-
            Instances.create(offer["id"], %{
