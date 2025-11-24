@@ -15,6 +15,7 @@ Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 - **Tailwind CSS + DaisyUI** - Modern, responsive design
 - **Tidewave Integration** - AI-powered development assistance
 - **Clinical Summary UI** - `/reports` LiveView with provenance badges backed by the persisted ingestion pipeline (Gemini structured outputs + PDF uploads)
+- **Dual Docling Backends** - Standard (local CPU) and Fast (remote GPU) per-user toggle with health-aware fallback and ingestion cost logging
 
 ## Prerequisites
 
@@ -80,6 +81,11 @@ From here you can:
 - View pending invitations
 - Revoke unused invitations
 
+**Docling Configuration:** http://localhost:4000/admin/docling
+
+- Admin-only panel to set default backend (Standard vs Fast), local/remote URLs, timeout, and poll interval.
+- Updates take effect immediately; environment variables still override in test or when `:prefer_env_overrides` is set.
+
 ## User Roles & Permissions
 
 ### Guest
@@ -118,10 +124,55 @@ mix test
 iex -S mix phx.server
 ```
 
-### Docling Backends
+### Docling Backends (Standard vs Fast GPU)
 
-- **Standard (local CPU)** – default, uses `http://127.0.0.1:8042`
-- **Fast (GPU)** – set `DOCLING_REMOTE_URL=http://<gpu-host>:8042` to expose the remote Docling service. Users can toggle Fast vs Standard in `/reports`; if the GPU endpoint is unhealthy, the app will fall back to Standard automatically.
+**What was built**
+- Per-user Docling backend preference stored on `users.docling_backend` (`"local"`/`"fast"`), default `"local"`.
+- Ingestion jobs store the backend used and log basic cost fields (backend, duration_ms, pages).
+- Health-aware fallback: if Fast is unhealthy, it is disabled in `/reports` and ingestion falls back to Standard.
+
+**Config (already in `config/config.exs`)**
+```elixir
+config :lumainus, :docling,
+  backend: :local,
+  timeout_ms: 1_200_000,
+  poll_interval_ms: 5_000,
+  local_url: "http://127.0.0.1:8042",
+  remote_url: System.get_env("DOCLING_REMOTE_URL")
+```
+- Override at runtime via env:
+  - `DOCLING_URL` – overrides local_url if needed
+  - `DOCLING_REMOTE_URL` – required for Fast GPU mode
+
+**Migrations**
+- Run the migration that adds backend fields:
+```bash
+mix ecto.migrate
+```
+
+**Standard (local CPU)**
+- Ensure a Docling service is listening at `http://127.0.0.1:8042` (default docker compose or local binary).
+- Leave `DOCLING_REMOTE_URL` unset; users stay on Standard.
+
+**Fast (remote GPU)**
+- Provision a Docling GPU host (see `docs/20251121/VAST_AI_INTEGRATION_PLAN_refined.md` and `docs/20251121/vast_docling_deployment_design.md`).
+- Export the endpoint:
+  ```bash
+  export DOCLING_REMOTE_URL=http://<gpu-host>:8042
+  ```
+- Verify health from the app host:
+  ```bash
+  curl -f $DOCLING_REMOTE_URL/health
+  ```
+- Start the app; `/reports` will show a **Processing speed** selector. Choose **Fast (GPU)** to persist the preference. If health fails, the selector disables Fast and falls back to Standard automatically.
+
+**Operational notes**
+- Per-user preference is editable in `/reports`; stored on the user record and reused for future uploads.
+- Each upload card shows a badge: “Standard” or “Fast (GPU)”.
+- Fast mode may incur cost; a tooltip is shown in the UI.
+- Health worker polls Docling; failures only suppress Fast and log a warning. Standard remains available.
+- Tests run against Bypass mocks; no external Docling needed.
+- Admin panel at `/admin/docling` (admin role): configure default backend, local/remote URLs, timeout, and poll interval. Environment variables still override in test or when `:prefer_env_overrides` is set.
 
 ### Database Commands
 

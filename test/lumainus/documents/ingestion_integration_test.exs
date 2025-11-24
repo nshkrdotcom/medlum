@@ -12,10 +12,10 @@ defmodule Lumainus.Documents.IngestionIntegrationTest do
   # 5 min timeout for real conversion
   @moduletag timeout: 300_000
 
-  @docling_available match?({:ok, _}, Lumainus.Docling.health())
+  @run_docling System.get_env("RUN_DOCLING_INTEGRATION") == "1"
 
-  if not @docling_available do
-    @moduletag skip: "Docling unavailable"
+  if not @run_docling do
+    @moduletag skip: "Set RUN_DOCLING_INTEGRATION=1 to run Docling integration tests"
   end
 
   alias Lumainus.Documents

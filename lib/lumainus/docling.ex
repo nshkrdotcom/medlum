@@ -219,7 +219,21 @@ defmodule Lumainus.Docling do
   end
 
   def config do
-    Application.get_env(:lumainus, :docling, [])
+    env_config = Application.get_env(:lumainus, :docling, []) || []
+
+    cond do
+      prefer_env_overrides?(env_config) ->
+        env_config_with_defaults(env_config)
+
+      true ->
+        {:ok, setting} = Lumainus.Docling.Settings.fetch_or_init()
+        db_config = Lumainus.Docling.Settings.to_config_keywords(setting)
+        env_defaults = env_config_with_defaults(env_config)
+
+        Keyword.merge(env_defaults, db_config, fn _k, env_val, db_val ->
+          if is_nil(db_val), do: env_val, else: db_val
+        end)
+    end
   end
 
   # Private helpers
@@ -272,5 +286,23 @@ defmodule Lumainus.Docling do
   defp remote_url! do
     config()[:remote_url] || config()[:base_url] ||
       raise ArgumentError, "set :docling remote_url config"
+  end
+
+  defp prefer_env_overrides?(env_config) do
+    Keyword.get(env_config, :prefer_env_overrides, false) ||
+      Application.get_env(:lumainus, :env_overrides_docling, false) ||
+      Mix.env() == :test
+  end
+
+  defp env_config_with_defaults(env_config) do
+    defaults = [
+      backend: :local,
+      local_url: "http://127.0.0.1:8042",
+      remote_url: System.get_env("DOCLING_REMOTE_URL"),
+      timeout_ms: 1_200_000,
+      poll_interval_ms: 5_000
+    ]
+
+    Keyword.merge(defaults, env_config)
   end
 end

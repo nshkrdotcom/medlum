@@ -1,6 +1,6 @@
 # AI Agents Guide - Lumainus Project
 
-**Last Updated:** November 16, 2025 (codebase review refresh)
+**Last Updated:** November 24, 2025 (dual Docling backend rollout)
 **Project:** Lumainus - Traceable AI Intelligence Platform
 **Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
 
@@ -534,6 +534,7 @@ Usage: 32px - 48px, can be tinted with CSS filters
 - Inline CSS at the top of `render/1` (see `lib/lumainus_web/live/reports_live.ex:54+`) intentionally builds the clinical chart aesthetic; edit the existing selectors instead of scattering new style tags elsewhere.
 - When changing report sections, update the prompt templates via `/prompts` and ensure the corresponding ingestion+LLM schema matches the UI expectations.
 - Provenance badges pull from stored `DocumentUpload` records; make sure ingestion jobs capture the metadata (`label`, `summary`, `provider`) you expect the UI to surface.
+- Per-user Docling backend selector (“Processing speed: Standard / Fast”). Preference is stored on the user record (`users.docling_backend`, default `"local"`). Disable Fast when remote health fails; fallback to Standard without breaking uploads.
 
 ---
 
@@ -723,3 +724,13 @@ For ongoing Docling ingestion work:
 - Docling progress updates are deduped server-side to reduce churn; intermediate Docling polling updates do not broadcast document reloads.
 - Next steps for dual Docling backends (local CPU default, remote GPU/Vast “Fast” mode with per-user toggle) are captured in `docs/20251123/docling_dual_backend_rollout.md` and `docs/20251123/docling_backend_abstraction.md`. Follow those for backend selection, user setting persistence, and remote endpoint wiring.
 - Earlier handoff items remain in `docs/CONTINUATION_PROMPT.md` (SSE wiring, slow poll fallback, silencing Docling access logs).
+
+## Docling Dual Backend (Agent Quickstart)
+
+- Backends implemented: `:local` (standard CPU) and `:fast`/`:remote` (GPU via `DOCLING_REMOTE_URL`). Vast auto-provisioner remains mocked; Fast expects a pre-provisioned HTTP Docling endpoint.
+- Config keys (`config/config.exs`): `backend`, `timeout_ms`, `poll_interval_ms`, `local_url`, `remote_url`; runtime overrides via `DOCLING_URL` and `DOCLING_REMOTE_URL`. Persisted runtime config now lives in `docling_settings` (singleton row); admin UI at `/admin/docling` edits these values. In `:test`, env overrides take precedence so existing tests can still mutate `Application.put_env/3`.
+- Schema fields: `users.docling_backend` (default `"local"`); `ingestion_jobs.backend` (default `"local"`); upload metadata includes backend, duration_ms, pages when available.
+- Selection: `/reports` shows “Processing speed” toggle; preference is persisted per-user. If remote health fails, Fast is disabled and ingestion falls back to Standard.
+- Health: `Lumainus.Docling.health/1` pings configured backend; health checker can be disabled in tests via `:disable_ingestion_health_checker` config. Fast availability depends on `remote_url` presence and health.
+- Tests: Use Bypass; set `prefer_sse: false` in opts where SSE routes aren’t mocked. Avoid hitting real Docling services in CI.
+- Migrations: run `mix ecto.migrate` to add backend fields before using Fast mode.

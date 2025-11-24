@@ -99,6 +99,7 @@ defmodule LumainusWeb.Router do
     live_session :admin_routes,
       on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}] do
       live "/invitations", Admin.InvitationsLive
+      live "/docling", Admin.DoclingSettingsLive
     end
   end
 end

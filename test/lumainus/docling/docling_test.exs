@@ -46,6 +46,13 @@ defmodule Lumainus.DoclingTest do
 
   describe "capabilities/0" do
     test "returns capabilities from backend" do
+      original_config = Application.get_env(:lumainus, :docling, [])
+      Application.put_env(:lumainus, :docling, Keyword.put(original_config, :backend, :local))
+
+      on_exit(fn ->
+        Application.put_env(:lumainus, :docling, original_config)
+      end)
+
       caps = Docling.capabilities()
 
       assert is_list(caps)
