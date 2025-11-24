@@ -23,13 +23,14 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
          |> assign_health()}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, changeset: changeset)}
+        {:noreply, assign(socket, changeset: changeset, form: to_form(changeset))}
     end
   end
 
   defp assign_settings(socket) do
     {:ok, setting} = Settings.fetch_or_init()
-    assign(socket, changeset: Settings.change_settings(%{}), setting: setting)
+    changeset = Settings.change_settings(%{})
+    assign(socket, changeset: changeset, form: to_form(changeset), setting: setting)
   end
 
   defp assign_health(socket) do
@@ -84,14 +85,14 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
       <div class="bg-white shadow-sm rounded-lg p-6">
         <h2 class="text-xl font-semibold mb-4">Runtime settings</h2>
         <.form
-          for={@changeset}
+          for={@form}
           id="docling-settings"
           phx-submit="save"
           class="grid gap-4 md:grid-cols-2"
         >
           <.input
             type="select"
-            field={@changeset[:backend]}
+            field={@form[:backend]}
             label="Default backend"
             options={[
               {"Standard (local)", "local"},
@@ -103,30 +104,40 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
           <.input
             type="text"
-            field={@changeset[:local_url]}
+            field={@form[:local_url]}
             label="Local Docling URL"
-            placeholder="http://127.0.0.1:8042"
+            placeholder="http://127.0.0.1:8042 (loopback only)"
+            inputmode="url"
           />
 
           <.input
             type="text"
-            field={@changeset[:remote_url]}
+            field={@form[:remote_url]}
             label="Fast (GPU) Docling URL"
-            placeholder="http://gpu-host:8042"
+            placeholder="https://gpu-host:8042"
+            inputmode="url"
+            pattern="https://.*"
           />
 
           <.input
             type="number"
-            field={@changeset[:timeout_ms]}
+            field={@form[:timeout_ms]}
             label="Timeout (ms)"
             min="1"
           />
 
           <.input
             type="number"
-            field={@changeset[:poll_interval_ms]}
+            field={@form[:poll_interval_ms]}
             label="Poll interval (ms)"
-            min="500"
+            min="50"
+          />
+
+          <.input
+            type="number"
+            field={@form[:progress_min_interval_ms]}
+            label="Progress debounce (ms)"
+            min="0"
           />
 
           <div class="md:col-span-2 flex items-center gap-3">
@@ -134,6 +145,7 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
             <p class="text-xs text-slate-500">
               Tip: Set <code>DOCLING_REMOTE_URL</code>
               before enabling Fast mode. Default backend applies when a user has not chosen a preference.
+              Remote URLs must use https; http is only allowed for localhost/127.0.0.1.
             </p>
           </div>
         </.form>

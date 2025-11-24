@@ -439,12 +439,18 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
     event_type = Map.get(status, "type")
     stage_name = Map.get(status, "stage")
+    stage_seq = Map.get(status, "stage_seq")
     pages_done = Map.get(status, "pages_done") || 0
     pages_total = Map.get(status, "pages_total") || 1
+    event_ts = Map.get(status, "timestamp")
+    worker_id = Map.get(status, "worker_id")
+    device = Map.get(status, "device")
+    queue_depth = Map.get(status, "queue_depth")
 
     # Determine which stage this event belongs to
     stage_num =
       cond do
+        is_integer(stage_seq) -> stage_seq
         stage_name -> ProgressTracker.docling_stage_to_number(stage_name)
         event_type -> ProgressTracker.event_type_to_stage(event_type) || 2
         true -> 2
@@ -465,10 +471,35 @@ defmodule Lumainus.Documents.IngestionProcessor do
     stage_progress_map = Enum.into(updated_state.stages, %{}, fn {k, v} -> {k, v.progress} end)
     overall = ProgressTracker.calculate_overall(stage_progress_map)
 
+    if debug_progress_log?() do
+      Logger.info(
+        "[docling-progress-debug] job=#{job.id} type=#{event_type || stage_name} page=#{pages_done}/#{pages_total} overall=#{overall} stage_seq=#{stage_num} worker=#{worker_id} device=#{device} queue_depth=#{queue_depth} event_ts=#{inspect(event_ts)} now_ms=#{System.system_time(:millisecond)}"
+      )
+    end
+
     # Only emit if integer percentage changed (debouncing)
-    if ProgressTracker.should_emit?(state.last_emitted_progress, overall) do
-      payload = ProgressTracker.build_progress_payload(updated_state, pages_done, pages_total)
-      message = ProgressTracker.progress_message(updated_state, pages_done, pages_total)
+    if ProgressTracker.should_emit?(state, overall, pages_done) do
+      payload =
+        ProgressTracker.build_progress_payload(updated_state, pages_done, pages_total)
+        |> Map.merge(%{
+          "worker_id" => Map.get(status, "worker_id"),
+          "device" => Map.get(status, "device"),
+          "stage" => stage_name,
+          "stage_seq" => stage_num,
+          "queue_depth" => Map.get(status, "queue_depth"),
+          "pages_failed" => Map.get(status, "pages_failed")
+        })
+
+      base_message = ProgressTracker.progress_message(updated_state, pages_done, pages_total)
+
+      worker_info =
+        case {Map.get(status, "worker_id"), Map.get(status, "device")} do
+          {nil, _} -> ""
+          {worker_id, nil} -> " (worker #{worker_id})"
+          {worker_id, device} -> " (worker #{worker_id}, #{device})"
+        end
+
+      message = base_message <> worker_info
 
       Documents.record_job_stage!(job, "docling",
         progress: overall,
@@ -478,11 +509,21 @@ defmodule Lumainus.Documents.IngestionProcessor do
         broadcast: true
       )
 
-      Process.put(state_key, %{updated_state | last_emitted_progress: overall})
+      Process.put(state_key, %{
+        updated_state
+        | last_emitted_progress: overall,
+          last_emitted_at: System.monotonic_time(:millisecond),
+          last_pages_emitted: pages_done
+      })
     else
       Process.put(state_key, updated_state)
     end
   end
 
   defp maybe_track_progress(_job, _status), do: :ok
+
+  defp debug_progress_log? do
+    Application.get_env(:lumainus, :docling, [])
+    |> Keyword.get(:debug_progress_log, false)
+  end
 end

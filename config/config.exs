@@ -32,7 +32,9 @@ config :lumainus, :docling,
   health_cron: "*/5 * * * *",
   queue_mode: :http_queue,
   # Fallback poll interval when SSE fails (ms)
-  poll_interval_ms: 5_000
+  poll_interval_ms: 250,
+  # Minimum interval between progress broadcasts when percentage hasn't changed
+  progress_min_interval_ms: 50
 
 # Ingestion queue configuration
 config :lumainus, :ingestion,

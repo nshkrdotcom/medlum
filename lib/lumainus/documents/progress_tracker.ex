@@ -48,10 +48,20 @@ defmodule Lumainus.Documents.ProgressTracker do
   end
 
   @doc """
-  Check if we should emit a progress update (integer percentage changed).
+  Check if we should emit a progress update.
+
+  Emits when either:
+  - integer percentage increased, or
+  - at least `min_interval_ms` elapsed since last emission (time-based debounce).
   """
-  def should_emit?(last_emitted, new_overall) do
-    trunc(new_overall) > trunc(last_emitted)
+  def should_emit?(state, new_overall, pages_done, min_interval_ms \\ nil) do
+    min_interval_ms = min_interval_ms || progress_min_interval_ms()
+    progress_changed? = trunc(new_overall) > trunc(state.last_emitted_progress)
+    pages_changed? = pages_done != (state.last_pages_emitted || 0)
+    elapsed_ms = now_ms() - (state.last_emitted_at || 0)
+
+    # Emit immediately on page movement or progress increase; otherwise respect time-based debounce.
+    progress_changed? or pages_changed? or elapsed_ms >= min_interval_ms
   end
 
   @doc """
@@ -101,6 +111,8 @@ defmodule Lumainus.Documents.ProgressTracker do
         6 => %{progress: 0, status: "pending"}
       },
       last_emitted_progress: 5,
+      last_emitted_at: now_ms(),
+      last_pages_emitted: 0,
       current_stage: 2
     }
   end
@@ -182,4 +194,11 @@ defmodule Lumainus.Documents.ProgressTracker do
       end)
     end)
   end
+
+  defp progress_min_interval_ms do
+    Lumainus.Docling.config()
+    |> Keyword.get(:progress_min_interval_ms, 250)
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 end

@@ -54,7 +54,8 @@ defmodule Lumainus.Docling.Settings do
       local_url: setting.local_url,
       remote_url: setting.remote_url,
       timeout_ms: setting.timeout_ms,
-      poll_interval_ms: setting.poll_interval_ms
+      poll_interval_ms: setting.poll_interval_ms,
+      progress_min_interval_ms: setting.progress_min_interval_ms
     ]
   end
 
@@ -66,7 +67,8 @@ defmodule Lumainus.Docling.Settings do
       local_url: Keyword.get(env, :local_url, "http://127.0.0.1:8042"),
       remote_url: Keyword.get(env, :remote_url, System.get_env("DOCLING_REMOTE_URL")),
       timeout_ms: Keyword.get(env, :timeout_ms, 1_200_000),
-      poll_interval_ms: Keyword.get(env, :poll_interval_ms, 5_000),
+      poll_interval_ms: Keyword.get(env, :poll_interval_ms, 250),
+      progress_min_interval_ms: Keyword.get(env, :progress_min_interval_ms, 50),
       singleton: true
     }
   end

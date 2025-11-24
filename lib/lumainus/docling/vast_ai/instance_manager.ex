@@ -32,6 +32,9 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   use GenServer
   require Logger
 
+  alias Lumainus.VastAI
+  @compile {:no_warn_undefined, Lumainus.VastAI}
+
   @idle_check_interval_ms 60_000
 
   # =============================================================================
@@ -199,22 +202,41 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     end
   end
 
-  defp provision_via_api(_config) do
-    # TODO: Implement actual Vast.ai API provisioning
-    # This would either:
-    # 1. Call Python script: manage_vast.py provision
-    # 2. Use Elixir HTTP client to call Vast.ai API directly
-    #
-    # For now, return an error indicating not implemented
-    Logger.warning("[VastAI] API provisioning not yet implemented")
-    {:error, :not_implemented}
+  defp provision_via_api(config) do
+    max_price = Keyword.get(config, :max_price, 0.18)
+    disk_gb = Keyword.get(config, :min_disk_gb, 16)
+    geo = Keyword.get(config, :geolocation, ["US", "CA"])
+    label = Keyword.get(config, :label, "docling-dev")
+
+    with {:ok, instance_id} <-
+           VastAI.provision(
+             max_price: max_price,
+             disk_gb: disk_gb,
+             geolocation: geo,
+             label: label
+           ),
+         {:ok, inst} <- VastAI.wait_for_ready(instance_id, 300_000),
+         {:ok, endpoint} <- build_endpoint(inst) do
+      Logger.info("[VastAI] Provisioned instance #{instance_id} at #{endpoint}")
+      {:ok, instance_id, endpoint}
+    else
+      {:error, reason} ->
+        Logger.error("[VastAI] Provisioning failed: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   defp destroy_via_api(instance_id, _config) do
-    # TODO: Implement actual Vast.ai API destruction
     Logger.info("[VastAI] Destroying instance #{instance_id}")
+    VastAI.destroy(instance_id)
     :ok
   end
+
+  defp build_endpoint(%{"public_ipaddr" => ip}) when is_binary(ip) do
+    {:ok, "http://#{ip}:8042"}
+  end
+
+  defp build_endpoint(_), do: {:error, :no_ip}
 
   defp vast_ai_config do
     Application.get_env(:lumainus, :docling, [])

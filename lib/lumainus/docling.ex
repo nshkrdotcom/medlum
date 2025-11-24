@@ -83,10 +83,15 @@ defmodule Lumainus.Docling do
   def capabilities(opts \\ []) do
     backend = backend_module_from_opts(opts)
 
-    if function_exported?(backend, :capabilities, 0) do
-      backend.capabilities()
-    else
-      []
+    cond do
+      function_exported?(backend, :capabilities, 0) ->
+        backend.capabilities()
+
+      function_exported?(Lumainus.Docling.Backends.Local, :capabilities, 0) ->
+        Lumainus.Docling.Backends.Local.capabilities()
+
+      true ->
+        []
     end
   end
 
@@ -215,7 +220,7 @@ defmodule Lumainus.Docling do
   end
 
   def poll_interval_ms do
-    config()[:poll_interval_ms] || 5_000
+    config()[:poll_interval_ms] || 250
   end
 
   def config do
@@ -279,13 +284,19 @@ defmodule Lumainus.Docling do
   end
 
   defp local_url! do
-    config()[:local_url] || config()[:base_url] ||
-      raise ArgumentError, "set :docling local_url config"
+    url =
+      config()[:local_url] || config()[:base_url] ||
+        raise ArgumentError, "set :docling local_url config"
+
+    ensure_https_or_loopback!(url, :local_url, allow_loopback: true)
   end
 
   defp remote_url! do
-    config()[:remote_url] || config()[:base_url] ||
-      raise ArgumentError, "set :docling remote_url config"
+    url =
+      config()[:remote_url] || config()[:base_url] ||
+        raise ArgumentError, "set :docling remote_url config"
+
+    ensure_https_or_loopback!(url, :remote_url, allow_loopback: true)
   end
 
   defp prefer_env_overrides?(env_config) do
@@ -300,9 +311,30 @@ defmodule Lumainus.Docling do
       local_url: "http://127.0.0.1:8042",
       remote_url: System.get_env("DOCLING_REMOTE_URL"),
       timeout_ms: 1_200_000,
-      poll_interval_ms: 5_000
+      poll_interval_ms: 250,
+      progress_min_interval_ms: 50
     ]
 
     Keyword.merge(defaults, env_config)
+  end
+
+  defp ensure_https_or_loopback!(url, field, opts) do
+    allow_loopback = Keyword.get(opts, :allow_loopback, false)
+
+    case URI.parse(url || "") do
+      %URI{scheme: "https"} ->
+        url
+
+      %URI{scheme: "http", host: host} ->
+        if allow_loopback and host in ["localhost", "127.0.0.1"] do
+          url
+        else
+          raise ArgumentError,
+                "#{field} must use https (http allowed only for localhost/127.0.0.1)"
+        end
+
+      _ ->
+        raise ArgumentError, "#{field} must be a valid https URL"
+    end
   end
 end

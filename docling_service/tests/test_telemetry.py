@@ -35,7 +35,7 @@ def fake_generate_multimodal_pages(_conversion):
         yield (f"text {page_no}", f"md {page_no}", None, [], [], type("Page", (), {"page_no": page_no}))
 
 
-async def fake_slow_convert(_converter, _source, _source_kind, progress_cb=None):
+async def fake_slow_convert(_converter, _job, _source, _source_kind, progress_cb=None, docling_progress_cb=None):
     await asyncio.sleep(0.05)
     return None
 

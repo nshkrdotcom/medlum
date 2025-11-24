@@ -136,7 +136,8 @@ iex -S mix phx.server
 config :lumainus, :docling,
   backend: :local,
   timeout_ms: 1_200_000,
-  poll_interval_ms: 5_000,
+  poll_interval_ms: 250,
+  progress_min_interval_ms: 50,
   local_url: "http://127.0.0.1:8042",
   remote_url: System.get_env("DOCLING_REMOTE_URL")
 ```
@@ -172,7 +173,11 @@ mix ecto.migrate
 - Fast mode may incur cost; a tooltip is shown in the UI.
 - Health worker polls Docling; failures only suppress Fast and log a warning. Standard remains available.
 - Tests run against Bypass mocks; no external Docling needed.
-- Admin panel at `/admin/docling` (admin role): configure default backend, local/remote URLs, timeout, and poll interval. Environment variables still override in test or when `:prefer_env_overrides` is set.
+- Admin panel at `/admin/docling` (admin role): configure default backend, local/remote URLs, timeout, poll interval, and progress debounce. Environment variables still override in test or when `:prefer_env_overrides` is set.
+- Polling fallback is 250ms by default when SSE is unavailable; set `poll_interval_ms` if you need a different cadence.
+- Progress broadcasts emit immediately on page movement and use a 50ms debounce for flat progress; tune with `progress_min_interval_ms` (per-row in `docling_settings` via the admin panel).
+- Progress latency debug: set `config :lumainus, :docling, debug_progress_log: true` (or `Application.put_env/3` at runtime) to log `[docling-progress-debug]` lines in Phoenix with Docling `event_ts` vs `now_ms` for timestamp comparison (see `docs/20251124/docling_progress_latency_prompt.md`).
+- URL safety: Docling URLs must be `https://` unless pointing to `localhost`/`127.0.0.1` (http blocked in the admin form and at runtime).
 
 ### Database Commands
 

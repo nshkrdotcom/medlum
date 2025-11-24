@@ -286,18 +286,20 @@ defmodule Lumainus.Docling.HTTP do
       "progress" => Map.get(event, "progress"),
       "pages_done" => Map.get(event, "pages_done"),
       "pages_total" => Map.get(event, "pages_total"),
+      "pages_failed" => Map.get(event, "pages_failed"),
       "last_message" => Map.get(event, "message"),
       "worker_id" => Map.get(event, "worker_id"),
       "device" => Map.get(event, "device"),
       "queue_depth" => Map.get(event, "queue_depth"),
       "type" => Map.get(event, "type"),
-      "stage" => Map.get(event, "stage")
+      "stage" => Map.get(event, "stage"),
+      "stage_seq" => Map.get(event, "stage_seq")
     }
   end
 
   defp default_poll_interval_ms do
     Application.get_env(:lumainus, :docling, [])
-    |> Keyword.get(:poll_interval_ms, 5_000)
+    |> Keyword.get(:poll_interval_ms, 250)
   end
 
   defp prefer_sse?(opts) do

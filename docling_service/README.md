@@ -84,6 +84,26 @@ Set `output_markdown=false` if you only want per-page structures without the mer
 - Keep the service private (no auth built in). Run behind your Phoenix app or a reverse proxy with ACLs.
 - For systemd usage, point the unit to `ExecStart=/path/to/docling_service/run.sh` and set `WorkingDirectory` accordingly.
 
+## GPU dev quickstart (Vast.ai)
+
+You can spin up a GPU Docling service for testing with a single script once you have a Vast.ai instance:
+
+1. Rent a GPU on Vast.ai (public IP + open port), note the `user@host:port`.
+2. Run from your laptop: `scripts/bootstrap_vast_gpu.sh user@host:port main`
+   - Env overrides: `PORT` (default 8042), `REMOTE_ROOT` (default `/opt/lumainus`), `REPO_URL` (defaults to your git origin), `PIP_EXTRA_INDEX_URL` (defaults to CUDA 12.1 wheels).
+   - The script installs deps, clones this repo, installs GPU wheels, and backgrounds `docling_service` on the remote host. Logs at `/opt/lumainus/docling_service.log`.
+3. Point Lumainus admin Docling endpoint to `http://<host>:8042`.
+
+To restart, rerun the script; to view logs: `ssh user@host "tail -f /opt/lumainus/docling_service.log"`.
+
+### Panic button: destroy all Vast usage
+
+If you need to instantly stop billing on Vast, run:
+```
+VAST_API_KEY=... ./scripts/vast_nuke_all.sh
+```
+This destroys all instances and deletes unattached volumes in your account. Verify usage drops to $0/hr on the Vast dashboard.
+
 ## Integration tips
 
 - Phoenix can call the service via Req or Finch after storing uploads to disk/S3.

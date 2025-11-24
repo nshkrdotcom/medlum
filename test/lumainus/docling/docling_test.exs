@@ -47,17 +47,47 @@ defmodule Lumainus.DoclingTest do
   describe "capabilities/0" do
     test "returns capabilities from backend" do
       original_config = Application.get_env(:lumainus, :docling, [])
-      Application.put_env(:lumainus, :docling, Keyword.put(original_config, :backend, :local))
+
+      Application.put_env(
+        :lumainus,
+        :docling,
+        Keyword.merge(
+          original_config || [],
+          backend: :local,
+          local_url: "http://127.0.0.1:8042",
+          remote_url: nil,
+          poll_interval_ms: 1_000,
+          timeout_ms: 1_200_000
+        )
+      )
 
       on_exit(fn ->
         Application.put_env(:lumainus, :docling, original_config)
       end)
 
-      caps = Docling.capabilities()
+      caps = Docling.capabilities(backend: :local)
 
       assert is_list(caps)
       assert :sync in caps
       assert :async in caps
+    end
+
+    test "raises when remote url is insecure http (non-local)" do
+      original_config = Application.get_env(:lumainus, :docling, [])
+
+      Application.put_env(:lumainus, :docling,
+        backend: :remote,
+        remote_url: "http://example.com",
+        local_url: "http://127.0.0.1:8042"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:lumainus, :docling, original_config)
+      end)
+
+      assert_raise ArgumentError, ~r/remote_url must use https/, fn ->
+        Docling.base_url(backend: :remote)
+      end
     end
   end
 

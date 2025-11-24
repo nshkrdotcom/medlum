@@ -728,9 +728,12 @@ For ongoing Docling ingestion work:
 ## Docling Dual Backend (Agent Quickstart)
 
 - Backends implemented: `:local` (standard CPU) and `:fast`/`:remote` (GPU via `DOCLING_REMOTE_URL`). Vast auto-provisioner remains mocked; Fast expects a pre-provisioned HTTP Docling endpoint.
-- Config keys (`config/config.exs`): `backend`, `timeout_ms`, `poll_interval_ms`, `local_url`, `remote_url`; runtime overrides via `DOCLING_URL` and `DOCLING_REMOTE_URL`. Persisted runtime config now lives in `docling_settings` (singleton row); admin UI at `/admin/docling` edits these values. In `:test`, env overrides take precedence so existing tests can still mutate `Application.put_env/3`.
+- Config keys (`config/config.exs`): `backend`, `timeout_ms`, `poll_interval_ms` (default 250ms), `progress_min_interval_ms` (default 50ms, pages emit immediately), `local_url`, `remote_url`; runtime overrides via `DOCLING_URL` and `DOCLING_REMOTE_URL`. Persisted runtime config now lives in `docling_settings` (singleton row); admin UI at `/admin/docling` edits these values. In `:test`, env overrides take precedence so existing tests can still mutate `Application.put_env/3`.
 - Schema fields: `users.docling_backend` (default `"local"`); `ingestion_jobs.backend` (default `"local"`); upload metadata includes backend, duration_ms, pages when available.
 - Selection: `/reports` shows “Processing speed” toggle; preference is persisted per-user. If remote health fails, Fast is disabled and ingestion falls back to Standard.
 - Health: `Lumainus.Docling.health/1` pings configured backend; health checker can be disabled in tests via `:disable_ingestion_health_checker` config. Fast availability depends on `remote_url` presence and health.
 - Tests: Use Bypass; set `prefer_sse: false` in opts where SSE routes aren’t mocked. Avoid hitting real Docling services in CI.
 - Migrations: run `mix ecto.migrate` to add backend fields before using Fast mode.
+- URL safety: Docling URLs must be `https://` unless pointing to `localhost`/`127.0.0.1`; enforced in admin form and runtime guardrails.
+- Poll fallback: when SSE is unavailable, status is polled every 250ms by default (`poll_interval_ms` config); adjust only if needed. Progress broadcasts emit immediately on page movement and are otherwise debounced to `progress_min_interval_ms` (50ms default).
+- Progress latency debugging: enable `[docling-progress-debug]` logging by setting `config :lumainus, :docling, debug_progress_log: true` (or via `Application.put_env/3`). This logs Docling `event_ts` vs Phoenix `now_ms` to compare with Docling CLI timestamps (see `docs/20251124/docling_progress_latency_prompt.md` for the exact prompt and steps).

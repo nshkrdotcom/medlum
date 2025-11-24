@@ -71,6 +71,7 @@ def _push_event(job: ConversionJob, event: Dict[str, Any]) -> None:
         "state": job.state,
         "progress": job.progress,
         "pages_done": job.pages_done,
+        "pages_failed": getattr(job, "pages_failed", 0),
         "pages_total": job.pages_total,
         "worker_id": job.worker_id,
         "device": job.device,
@@ -110,6 +111,7 @@ class ConversionJob:
     state: str = "queued"
     progress: int = 0
     pages_done: int = 0
+    pages_failed: int = 0
     pages_total: Optional[int] = None
     last_error: Optional[str] = None
     error_status: Optional[int] = None
@@ -131,6 +133,7 @@ def _job_status(job: ConversionJob) -> Dict[str, Any]:
         "state": job.state,
         "progress": job.progress,
         "pages_done": job.pages_done,
+        "pages_failed": getattr(job, "pages_failed", 0),
         "pages_total": job.pages_total,
         "last_error": job.last_error,
         "last_message": getattr(job, "last_message", None),
@@ -189,6 +192,7 @@ async def _worker_loop(worker_id: int) -> None:
             result = await asyncio.wait_for(
                 _convert_source(
                     converter,
+                    job,
                     job.source,
                     job.source_kind,
                     progress_cb=_page_progress_cb(job),
@@ -282,6 +286,8 @@ def _docling_progress_cb(job: ConversionJob):
             job.pages_done = event["pages_done"]
         if "pages_total" in event:
             job.pages_total = event["pages_total"]
+        if "pages_failed" in event:
+            job.pages_failed = event.get("pages_failed")
         if "progress" in event:
             job.progress = event["progress"]
 
@@ -301,6 +307,7 @@ def _docling_progress_cb(job: ConversionJob):
             {
                 "type": mapped_type,
                 "elapsed_ms": int((_now() - started) * 1000),
+                "stage_seq": event.get("stage_seq"),
                 **{k: v for k, v in event.items() if k != "event"},
             },
         )
@@ -319,6 +326,7 @@ def _docling_progress_cb(job: ConversionJob):
 
 async def _convert_source(
     converter: DocumentConverter,
+    job: Job,
     source: str,
     source_kind: str,
     progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
@@ -327,7 +335,18 @@ async def _convert_source(
     """Run Docling conversion in a worker thread."""
 
     def _sync_convert() -> Dict[str, Any]:
-        conversion = converter.convert(source, progress_callback=docling_progress_cb)
+        progress_context = {
+            "job_id": job.id,
+            "worker_id": job.worker_id,
+            "device": job.device,
+            "source_kind": job.source_kind,
+            "upload_size": job.upload_size,
+        }
+        conversion = converter.convert(
+            source,
+            progress_callback=docling_progress_cb,
+            progress_context=progress_context,
+        )
         document = conversion.document
         if document is None:
             raise RuntimeError("Docling returned an empty document")

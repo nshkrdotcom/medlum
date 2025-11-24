@@ -101,7 +101,7 @@ defmodule Lumainus.Docling.Backend do
 
   ## Options
     * `:on_status` - Callback function invoked with status updates
-    * `:poll_interval_ms` - Polling interval for fallback (default: 5000)
+    * `:poll_interval_ms` - Polling interval for fallback (default: 250)
 
   ## Returns
     * `{:ok, result}` - Result map containing "markdown", "metadata", etc.
