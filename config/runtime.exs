@@ -57,6 +57,27 @@ if gemini_key do
   config :gemini_ex, api_key: gemini_key
 end
 
+# Vast.ai configuration
+vast_api_key = System.get_env("VAST_API_KEY")
+ghcr_token = System.get_env("GHCR_TOKEN")
+
+if vast_api_key || ghcr_token do
+  vast_config = Application.get_env(:lumainus, :vast_ai, [])
+
+  vast_config =
+    vast_config
+    |> then(fn c -> if vast_api_key, do: Keyword.put(c, :api_key, vast_api_key), else: c end)
+
+  config :lumainus, :vast_ai, vast_config
+
+  # GHCR credentials for private Docker images
+  if ghcr_token do
+    config :lumainus,
+      ghcr_user: System.get_env("GHCR_USER") || "nshkrdotcom",
+      ghcr_token: ghcr_token
+  end
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

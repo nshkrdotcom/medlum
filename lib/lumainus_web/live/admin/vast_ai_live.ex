@@ -67,12 +67,16 @@ defmodule LumainusWeb.Admin.VastAILive do
       socket = assign(socket, provisioning: true, error: nil)
       image = socket.assigns.selected_image
 
-      case Instances.create(offer_id, %{
-             image: image,
-             disk: socket.assigns.filters.disk_gb,
-             label: "lumainus-docling",
-             runtype: "ssh"
-           }) do
+      create_params =
+        %{
+          image: image,
+          disk: socket.assigns.filters.disk_gb,
+          label: "lumainus-docling",
+          runtype: "ssh"
+        }
+        |> maybe_add_docker_login(image)
+
+      case Instances.create(offer_id, create_params) do
         {:ok, %{"new_contract" => instance_id}} ->
           {:noreply,
            socket
@@ -247,6 +251,22 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   defp docling_image, do: @docling_image
   defp pytorch_image, do: @pytorch_image
+
+  # Add docker_login for private ghcr.io images
+  defp maybe_add_docker_login(params, image) do
+    if String.starts_with?(image, "ghcr.io/") do
+      ghcr_user = Application.get_env(:lumainus, :ghcr_user) || "nshkrdotcom"
+      ghcr_token = Application.get_env(:lumainus, :ghcr_token) || System.get_env("GHCR_TOKEN")
+
+      if ghcr_token do
+        Map.put(params, :docker_login, "#{ghcr_user}:#{ghcr_token}")
+      else
+        params
+      end
+    else
+      params
+    end
+  end
 
   @impl true
   def render(assigns) do

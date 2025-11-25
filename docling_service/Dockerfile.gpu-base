@@ -1,0 +1,46 @@
+# Dockerfile.gpu-base - Base image with PyTorch, Docling, and models
+# Rebuild this only when dependencies or models change (~monthly)
+# Build: docker build -f Dockerfile.gpu-base -t ghcr.io/nshkrdotcom/lumainus-docling-base:latest ..
+
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    libgl1 \
+    libglib2.0-0 \
+    curl \
+    wget \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install service dependencies
+RUN pip install --upgrade pip && \
+    pip install fastapi uvicorn[standard] python-multipart
+
+# Copy and install local docling fork
+COPY docling /app/docling
+RUN pip install -e /app/docling
+
+# IMPORTANT: Downgrade numpy AFTER all installs to fix PyTorch compatibility
+RUN pip install "numpy<2"
+
+# Set HuggingFace cache directory
+ENV HF_HOME=/app/models/huggingface
+ENV TORCH_HOME=/app/models/torch
+
+# Create model directories
+RUN mkdir -p /app/models/huggingface /app/models/torch
+
+# Download models by initializing DocumentConverter
+RUN python -c "from docling.document_converter import DocumentConverter; dc = DocumentConverter(); print('Models downloaded successfully')"
+
+# Verify models exist
+RUN ls -la /app/models/huggingface/ && du -sh /app/models/

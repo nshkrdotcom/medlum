@@ -130,10 +130,29 @@ docker tag ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest \
 docker push ghcr.io/nshkrdotcom/lumainus-docling-gpu:v1.0.0
 ```
 
-### 3.3 Make package public (if needed)
+### 3.3 Private Registry Setup (Recommended)
 
-Go to: `https://github.com/users/YOUR_USERNAME/packages/container/lumainus-docling-gpu/settings`
-Change visibility to "Public" for Vast.ai to pull without auth.
+Your image is **private by default** on ghcr.io. For Vast.ai to pull private images:
+
+1. **Create a read-only PAT** at https://github.com/settings/tokens with only `read:packages` scope
+2. **Set the token in your environment**:
+
+```bash
+# In your .env or environment
+export GHCR_TOKEN="ghp_xxxx..."
+```
+
+3. **Or configure in Elixir** (`config/runtime.exs`):
+
+```elixir
+config :lumainus,
+  ghcr_user: "nshkrdotcom",
+  ghcr_token: System.get_env("GHCR_TOKEN")
+```
+
+The Lumainus admin UI will automatically include `docker_login` credentials when provisioning instances with ghcr.io images.
+
+> **Security Note**: Keep `GHCR_TOKEN` secret. Use a minimal-scope PAT (read:packages only) for production.
 
 ## Phase 4: Test on Vast.ai
 

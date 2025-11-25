@@ -14,6 +14,19 @@ defmodule Lumainus.VastAI.Instances do
 
   Uses PUT /api/v0/asks/{ask_id}/ endpoint.
   The ask_id is the offer's "id" field from search results.
+
+  ## Options for private registries
+
+  For private Docker images (e.g., private ghcr.io), include:
+  - `docker_login` - "username:password" or "username:token" for registry auth
+
+  Example:
+      create(ask_id, %{
+        image: "ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest",
+        docker_login: "nshkrdotcom:ghp_xxxYOURTOKENxxx",
+        disk: 20,
+        label: "docling"
+      })
   """
   def create(ask_id, params, opts \\ []) do
     body =
