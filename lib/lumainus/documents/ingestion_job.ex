@@ -11,7 +11,7 @@ defmodule Lumainus.Documents.IngestionJob do
   @stages ~w(queued downloading docling parsing completed failed)
   # Lifecycle states roll up the more granular @stages into coarse job health.
   @states ~w(pending queued running completed failed retrying)
-  @docling_backends ~w(local fast)
+  @docling_backends ~w(local fast cloud)
 
   schema "ingestion_jobs" do
     field(:job_type, :string)

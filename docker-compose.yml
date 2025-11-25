@@ -1,0 +1,90 @@
+# Docling Backend Services
+# ========================
+# Docker Compose configuration for Docling PDF processing backends.
+#
+# Port Assignments (from scripts/docling-ports.env):
+#   8040 - native_cpu  (not in compose - runs on host)
+#   8041 - native_gpu  (not in compose - runs on host)
+#   8042 - docker_cpu  (this file)
+#   8043 - docker_gpu  (this file)
+#   8044 - vast_ai     (external cloud service)
+#
+# Usage:
+#   docker compose up -d                    # Start default (CPU)
+#   docker compose up -d docling-cpu        # Start CPU only
+#   docker compose up -d docling-gpu        # Start GPU only
+#   docker compose --profile gpu up -d      # Start with GPU profile
+#   docker compose down                     # Stop all
+#
+# Environment Variables:
+#   DOCLING_IMAGE        - Image to use (default: ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest)
+#   DOCLING_RESTART      - Restart policy (default: unless-stopped)
+#   DOCLING_PORT_CPU     - CPU backend port (default: 8042)
+#   DOCLING_PORT_GPU     - GPU backend port (default: 8043)
+
+services:
+  # ==========================================================================
+  # Docker CPU Backend (port 8042)
+  # ==========================================================================
+  docling-cpu:
+    image: ${DOCLING_IMAGE:-ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest}
+    container_name: docling-docker-cpu
+    restart: ${DOCLING_RESTART:-unless-stopped}
+    ports:
+      - "${DOCLING_PORT_CPU:-8042}:${DOCLING_PORT_CPU:-8042}"
+    environment:
+      - PORT=${DOCLING_PORT_CPU:-8042}
+      - HOST=0.0.0.0
+      - CUDA_VISIBLE_DEVICES=  # Disable GPU
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${DOCLING_PORT_CPU:-8042}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+
+  # ==========================================================================
+  # Docker GPU Backend (port 8043)
+  # ==========================================================================
+  # Requires: NVIDIA Container Toolkit
+  # Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+  docling-gpu:
+    image: ${DOCLING_IMAGE:-ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest}
+    container_name: docling-docker-gpu
+    restart: ${DOCLING_RESTART:-unless-stopped}
+    profiles:
+      - gpu
+    ports:
+      - "${DOCLING_PORT_GPU:-8043}:${DOCLING_PORT_GPU:-8043}"
+    environment:
+      - PORT=${DOCLING_PORT_GPU:-8043}
+      - HOST=0.0.0.0
+      - CUDA_VISIBLE_DEVICES=0
+      - OMP_NUM_THREADS=4
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${DOCLING_PORT_GPU:-8043}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  default:
+    name: lumainus-docling
+    driver: bridge

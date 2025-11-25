@@ -46,14 +46,28 @@ config :lumainus, Oban,
   plugins: false
 
 # Keep Docling inline for tests so Bypass expectations on /convert stay valid
+# Tests use the standard port layout but with Bypass mocking
 config :lumainus, :docling,
   queue_mode: :inline,
-  backend: :local,
+  # Default mode and active backend
+  default_mode: :local,
+  active_local_backend: :docker_cpu,
+  # All backend URLs (tests mock these via Bypass)
+  native_cpu_url: "http://127.0.0.1:8040",
+  native_gpu_url: "http://127.0.0.1:8041",
+  docker_cpu_url: "http://127.0.0.1:8042",
+  docker_gpu_url: "http://127.0.0.1:8043",
+  cloud_url: nil,
+  # Legacy aliases
   local_url: "http://127.0.0.1:8042",
+  remote_url: nil,
+  # Timing
   timeout_ms: 1_200_000,
   request_timeout: 1_200_000,
   poll_interval_ms: 1_000,
+  # Test options
   prefer_sse: false,
-  suppress_logs: true
+  suppress_logs: true,
+  prefer_env_overrides: true
 
 config :lumainus, :disable_ingestion_health_checker, true

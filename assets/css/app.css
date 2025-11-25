@@ -147,3 +147,38 @@ select.select {
     width: 100%;
   }
 }
+
+/* Dark mode text color overrides for better visibility */
+[data-theme="dark"] .text-gray-500,
+[data-theme="dark"] .text-gray-600,
+[data-theme="dark"] .text-slate-500,
+[data-theme="dark"] .text-slate-600 {
+  color: #a1a1aa !important;
+}
+
+[data-theme="dark"] .text-gray-700,
+[data-theme="dark"] .text-slate-700 {
+  color: #d4d4d8 !important;
+}
+
+[data-theme="dark"] .text-gray-800,
+[data-theme="dark"] .text-gray-900,
+[data-theme="dark"] .text-slate-800,
+[data-theme="dark"] .text-slate-900 {
+  color: #f4f4f5 !important;
+}
+
+/* Dark mode card backgrounds */
+[data-theme="dark"] .bg-white {
+  background-color: #1f2937 !important;
+}
+
+[data-theme="dark"] .bg-gray-50 {
+  background-color: #374151 !important;
+}
+
+/* Dark mode borders */
+[data-theme="dark"] .border-gray-200,
+[data-theme="dark"] .border-gray-300 {
+  border-color: #4b5563 !important;
+}

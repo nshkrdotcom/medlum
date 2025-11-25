@@ -24,17 +24,50 @@ config :lumainus,
   ecto_repos: [Lumainus.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Docling Backend Configuration
+# ==============================
+# Port assignments (standardized):
+#   8040 - native_cpu  (host Python, CPU)
+#   8041 - native_gpu  (host Python, GPU)
+#   8042 - docker_cpu  (Docker, CPU)
+#   8043 - docker_gpu  (Docker, GPU)
+#   8044 - vast_ai     (cloud GPU, $$$)
+#
+# User choice: "local" (free) vs "cloud" ($$$)
+# Admin configures which local backend is active via active_local_backend.
+
 config :lumainus, :docling,
-  backend: :local,
-  timeout_ms: 1_200_000,
+  # Default mode for new users: :local or :cloud
+  default_mode: :local,
+  # Which local backend to use when user selects "local"
+  active_local_backend: :docker_cpu,
+  # Backend URLs (all 5)
+  native_cpu_url: "http://127.0.0.1:8040",
+  native_gpu_url: "http://127.0.0.1:8041",
+  docker_cpu_url: "http://127.0.0.1:8042",
+  docker_gpu_url: "http://127.0.0.1:8043",
+  cloud_url: System.get_env("DOCLING_CLOUD_URL"),
+  # Legacy aliases (for backward compatibility)
   local_url: "http://127.0.0.1:8042",
-  remote_url: System.get_env("DOCLING_REMOTE_URL"),
-  health_cron: "*/5 * * * *",
-  queue_mode: :http_queue,
-  # Fallback poll interval when SSE fails (ms)
+  remote_url: System.get_env("DOCLING_CLOUD_URL") || System.get_env("DOCLING_REMOTE_URL"),
+  # Timing
+  timeout_ms: 1_200_000,
   poll_interval_ms: 250,
-  # Minimum interval between progress broadcasts when percentage hasn't changed
-  progress_min_interval_ms: 50
+  progress_min_interval_ms: 50,
+  # Operations
+  health_cron: "*/5 * * * *",
+  queue_mode: :http_queue
+
+# Vast.ai Auto-Shutdown Configuration
+# ====================================
+# Automatically destroys idle GPU instances to save money.
+# Check runs every X minutes, destroys if idle for Y minutes.
+config :lumainus, :vast_ai_auto_shutdown,
+  enabled: true,
+  # How often to check for idle instances (minutes)
+  check_interval_minutes: 5,
+  # Destroy instance if no activity for this many minutes
+  idle_timeout_minutes: 15
 
 # Ingestion queue configuration
 config :lumainus, :ingestion,

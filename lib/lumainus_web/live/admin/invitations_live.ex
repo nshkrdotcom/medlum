@@ -10,17 +10,19 @@ defmodule LumainusWeb.Admin.InvitationsLive do
     ~H"""
     <div class="p-6">
       <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">Invitation Management</h1>
-        <p class="mt-2 text-sm text-gray-600">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">Invitation Management</h1>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
           Create and manage invitation links for new users
         </p>
       </div>
 
-      <div class="bg-white shadow-sm rounded-lg p-6 mb-4">
+      <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-4">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-sm font-medium text-slate-600">Docling ingestion service</p>
-            <p class="text-xs text-slate-500">
+            <p class="text-sm font-medium text-slate-600 dark:text-slate-300">
+              Docling ingestion service
+            </p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
               Last check: {docling_check_timestamp(@docling_health)}
             </p>
           </div>
@@ -28,13 +30,15 @@ defmodule LumainusWeb.Admin.InvitationsLive do
             {docling_status_label(@docling_health)}
           </span>
         </div>
-        <p class="mt-3 text-sm text-slate-600">
+        <p class="mt-3 text-sm text-slate-600 dark:text-slate-300">
           {docling_status_message(@docling_health)}
         </p>
       </div>
 
-      <div class="bg-white shadow-sm rounded-lg p-6 mb-8">
-        <h2 class="text-xl font-semibold mb-4">Create New Invitation</h2>
+      <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-8">
+        <h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
+          Create New Invitation
+        </h2>
 
         <.form for={@form} phx-submit="create_invitation" class="space-y-4">
           <.input
@@ -59,7 +63,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
               value={nil}
               placeholder="user@example.com"
             />
-            <p class="mt-1 text-sm text-gray-500">
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               If provided, this email will be pre-filled in the registration form
             </p>
           </div>
@@ -70,12 +74,14 @@ defmodule LumainusWeb.Admin.InvitationsLive do
         </.form>
       </div>
 
-      <div class="bg-white shadow-sm rounded-lg p-6">
-        <h2 class="text-xl font-semibold mb-4">Existing Invitations</h2>
+      <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
+          Existing Invitations
+        </h2>
 
         <div class="space-y-4">
           <%= for invitation <- @invitations do %>
-            <div class="border border-gray-200 rounded-lg p-4">
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
               <div class="flex items-start justify-between">
                 <div class="flex-1">
                   <div class="flex items-center gap-3 mb-2">
@@ -95,12 +101,12 @@ defmodule LumainusWeb.Admin.InvitationsLive do
                   </div>
 
                   <%= if invitation.email do %>
-                    <p class="text-sm text-gray-600 mb-2">
+                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-2">
                       Email: {invitation.email}
                     </p>
                   <% end %>
 
-                  <p class="text-xs text-gray-500 mb-2">
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
                     Created: {Calendar.strftime(invitation.inserted_at, "%B %d, %Y at %I:%M %p")}
                     <%= if invitation.created_by do %>
                       by {invitation.created_by.email}
@@ -108,12 +114,12 @@ defmodule LumainusWeb.Admin.InvitationsLive do
                   </p>
 
                   <%= if invitation.used_at do %>
-                    <p class="text-xs text-gray-500">
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
                       Used: {Calendar.strftime(invitation.used_at, "%B %d, %Y at %I:%M %p")}
                     </p>
                   <% else %>
                     <div class="mt-3">
-                      <label class="block text-xs font-medium text-gray-700 mb-1">
+                      <label class="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1">
                         Invitation Link:
                       </label>
                       <div class="flex gap-2">
@@ -121,7 +127,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
                           type="text"
                           readonly
                           value={invitation_url(invitation.token)}
-                          class="flex-1 text-sm rounded-md border-gray-300 bg-gray-50 font-mono"
+                          class="flex-1 text-sm rounded-md border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono"
                           id={"invitation-link-#{invitation.id}"}
                         />
                         <button
@@ -131,7 +137,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
                           id={"copy-invitation-#{invitation.id}"}
                           phx-hook="CopyInvitationLink"
                           data-target-input-id={"invitation-link-#{invitation.id}"}
-                          class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                          class="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                         >
                           Copy
                         </button>
@@ -156,7 +162,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
           <% end %>
 
           <%= if @invitations == [] do %>
-            <p class="text-center text-gray-500 py-8">
+            <p class="text-center text-gray-500 dark:text-gray-400 py-8">
               No invitations created yet. Create one above to get started.
             </p>
           <% end %>

@@ -101,6 +101,7 @@ defmodule LumainusWeb.Router do
       live "/invitations", Admin.InvitationsLive
       live "/docling", Admin.DoclingSettingsLive
       live "/vast_ai", Admin.VastAILive
+      live "/gpu_events", Admin.GPUEventsLive
     end
   end
 end

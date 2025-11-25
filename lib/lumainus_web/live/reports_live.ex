@@ -4,9 +4,16 @@ defmodule LumainusWeb.ReportsLive do
   alias Ecto.Changeset
   alias Lumainus.Accounts
   alias Lumainus.Docling
+  alias Lumainus.Docling.VastAI.InstanceManager
+  alias Lumainus.Docling.VastAI.ProvisioningState
+  alias Lumainus.Docling.Settings, as: DoclingSettings
+  alias Lumainus.Cloudflare
   alias Lumainus.Documents
   alias Lumainus.Clinical.{Patients, RecordSets}
   alias Lumainus.Reports
+  alias Lumainus.VastAI
+  alias Lumainus.VastAI.Instances, as: VastAIInstances
+  alias Lumainus.VastAI.Offers, as: VastAIOffers
   alias MapSet
   alias Path
   alias Phoenix.LiveView.JS
@@ -133,39 +140,136 @@ defmodule LumainusWeb.ReportsLive do
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
   def handle_event("set_docling_backend", %{"backend" => backend}, socket) do
-    backend_atom =
-      backend
-      |> String.downcase()
-      |> Docling.normalize_user_backend()
+    # Only admins can change backend
+    unless socket.assigns.can_manage_gpu? do
+      {:noreply,
+       put_flash(socket, :error, "You don't have permission to change processing mode.")}
+    else
+      backend_atom =
+        backend
+        |> String.downcase()
+        |> Docling.normalize_user_backend()
 
-    cond do
-      backend_atom == :fast and not socket.assigns.fast_available? ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Fast (GPU) is unavailable right now. Using Standard until it recovers."
-         )}
+      cond do
+        backend_atom == :cloud and not socket.assigns.fast_available? ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             "Cloud (GPU) is unavailable right now. Using Local until it recovers."
+           )}
 
-      true ->
-        case Accounts.update_docling_backend(socket.assigns.current_scope.user, backend_atom) do
-          {:ok, user} ->
-            scope = %{socket.assigns.current_scope | user: user}
+        true ->
+          case Accounts.update_docling_backend(socket.assigns.current_scope.user, backend_atom) do
+            {:ok, user} ->
+              scope = %{socket.assigns.current_scope | user: user}
 
-            {:noreply,
-             socket
-             |> assign(:docling_backend, backend_atom)
-             |> assign(:current_scope, scope)
-             |> maybe_fast_cost_flash(backend_atom)}
+              {:noreply,
+               socket
+               |> assign(:docling_backend, backend_atom)
+               |> assign(:current_scope, scope)
+               |> maybe_fast_cost_flash(backend_atom)}
 
-          {:error, changeset} ->
-            {:noreply,
-             put_flash(socket, :error, "Unable to save preference: #{humanize_errors(changeset)}")}
-        end
+            {:error, changeset} ->
+              {:noreply,
+               put_flash(
+                 socket,
+                 :error,
+                 "Unable to save preference: #{humanize_errors(changeset)}"
+               )}
+          end
+      end
     end
   rescue
     _ ->
       {:noreply, put_flash(socket, :error, "Unknown processing mode.")}
+  end
+
+  def handle_event("boot_gpu_and_enable", _params, socket) do
+    # Only admins can boot GPU instances
+    unless socket.assigns.can_manage_gpu? do
+      {:noreply, put_flash(socket, :error, "You don't have permission to manage GPU instances.")}
+    else
+      # SAFETY CHECK: Prevent duplicate provisioning
+      # Check if there's already an instance running before starting provisioning
+      case InstanceManager.check_existing_instance() do
+        {:ok, endpoint} when is_binary(endpoint) ->
+          # Already have an endpoint tracked - just update user preference
+          Logger.info(
+            "[ReportsLive] GPU instance already exists at #{endpoint}, skipping provisioning"
+          )
+
+          socket =
+            case Accounts.update_docling_backend(socket.assigns.current_scope.user, :cloud) do
+              {:ok, user} ->
+                scope = %{socket.assigns.current_scope | user: user}
+                socket |> assign(:docling_backend, :cloud) |> assign(:current_scope, scope)
+
+              {:error, _} ->
+                socket
+            end
+
+          {:noreply,
+           socket
+           |> assign(:gpu_prompt_dismissed, true)
+           |> put_flash(:info, "GPU instance already running! Cloud mode enabled.")
+           |> push_navigate(to: ~p"/admin/vast_ai")}
+
+        {:ok, :running, instance_id} ->
+          # Instance exists on Vast.ai but not tracked - log warning and redirect
+          Logger.warning(
+            "[ReportsLive] Found untracked running instance #{instance_id} on Vast.ai"
+          )
+
+          socket =
+            case Accounts.update_docling_backend(socket.assigns.current_scope.user, :cloud) do
+              {:ok, user} ->
+                scope = %{socket.assigns.current_scope | user: user}
+                socket |> assign(:docling_backend, :cloud) |> assign(:current_scope, scope)
+
+              {:error, _} ->
+                socket
+            end
+
+          {:noreply,
+           socket
+           |> assign(:gpu_prompt_dismissed, true)
+           |> put_flash(
+             :warning,
+             "Found existing GPU instance ##{instance_id}. Check admin page for status."
+           )
+           |> push_navigate(to: ~p"/admin/vast_ai")}
+
+        {:ok, :none} ->
+          # No instance exists - proceed with provisioning
+          socket =
+            case Accounts.update_docling_backend(socket.assigns.current_scope.user, :cloud) do
+              {:ok, user} ->
+                scope = %{socket.assigns.current_scope | user: user}
+                socket |> assign(:docling_backend, :cloud) |> assign(:current_scope, scope)
+
+              {:error, _} ->
+                socket
+            end
+
+          # Start async provisioning in background (uses ProvisioningState for real-time logs)
+          Task.start(fn -> auto_provision_gpu() end)
+
+          {:noreply,
+           socket
+           |> assign(:gpu_prompt_dismissed, true)
+           |> put_flash(:info, "Starting GPU provisioning... Watch progress below.")
+           |> push_navigate(to: ~p"/admin/vast_ai")}
+
+        {:error, reason} ->
+          Logger.error("[ReportsLive] Failed to check existing instances: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, "Failed to check GPU status. Please try again.")}
+      end
+    end
+  end
+
+  def handle_event("dismiss_gpu_prompt", _params, socket) do
+    {:noreply, assign(socket, :gpu_prompt_dismissed, true)}
   end
 
   @impl true
@@ -353,14 +457,38 @@ defmodule LumainusWeb.ReportsLive do
     documents = format_documents(workspace.documents)
     sections = format_sections(workspace.sections)
     docling_health = Docling.latest_health_check()
-    {fast_available?, fast_reason} = fast_backend_health()
-    preferred_backend = Accounts.docling_backend_for_user(scope.user)
+
+    # NON-BLOCKING: Get GPU status quickly (checks local state, not HTTP)
+    gpu_instance_status = check_gpu_instance_status_fast()
+
+    # NON-BLOCKING: Defer expensive health check to avoid blocking page load
+    # Start with "checking" state and update async after mount
+    {fast_available?, fast_reason} =
+      case gpu_instance_status.status do
+        # Will be updated async
+        :running -> {nil, "Checking..."}
+        :loading -> {false, "GPU instance still loading"}
+        _ -> {false, "No GPU instance"}
+      end
+
+    # Schedule async health check if we have a potential endpoint
+    if connected?(socket) and gpu_instance_status.status == :running do
+      send(self(), :check_fast_backend_health)
+    end
+
+    # Doctors always use local backend (no GPU cost controls)
+    can_manage_gpu? = scope.user.role in ["admin", "system_administrator"]
 
     selected_backend =
-      if preferred_backend == :fast and not fast_available? do
-        :local
+      if can_manage_gpu? do
+        preferred_backend = Accounts.docling_backend_for_user(scope.user)
+        # Only fall back to local if fast is explicitly unavailable (false)
+        # When fast_available? is nil (Checking), allow cloud backend
+        if preferred_backend == :fast and fast_available? == false,
+          do: :local,
+          else: preferred_backend
       else
-        preferred_backend
+        :local
       end
 
     running_sections =
@@ -390,6 +518,8 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:docling_backend, selected_backend)
       |> assign(:fast_available?, fast_available?)
       |> assign(:fast_unavailable_reason, format_backend_reason(fast_reason))
+      |> assign(:gpu_instance_status, gpu_instance_status)
+      |> assign(:can_manage_gpu?, can_manage_gpu?)
       |> assign(:profile_form, profile_form(workspace.patient))
       |> assign(:active_record_set_id, workspace.record_set.id)
       |> assign(:selected_document, nil)
@@ -397,9 +527,12 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:document_modal_open, false)
       |> assign(:document_modal_tab, "summary")
       |> assign_new(:patient_modal_open, fn -> false end)
+      |> assign_new(:gpu_prompt_dismissed, fn -> false end)
+      |> assign_new(:gpu_provisioning, fn -> false end)
       |> assign_new(:job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
+      |> assign(:health_check_retry_count, 0)
 
     socket
     |> maybe_refresh_document_modal()
@@ -431,6 +564,180 @@ defmodule LumainusWeb.ReportsLive do
       {:noreply, load_workspace(socket)}
     else
       {:noreply, socket}
+    end
+  end
+
+  # Async health check to avoid blocking page load
+  def handle_info(:check_fast_backend_health, socket) do
+    # Capture LiveView pid before starting task
+    lv_pid = self()
+
+    # Run health check in background with short timeout
+    Task.start(fn ->
+      result = fast_backend_health_with_timeout(5_000)
+      send(lv_pid, {:fast_backend_health_result, result})
+    end)
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:fast_backend_health_result, {available?, reason}}, socket) do
+    # When health check fails but we know an instance exists, show better status
+    # This handles the case where instance was just provisioned but service is still booting
+    #
+    # IMPORTANT: Check InstanceManager directly for current state, not socket assigns
+    # which may be stale from page load
+    current_instance_status = check_gpu_instance_status_fast()
+
+    {final_available?, final_reason, should_retry?} =
+      case {available?, current_instance_status} do
+        {true, _} ->
+          # Health check passed - all good
+          {true, nil, false}
+
+        {false, %{status: :running, endpoint: endpoint}}
+        when is_binary(endpoint) and endpoint != "" ->
+          # Instance exists but health check failed - service is probably still starting
+          # (Caddy installing, SSL certs, etc.)
+          Logger.info(
+            "[ReportsLive] Health check failed but instance exists at #{endpoint} - service starting"
+          )
+
+          {false, "Service starting (GPU instance running, waiting for service to be ready)...",
+           true}
+
+        {false, %{status: :loading}} ->
+          # Instance still loading
+          {false, "GPU instance still loading...", true}
+
+        {false, _} ->
+          # No instance or truly unavailable
+          {false, reason, false}
+      end
+
+    # Also update the gpu_instance_status assign to match current reality
+    socket = assign(socket, :gpu_instance_status, current_instance_status)
+
+    socket =
+      socket
+      |> assign(:fast_available?, final_available?)
+      |> assign(:fast_reason, final_reason)
+      |> assign(:fast_unavailable_reason, format_backend_reason(final_reason))
+
+    # Auto-retry health check if instance exists but service not ready yet
+    # Retry every 10 seconds up to a reasonable limit
+    retry_count = Map.get(socket.assigns, :health_check_retry_count, 0)
+    # 3 minutes of retrying (18 * 10 seconds)
+    max_retries = 18
+
+    socket =
+      cond do
+        # Health check passed - reset retry count
+        final_available? == true ->
+          if retry_count > 0 do
+            Logger.info("[ReportsLive] Health check succeeded after #{retry_count} retries")
+          end
+
+          assign(socket, :health_check_retry_count, 0)
+
+        # Should retry and haven't exhausted retries
+        should_retry? and retry_count < max_retries ->
+          Logger.debug(
+            "[ReportsLive] Scheduling health check retry #{retry_count + 1}/#{max_retries} in 10s"
+          )
+
+          Process.send_after(self(), :check_fast_backend_health, 10_000)
+          assign(socket, :health_check_retry_count, retry_count + 1)
+
+        # Exhausted retries
+        retry_count >= max_retries ->
+          Logger.warning(
+            "[ReportsLive] Health check retries exhausted after #{max_retries} attempts"
+          )
+
+          socket
+
+        # Not retrying
+        true ->
+          socket
+      end
+
+    # If health check failed with connection error, trigger a sync
+    # This handles cases where the instance was deleted externally
+    # But only if we don't have a known instance (to avoid syncing when just booting)
+    if final_available? == false and is_binary(reason) and
+         (String.contains?(reason, "timeout") or String.contains?(reason, "econnrefused") or
+            String.contains?(reason, "nxdomain") or String.contains?(reason, "transport_error")) do
+      # Only sync if we don't think an instance exists (use fresh status, not stale assigns)
+      if current_instance_status.status not in [:running, :loading] do
+        Logger.info(
+          "[ReportsLive] Health check failed with connection error, triggering Vast.ai sync"
+        )
+
+        send(self(), :trigger_vast_ai_sync)
+      end
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:trigger_vast_ai_sync, socket) do
+    # Run sync in background to not block
+    lv_pid = self()
+
+    Task.start(fn ->
+      result = InstanceManager.sync_with_vast_ai()
+      send(lv_pid, {:vast_ai_sync_result, result})
+    end)
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:vast_ai_sync_result, result}, socket) do
+    case result do
+      {:ok, :synced, endpoint} ->
+        Logger.info("[ReportsLive] Sync found and adopted instance at #{endpoint}")
+        # Update status and trigger fresh health check
+        socket =
+          socket
+          |> assign(:gpu_instance_status, %{status: :running, endpoint: endpoint})
+          |> assign(:fast_available?, nil)
+          |> assign(:fast_reason, "Checking...")
+          |> assign(:fast_unavailable_reason, "Checking...")
+          |> assign(:health_check_retry_count, 0)
+          |> put_flash(:info, "Found running GPU instance at #{endpoint}")
+
+        # Trigger fresh health check
+        send(self(), :check_fast_backend_health)
+        {:noreply, socket}
+
+      {:ok, :cleared} ->
+        Logger.info("[ReportsLive] Sync cleared stale instance state")
+        # Update all related assigns
+        {:noreply,
+         socket
+         |> assign(:gpu_instance_status, %{status: :no_instance, endpoint: nil})
+         |> assign(:fast_available?, false)
+         |> assign(:fast_reason, "No GPU instance")
+         |> assign(:fast_unavailable_reason, "No GPU instance")
+         |> assign(:health_check_retry_count, 0)}
+
+      {:ok, :unchanged} ->
+        {:noreply, socket}
+
+      {:ok, :loading, id} ->
+        Logger.info("[ReportsLive] Instance #{id} still loading")
+
+        {:noreply,
+         socket
+         |> assign(:gpu_instance_status, %{status: :loading, endpoint: nil})
+         |> assign(:fast_available?, false)
+         |> assign(:fast_reason, "GPU instance still loading...")
+         |> assign(:fast_unavailable_reason, "GPU instance still loading...")}
+
+      {:error, reason} ->
+        Logger.warning("[ReportsLive] Sync failed: #{inspect(reason)}")
+        {:noreply, socket}
     end
   end
 
@@ -681,45 +988,710 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
-  defp fast_backend_health do
-    remote_url = Docling.config() |> Keyword.get(:remote_url)
+  # Health check with explicit timeout for async calls
+  defp fast_backend_health_with_timeout(timeout_ms) do
+    config = Docling.config()
+    cloud_url = Keyword.get(config, :cloud_url)
+    remote_url = Keyword.get(config, :remote_url)
 
     cond do
-      is_nil(remote_url) ->
-        {false, "DOCLING_REMOTE_URL not set"}
+      is_nil(cloud_url) and is_nil(remote_url) ->
+        {false, "Cloud URL not configured"}
+
+      cloud_url == "" and (is_nil(remote_url) or remote_url == "") ->
+        {false, "Cloud URL not configured"}
 
       true ->
         try do
-          case Docling.health(backend: :fast) do
-            {:ok, _} -> {true, nil}
-            {:error, reason} -> {false, reason}
+          # Use Task with timeout to avoid hanging forever
+          task =
+            Task.async(fn ->
+              case Docling.health(backend: :vast_ai, timeout: timeout_ms) do
+                {:ok, _} -> {true, nil}
+                {:error, reason} -> {false, inspect(reason)}
+              end
+            end)
+
+          case Task.yield(task, timeout_ms) || Task.shutdown(task) do
+            {:ok, result} -> result
+            nil -> {false, "Health check timed out"}
           end
         rescue
-          error -> {false, error}
+          error -> {false, inspect(error)}
         end
     end
   end
 
-  defp maybe_fast_cost_flash(socket, :fast) do
-    put_flash(socket, :info, "Fast (GPU) uses remote GPUs and may incur cost.")
+  # Fast version that only checks local state - NO HTTP calls
+  # Used during mount to avoid blocking page load
+  defp check_gpu_instance_status_fast do
+    if Process.whereis(InstanceManager) do
+      try do
+        case InstanceManager.get_endpoint() do
+          {:ok, endpoint} ->
+            %{status: :running, endpoint: endpoint}
+
+          {:error, :no_instance} ->
+            %{status: :no_instance, endpoint: nil}
+
+          {:error, {:instance_loading, _id}} ->
+            %{status: :loading, endpoint: nil}
+
+          {:error, _} ->
+            %{status: :unknown, endpoint: nil}
+        end
+      rescue
+        _ -> %{status: :unknown, endpoint: nil}
+      catch
+        :exit, _ -> %{status: :unknown, endpoint: nil}
+      end
+    else
+      %{status: :unknown, endpoint: nil}
+    end
+  end
+
+  defp auto_provision_gpu do
+    # SAFETY CHECK: Double-check for existing instances before starting
+    # This is a second layer of protection in case the caller didn't check
+    case InstanceManager.check_existing_instance() do
+      {:ok, endpoint} when is_binary(endpoint) ->
+        Logger.warning(
+          "[auto_provision_gpu] Instance already exists at #{endpoint}, aborting provisioning"
+        )
+
+        {:error, :instance_already_exists}
+
+      {:ok, :running, instance_id} ->
+        Logger.warning(
+          "[auto_provision_gpu] Found untracked instance #{instance_id}, aborting provisioning"
+        )
+
+        {:error, {:untracked_instance, instance_id}}
+
+      {:ok, :none} ->
+        # Safe to proceed
+        do_auto_provision_gpu()
+
+      {:error, reason} ->
+        Logger.error(
+          "[auto_provision_gpu] Failed to check existing instances: #{inspect(reason)}"
+        )
+
+        # Proceed with caution - let the provisioning try and fail if needed
+        do_auto_provision_gpu()
+    end
+  end
+
+  defp do_auto_provision_gpu do
+    # Use shared ProvisioningState for real-time updates
+    ProvisioningState.start_provisioning(true)
+    ProvisioningState.add_log(:info, "=== GPU AUTO-PROVISIONING STARTED ===")
+    ProvisioningState.add_log(:info, "Time: #{DateTime.utc_now() |> DateTime.to_string()}")
+
+    # Check configuration upfront
+    ProvisioningState.add_log(:info, "=== PRE-FLIGHT CONFIG CHECK ===")
+
+    vast_api_key = System.get_env("VAST_API_KEY")
+    cf_token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
+    cf_zone = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
+    cf_fqdn = Cloudflare.cloud_fqdn()
+
+    ProvisioningState.add_log(
+      :info,
+      "Vast.ai API Key: #{if vast_api_key, do: "#{String.slice(vast_api_key, 0, 8)}...", else: "NOT SET!"}"
+    )
+
+    ProvisioningState.add_log(
+      :info,
+      "Cloudflare Token: #{if cf_token, do: "#{String.slice(cf_token, 0, 8)}...", else: "NOT SET!"}"
+    )
+
+    ProvisioningState.add_log(
+      :info,
+      "Cloudflare Zone: #{if cf_zone, do: "#{String.slice(cf_zone, 0, 8)}...", else: "NOT SET!"}"
+    )
+
+    ProvisioningState.add_log(:info, "Cloudflare FQDN: #{cf_fqdn || "NOT SET!"}")
+
+    if is_nil(vast_api_key) do
+      ProvisioningState.add_log(:error, "VAST_API_KEY not set - cannot continue!")
+      ProvisioningState.fail(:missing_vast_api_key)
+      {:error, :missing_vast_api_key}
+    else
+      if is_nil(cf_token) or is_nil(cf_zone) do
+        ProvisioningState.add_log(:warning, "Cloudflare not configured - will fall back to HTTP")
+      end
+
+      # Search for best offers with good defaults
+      ProvisioningState.add_log(:info, "=== PHASE 1: Search GPU Offers ===")
+      ProvisioningState.update_status("Searching for GPU offers...")
+
+      filters =
+        VastAIOffers.build_filters(
+          gpu_name: "RTX 3090",
+          num_gpus: 1,
+          verified: true,
+          rentable: true,
+          geolocation: ["US", "CA"],
+          dph_total: {:lte, 0.30},
+          cpu_ram: {:gte, 16},
+          cpu_cores: {:gte, 4},
+          inet_down: {:gte, 100},
+          disk_space: {:gte, 16}
+        )
+
+      ProvisioningState.add_log(
+        :info,
+        "Filter criteria: RTX 3090, 1 GPU, US/CA, <$0.30/hr, 16GB+ RAM"
+      )
+
+      case VastAIOffers.search(filters: filters, limit: 3) do
+        {:ok, %{"offers" => []}} ->
+          ProvisioningState.add_log(:error, "No GPU offers found matching requirements")
+          ProvisioningState.fail(:no_offers)
+          {:error, :no_offers}
+
+        {:ok, %{"offers" => offers}} ->
+          ProvisioningState.add_log(:success, "Found #{length(offers)} offers")
+
+          for offer <- offers do
+            ProvisioningState.add_log(
+              :info,
+              "  - Offer ##{offer["id"]}: $#{Float.round((offer["dph_total"] || 0) * 1.0, 3)}/hr, #{offer["gpu_name"]}, #{offer["geolocation"]}"
+            )
+          end
+
+          # Try top offers in order with full HTTPS provisioning
+          try_provision_offers_with_https(offers)
+
+        {:error, reason} ->
+          ProvisioningState.add_log(:error, "Failed to search offers: #{inspect(reason)}")
+          ProvisioningState.fail(reason)
+          {:error, reason}
+      end
+    end
+  end
+
+  defp try_provision_offers_with_https([]) do
+    ProvisioningState.add_log(:error, "All offers failed to provision")
+    ProvisioningState.fail(:all_offers_failed)
+    {:error, :all_offers_failed}
+  end
+
+  defp try_provision_offers_with_https([offer | rest]) do
+    offer_id = offer["id"]
+    remaining = length(rest)
+
+    ProvisioningState.add_log(:info, "=== Trying offer ##{offer_id} (#{remaining} remaining) ===")
+
+    ProvisioningState.add_log(
+      :info,
+      "  Price: $#{Float.round((offer["dph_total"] || 0) * 1.0, 3)}/hr"
+    )
+
+    ProvisioningState.add_log(
+      :info,
+      "  GPU: #{offer["gpu_name"]} (#{div(offer["gpu_ram"] || 0, 1024)}GB VRAM)"
+    )
+
+    ProvisioningState.add_log(:info, "  Location: #{offer["geolocation"]}")
+
+    ProvisioningState.add_log(
+      :info,
+      "  Reliability: #{Float.round((offer["reliability"] || 0) * 100, 0)}%"
+    )
+
+    ProvisioningState.update_status("Creating instance from offer ##{offer_id}...")
+
+    ProvisioningState.add_log(
+      :info,
+      "Calling VastAI.provision(offer_id: #{offer_id}, disk_gb: 20, label: lumainus-docling)"
+    )
+
+    case VastAI.provision(offer_id: offer_id, disk_gb: 20, label: "lumainus-docling") do
+      {:ok, instance_id} ->
+        ProvisioningState.add_log(:success, "=== PHASE 1 COMPLETE ===")
+
+        ProvisioningState.add_log(
+          :success,
+          "Instance ##{instance_id} created from offer ##{offer_id}"
+        )
+
+        # Continue with full HTTPS setup
+        finish_https_provisioning(instance_id)
+
+      {:error, reason} ->
+        ProvisioningState.add_log(:error, "Offer ##{offer_id} failed: #{inspect(reason)}")
+
+        if rest != [] do
+          ProvisioningState.add_log(:info, "Trying next offer (#{remaining} remaining)...")
+          try_provision_offers_with_https(rest)
+        else
+          ProvisioningState.add_log(
+            :error,
+            "All #{length([offer | rest])} offers exhausted - provisioning failed"
+          )
+
+          ProvisioningState.fail(reason)
+          {:error, reason}
+        end
+    end
+  end
+
+  defp finish_https_provisioning(instance_id) do
+    ProvisioningState.add_log(:info, "=== PHASE 2: Wait for instance boot ===")
+    ProvisioningState.add_log(:info, "Instance ID: #{instance_id}")
+    ProvisioningState.add_log(:info, "Timeout: 5 minutes (300 seconds)")
+    ProvisioningState.update_status("Instance ##{instance_id} created, waiting for boot...")
+
+    # Use granular wait with status updates
+    case wait_for_ready_with_logging(instance_id, 300_000) do
+      {:ok, instance} ->
+        ProvisioningState.add_log(:success, "=== PHASE 2 COMPLETE: Instance is running! ===")
+
+        # Log all instance details
+        ProvisioningState.add_log(:info, "Instance details:")
+        ProvisioningState.add_log(:info, "  - actual_status: #{instance["actual_status"]}")
+
+        ProvisioningState.add_log(
+          :info,
+          "  - public_ipaddr: #{instance["public_ipaddr"] || "NONE"}"
+        )
+
+        ProvisioningState.add_log(:info, "  - ssh_host: #{instance["ssh_host"] || "NONE"}")
+        ProvisioningState.add_log(:info, "  - ssh_port: #{instance["ssh_port"] || "NONE"}")
+        ProvisioningState.add_log(:info, "  - gpu_name: #{instance["gpu_name"] || "?"}")
+        ProvisioningState.add_log(:info, "  - label: #{instance["label"] || "?"}")
+
+        ProvisioningState.add_log(:info, "=== PHASE 3: Setup DNS ===")
+        ProvisioningState.update_status("Instance running, setting up DNS...")
+
+        case instance["public_ipaddr"] do
+          ip when is_binary(ip) and ip != "" ->
+            ProvisioningState.add_log(:info, "Public IP obtained: #{ip}")
+            setup_dns_and_ssl(instance_id, ip, instance)
+
+          nil ->
+            ProvisioningState.add_log(:error, "public_ipaddr is nil!")
+
+            ProvisioningState.add_log(
+              :error,
+              "Full instance data: #{inspect(instance, limit: 1000)}"
+            )
+
+            ProvisioningState.fail(:no_public_ip)
+            {:error, :no_public_ip}
+
+          "" ->
+            ProvisioningState.add_log(:error, "public_ipaddr is empty string!")
+            ProvisioningState.fail(:no_public_ip)
+            {:error, :no_public_ip}
+
+          other ->
+            ProvisioningState.add_log(:error, "Unexpected public_ipaddr value: #{inspect(other)}")
+            ProvisioningState.fail(:no_public_ip)
+            {:error, :no_public_ip}
+        end
+
+      {:error, :timeout} ->
+        ProvisioningState.add_log(:error, "=== PHASE 2 FAILED: Timeout ===")
+
+        ProvisioningState.add_log(
+          :error,
+          "Instance did not reach 'running' state within 5 minutes"
+        )
+
+        ProvisioningState.add_log(:info, "Tip: Check Vast.ai console for instance status")
+        ProvisioningState.fail(:timeout)
+        {:error, :timeout}
+
+      {:error, :exited} ->
+        ProvisioningState.add_log(:error, "=== PHASE 2 FAILED: Instance exited ===")
+        ProvisioningState.add_log(:error, "Instance crashed or was terminated")
+        ProvisioningState.fail(:exited)
+        {:error, :exited}
+
+      {:error, reason} ->
+        ProvisioningState.add_log(:error, "=== PHASE 2 FAILED: #{inspect(reason)} ===")
+        ProvisioningState.fail(reason)
+        {:error, reason}
+    end
+  end
+
+  defp setup_dns_and_ssl(instance_id, ip, instance) do
+    ProvisioningState.add_log(:info, "Checking Cloudflare configuration...")
+
+    # Log Cloudflare config
+    fqdn = Cloudflare.cloud_fqdn()
+    zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
+    token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
+
+    missing_cloudflare? =
+      String.trim(fqdn) == "" or zone_id in [nil, ""] or token in [nil, ""]
+
+    ProvisioningState.add_log(:info, "  - Target FQDN: #{fqdn || "NOT SET"}")
+
+    ProvisioningState.add_log(
+      :info,
+      "  - Zone ID: #{if zone_id, do: "#{String.slice(zone_id, 0, 8)}...", else: "NOT SET"}"
+    )
+
+    ProvisioningState.add_log(
+      :info,
+      "  - API Token: #{if token, do: "#{String.slice(token, 0, 8)}...", else: "NOT SET"}"
+    )
+
+    if missing_cloudflare? do
+      ProvisioningState.add_log(:error, "Cloudflare not fully configured!")
+      fallback_to_http(instance_id, ip)
+    else
+      ProvisioningState.add_log(:info, "Calling Cloudflare.update_dns_record(#{ip})...")
+      ProvisioningState.update_status("Updating Cloudflare DNS: #{fqdn} -> #{ip}")
+
+      case Cloudflare.update_dns_record(ip) do
+        {:ok, dns_result} ->
+          ProvisioningState.add_log(:success, "=== PHASE 3 COMPLETE: DNS updated ===")
+          ProvisioningState.add_log(:info, "DNS Result: #{inspect(dns_result)}")
+
+          endpoint = "https://#{dns_result.fqdn}"
+          ProvisioningState.add_log(:info, "=== PHASE 4: SSL/HTTPS Setup ===")
+          ProvisioningState.add_log(:info, "HTTPS endpoint: #{endpoint}")
+
+          ProvisioningState.add_log(
+            :info,
+            "Caddy will obtain Let's Encrypt cert on first request"
+          )
+
+          # Wait for the service to be ready (Docker pull + service start)
+          ProvisioningState.add_log(:info, "=== PHASE 4: Wait for service ready ===")
+          ProvisioningState.add_log(:info, "Waiting for Docker image pull and service start...")
+
+          http_url = "http://#{ip}:#{VastAI.cloud_port()}/health"
+
+          case wait_for_service_health(http_url, 300_000) do
+            :ok ->
+              ProvisioningState.add_log(:success, "Service is responding!")
+
+              # Now test HTTPS via Caddy
+              ProvisioningState.add_log(:info, "Testing HTTPS endpoint...")
+              https_url = "#{endpoint}/health"
+              test_endpoint(https_url, "HTTPS via Caddy")
+
+            {:error, :timeout} ->
+              ProvisioningState.add_log(
+                :warning,
+                "Service not responding yet - may still be starting"
+              )
+
+              ProvisioningState.add_log(
+                :info,
+                "Continuing anyway - health checks will retry on /reports"
+              )
+          end
+
+          # Save the cloud URL
+          ProvisioningState.add_log(:info, "Saving cloud URL to settings: #{endpoint}")
+
+          case DoclingSettings.update_cloud_url(endpoint) do
+            {:ok, _} ->
+              ProvisioningState.add_log(:success, "Cloud URL saved!")
+
+            {:error, err} ->
+              ProvisioningState.add_log(:warning, "Failed to save URL: #{inspect(err)}")
+          end
+
+          # CRITICAL: Update InstanceManager so it knows about this instance
+          # This prevents duplicate provisioning when cloud backend is used
+          ProvisioningState.add_log(:info, "Registering instance with InstanceManager...")
+          InstanceManager.set_endpoint(instance_id, endpoint)
+          ProvisioningState.add_log(:success, "Instance registered with InstanceManager")
+
+          ProvisioningState.add_log(:success, "=== PROVISIONING COMPLETE ===")
+          ProvisioningState.add_log(:info, "Instance: ##{instance_id}")
+          ProvisioningState.add_log(:info, "Endpoint: #{endpoint}")
+
+          ProvisioningState.add_log(
+            :info,
+            "SSH: ssh -p #{instance["ssh_port"]} root@#{instance["ssh_host"]}"
+          )
+
+          ProvisioningState.complete(instance_id, endpoint)
+          {:ok, instance_id}
+
+        {:error, dns_error} ->
+          ProvisioningState.add_log(:error, "=== PHASE 3 FAILED: DNS update error ===")
+          ProvisioningState.add_log(:error, "Error: #{inspect(dns_error)}")
+          fallback_to_http(instance_id, ip)
+      end
+    end
+  end
+
+  defp fallback_to_http(instance_id, ip) do
+    endpoint = "http://#{ip}:#{VastAI.cloud_port()}"
+    ProvisioningState.add_log(:warning, "Falling back to HTTP (no SSL)")
+    ProvisioningState.add_log(:info, "HTTP endpoint: #{endpoint}")
+
+    # Test HTTP endpoint
+    test_endpoint("#{endpoint}/health", "HTTP direct")
+
+    DoclingSettings.update_cloud_url(endpoint)
+
+    # CRITICAL: Update InstanceManager so it knows about this instance
+    # This prevents duplicate provisioning when cloud backend is used
+    ProvisioningState.add_log(:info, "Registering instance with InstanceManager...")
+    InstanceManager.set_endpoint(instance_id, endpoint)
+    ProvisioningState.add_log(:success, "Instance registered with InstanceManager")
+
+    ProvisioningState.complete(instance_id, endpoint)
+    {:ok, instance_id}
+  end
+
+  defp test_endpoint(url, label) do
+    ProvisioningState.add_log(:info, "  Testing #{label}: #{url}")
+
+    case Req.get(url, receive_timeout: 15_000, retry: false) do
+      {:ok, %{status: status, body: body}} ->
+        ProvisioningState.add_log(:success, "  #{label}: HTTP #{status}")
+
+        if is_map(body) do
+          ProvisioningState.add_log(:info, "  Response: #{inspect(body, limit: 200)}")
+        end
+
+      {:error, %{reason: reason}} ->
+        ProvisioningState.add_log(:warning, "  #{label}: Failed - #{inspect(reason)}")
+
+      {:error, reason} ->
+        ProvisioningState.add_log(:warning, "  #{label}: Failed - #{inspect(reason)}")
+    end
+  end
+
+  # Wait for service health endpoint to respond (handles Docker pull time)
+  defp wait_for_service_health(url, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    # 10 seconds between checks
+    poll_interval = 10_000
+
+    do_health_wait_loop(url, deadline, poll_interval, 0)
+  end
+
+  defp do_health_wait_loop(url, deadline, poll_interval, attempt) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      {:error, :timeout}
+    else
+      if rem(attempt, 3) == 0 do
+        ProvisioningState.add_log(:info, "Health check attempt #{attempt + 1}...")
+      end
+
+      case Req.get(url, receive_timeout: 10_000, retry: false) do
+        {:ok, %{status: status}} when status in 200..299 ->
+          ProvisioningState.add_log(:success, "Health check passed on attempt #{attempt + 1}")
+          :ok
+
+        {:ok, %{status: status}} ->
+          ProvisioningState.add_log(:info, "Health check returned #{status}, retrying...")
+          Process.sleep(poll_interval)
+          do_health_wait_loop(url, deadline, poll_interval, attempt + 1)
+
+        {:error, _reason} ->
+          # Service not ready yet - this is expected during Docker pull
+          Process.sleep(poll_interval)
+          do_health_wait_loop(url, deadline, poll_interval, attempt + 1)
+      end
+    end
+  end
+
+  # Wait for instance with detailed logging
+  defp wait_for_ready_with_logging(instance_id, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    # 10 seconds between polls
+    poll_interval = 10_000
+    last_status = nil
+
+    do_wait_loop(instance_id, deadline, poll_interval, last_status, 0)
+  end
+
+  defp do_wait_loop(instance_id, deadline, poll_interval, last_status, poll_count) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      ProvisioningState.add_log(:error, "Timeout waiting for instance after #{poll_count} polls")
+      {:error, :timeout}
+    else
+      result = VastAIInstances.get(instance_id)
+
+      # Log raw response on first poll for debugging
+      if poll_count == 0 do
+        ProvisioningState.add_log(:info, "Raw API response: #{inspect(result, limit: 500)}")
+      end
+
+      case result do
+        {:ok, response} when is_map(response) ->
+          # Extract instance data - API returns %{"instances" => %{data}} (map, not list!)
+          instance_data =
+            case response do
+              # Map with id key
+              %{"instances" => %{"id" => _} = inst} ->
+                inst
+
+              # List format
+              %{"instances" => [inst | _]} ->
+                inst
+
+              # Single instance
+              %{"instance" => inst} ->
+                inst
+
+              # Direct instance data
+              %{"id" => _} = inst ->
+                inst
+
+              _ ->
+                ProvisioningState.add_log(
+                  :warning,
+                  "Could not extract instance data from: #{inspect(response, limit: 300)}"
+                )
+
+                nil
+            end
+
+          if is_nil(instance_data) do
+            Process.sleep(poll_interval)
+            do_wait_loop(instance_id, deadline, poll_interval, last_status, poll_count + 1)
+          else
+            # Check BOTH actual_status AND cur_state - API uses both inconsistently
+            actual_status = instance_data["actual_status"]
+            cur_state = instance_data["cur_state"]
+            # Use cur_state as fallback
+            status = actual_status || cur_state
+            status_msg = instance_data["status_msg"]
+            ssh_host = instance_data["ssh_host"]
+            public_ip = instance_data["public_ipaddr"]
+            intended_status = instance_data["intended_status"]
+            label = instance_data["label"]
+
+            # Log status changes
+            status_key = {actual_status, cur_state, status_msg}
+
+            if status_key != last_status do
+              ProvisioningState.add_log(
+                :info,
+                "Poll ##{poll_count}: actual=#{actual_status || "nil"} | cur=#{cur_state || "nil"} | intended=#{intended_status || "?"}"
+              )
+
+              if label, do: ProvisioningState.add_log(:info, "Label: #{label}")
+
+              if status_msg && status_msg != "",
+                do: ProvisioningState.add_log(:info, "Msg: #{status_msg}")
+
+              if ssh_host,
+                do:
+                  ProvisioningState.add_log(
+                    :info,
+                    "SSH: #{ssh_host}:#{instance_data["ssh_port"]}"
+                  )
+
+              if public_ip && public_ip != "",
+                do: ProvisioningState.add_log(:info, "IP: #{public_ip}")
+            end
+
+            ProvisioningState.update_status(
+              "Instance ##{instance_id}: #{status || "pending"}... (#{poll_count * 10}s)"
+            )
+
+            # Check if running - use EITHER actual_status OR cur_state
+            cond do
+              actual_status == "running" or cur_state == "running" ->
+                ProvisioningState.add_log(
+                  :success,
+                  "Instance is running! (actual=#{actual_status}, cur=#{cur_state})"
+                )
+
+                {:ok, instance_data}
+
+              actual_status == "exited" or cur_state == "exited" ->
+                ProvisioningState.add_log(:error, "Instance exited unexpectedly")
+                ProvisioningState.add_log(:error, "Status msg: #{status_msg}")
+                {:error, :exited}
+
+              true ->
+                Process.sleep(poll_interval)
+                do_wait_loop(instance_id, deadline, poll_interval, status_key, poll_count + 1)
+            end
+          end
+
+        {:ok, other} ->
+          ProvisioningState.add_log(
+            :warning,
+            "Unexpected response type: #{inspect(other, limit: 200)}"
+          )
+
+          Process.sleep(poll_interval)
+          do_wait_loop(instance_id, deadline, poll_interval, last_status, poll_count + 1)
+
+        {:error, reason} = error ->
+          ProvisioningState.add_log(:error, "API error: #{inspect(reason)}")
+          error
+      end
+    end
+  end
+
+  defp maybe_fast_cost_flash(socket, :cloud) do
+    put_flash(socket, :info, "Cloud (GPU) uses remote GPUs and may incur cost.")
   end
 
   defp maybe_fast_cost_flash(socket, _), do: socket
 
   defp format_backend_reason(nil), do: nil
+
+  defp format_backend_reason(reason) when is_binary(reason) do
+    # Return user-friendly messages for common reasons
+    cond do
+      String.contains?(reason, "Service starting") ->
+        # Already user-friendly
+        reason
+
+      String.contains?(reason, "GPU instance still loading") ->
+        reason
+
+      String.contains?(reason, "No GPU instance") ->
+        reason
+
+      String.contains?(reason, "not configured") ->
+        reason
+
+      String.contains?(reason, "timeout") ->
+        "connection timed out"
+
+      String.contains?(reason, "econnrefused") ->
+        "service not responding"
+
+      String.contains?(reason, "nxdomain") ->
+        "hostname not found"
+
+      String.contains?(reason, "transport_error") ->
+        "network error"
+
+      true ->
+        # Truncate long technical messages
+        if String.length(reason) > 50 do
+          String.slice(reason, 0, 47) <> "..."
+        else
+          reason
+        end
+    end
+  end
+
   defp format_backend_reason(reason), do: inspect(reason)
 
   defp backend_label(backend) do
     case normalize_backend_atom(backend) do
-      :fast -> "Fast (GPU)"
-      _ -> "Standard"
+      :cloud -> "Cloud (GPU)"
+      _ -> "Local"
     end
   end
 
   defp backend_badge_class(backend, status \\ nil) do
     base_class =
       case normalize_backend_atom(backend) do
-        :fast -> "bg-sky-100 text-sky-700 border border-sky-200"
+        :cloud -> "bg-sky-100 text-sky-700 border border-sky-200"
         _ -> "bg-slate-100 text-slate-700 border border-slate-200"
       end
 
@@ -852,6 +1824,11 @@ defmodule LumainusWeb.ReportsLive do
 
   defp docling_unreachable?(%{status: "unreachable"}), do: true
   defp docling_unreachable?(_), do: false
+
+  defp show_gpu_boot_prompt?(gpu_status, dismissed) do
+    # Show prompt if: no instance running AND user hasn't dismissed it
+    not dismissed and gpu_status.status == :no_instance
+  end
 
   defp format_health_timestamp(nil), do: "no recent checks"
 
@@ -1475,6 +2452,92 @@ defmodule LumainusWeb.ReportsLive do
           </span>
         </div>
       <% end %>
+
+      <%= if @can_manage_gpu? and (show_gpu_boot_prompt?(@gpu_instance_status, @gpu_prompt_dismissed) or @gpu_provisioning) do %>
+        <div class="rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 px-5 py-4 flex items-center justify-between gap-4 shadow-sm">
+          <div class="flex items-center gap-4">
+            <%= if @gpu_provisioning do %>
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600">
+                <svg class="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  >
+                  </circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  >
+                  </path>
+                </svg>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-sm font-semibold text-gray-900">
+                  Provisioning GPU Instance...
+                </span>
+                <span class="text-xs text-gray-600">
+                  Searching for best offer and starting instance. This may take a few minutes.
+                </span>
+              </div>
+            <% else %>
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600">
+                <svg
+                  class="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
+                  />
+                </svg>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-sm font-semibold text-gray-900">
+                  Speed up document processing with GPU
+                </span>
+                <span class="text-xs text-gray-600">
+                  No GPU instance is currently running. Boot one to enable fast processing (~10x faster).
+                </span>
+              </div>
+            <% end %>
+          </div>
+          <div class="flex items-center gap-3">
+            <%= unless @gpu_provisioning do %>
+              <button
+                type="button"
+                phx-click="dismiss_gpu_prompt"
+                class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1"
+              >
+                Not now
+              </button>
+            <% end %>
+            <button
+              type="button"
+              phx-click="boot_gpu_and_enable"
+              disabled={@gpu_provisioning}
+              class={[
+                "rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors",
+                if(@gpu_provisioning,
+                  do: "bg-sky-400 cursor-not-allowed",
+                  else: "bg-sky-600 hover:bg-sky-500"
+                )
+              ]}
+            >
+              {if @gpu_provisioning, do: "Provisioning...", else: "Boot GPU Instance"}
+            </button>
+          </div>
+        </div>
+      <% end %>
+
       <section class="patient-banner">
         <div>
           <div style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; font-weight: 600;">
@@ -1537,72 +2600,86 @@ defmodule LumainusWeb.ReportsLive do
             <div style="font-size: 13px; font-weight: 600; color: #0f172a;">Source Documents</div>
             <div style="font-size: 12px; color: #94a3b8;">{length(@documents)} files</div>
           </div>
-          <div class="mt-1 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-            <div class="flex items-center justify-between gap-3">
-              <div class="flex flex-col">
-                <span class="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                  Processing speed
-                </span>
-                <span class="text-sm text-slate-700">
-                  Choose Standard (free) or Fast (GPU, $$)
-                </span>
+          <%= if @can_manage_gpu? do %>
+            <div class="mt-1 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex flex-col">
+                  <span class="text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                    Processing speed
+                  </span>
+                  <span class="text-sm text-slate-700">
+                    Choose Standard (free) or Fast (GPU, $$)
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    phx-click="set_docling_backend"
+                    phx-value-backend="local"
+                    class={[
+                      "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                      @docling_backend == :local &&
+                        "bg-slate-900 text-white border-slate-900 shadow-sm",
+                      @docling_backend != :local &&
+                        "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                    ]}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="set_docling_backend"
+                    phx-value-backend="cloud"
+                    disabled={!@fast_available?}
+                    class={[
+                      "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                      @docling_backend == :cloud &&
+                        @fast_available? && "bg-sky-600 text-white border-sky-600 shadow-sm",
+                      @docling_backend != :cloud &&
+                        "bg-white text-slate-700 border-slate-200 hover:border-slate-300",
+                      !@fast_available? && "opacity-60 cursor-not-allowed"
+                    ]}
+                  >
+                    Fast (GPU)
+                  </button>
+                </div>
               </div>
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  phx-click="set_docling_backend"
-                  phx-value-backend="local"
-                  class={[
-                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                    @docling_backend == :local &&
-                      "bg-slate-900 text-white border-slate-900 shadow-sm",
-                    @docling_backend != :local &&
-                      "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                  ]}
-                >
-                  Standard
-                </button>
-                <button
-                  type="button"
-                  phx-click="set_docling_backend"
-                  phx-value-backend="fast"
-                  disabled={!@fast_available?}
-                  class={[
-                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                    @docling_backend == :fast &&
-                      @fast_available? && "bg-sky-600 text-white border-sky-600 shadow-sm",
-                    @docling_backend != :fast &&
-                      "bg-white text-slate-700 border-slate-200 hover:border-slate-300",
-                    !@fast_available? && "opacity-60 cursor-not-allowed"
-                  ]}
-                >
-                  Fast (GPU)
-                </button>
+              <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span class={[
+                  "inline-flex h-6 items-center rounded-full border px-2 font-semibold",
+                  backend_badge_class(@docling_backend)
+                ]}>
+                  {backend_label(@docling_backend)}
+                </span>
+                <%= if @docling_backend == :cloud do %>
+                  <span>Fast uses remote GPU processing and may incur cost.</span>
+                <% else %>
+                  <span>Standard uses the local CPU Docling service.</span>
+                <% end %>
+                <%= unless @fast_available? do %>
+                  <span class={
+                    if @fast_unavailable_reason &&
+                         String.contains?(@fast_unavailable_reason || "", "Service starting"),
+                       do: "text-sky-600",
+                       else: "text-amber-600"
+                  }>
+                    <%= cond do %>
+                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "Service starting") -> %>
+                        {@fast_unavailable_reason}
+                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "loading") -> %>
+                        {@fast_unavailable_reason}
+                      <% true -> %>
+                        GPU service unavailable
+                        <%= if @fast_unavailable_reason do %>
+                          — {@fast_unavailable_reason}
+                        <% end %>
+                        — falling back to Standard.
+                    <% end %>
+                  </span>
+                <% end %>
               </div>
             </div>
-            <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-              <span class={[
-                "inline-flex h-6 items-center rounded-full border px-2 font-semibold",
-                backend_badge_class(@docling_backend)
-              ]}>
-                {backend_label(@docling_backend)}
-              </span>
-              <%= if @docling_backend == :fast do %>
-                <span>Fast uses remote GPU processing and may incur cost.</span>
-              <% else %>
-                <span>Standard uses the local CPU Docling service.</span>
-              <% end %>
-              <%= unless @fast_available? do %>
-                <span class="text-amber-600">
-                  GPU service unavailable
-                  <%= if @fast_unavailable_reason do %>
-                    — {format_backend_reason(@fast_unavailable_reason)}
-                  <% end %>
-                  — falling back to Standard.
-                </span>
-              <% end %>
-            </div>
-          </div>
+          <% end %>
           <form
             phx-change="noop"
             phx-submit="noop"

@@ -757,14 +757,14 @@ defmodule Lumainus.Documents do
     health_fun = Keyword.get(opts, :docling_health_fun, &Docling.health/1)
 
     case requested do
-      :fast ->
-        case health_fun.(backend: :fast) do
+      :cloud ->
+        case health_fun.(backend: :vast_ai) do
           {:ok, _} ->
-            {:fast, nil}
+            {:cloud, nil}
 
           {:error, reason} ->
             Logger.warning(
-              "Fast Docling backend unavailable, falling back to local: #{inspect(reason)}"
+              "Cloud Docling backend unavailable, falling back to local: #{inspect(reason)}"
             )
 
             {:local, reason}

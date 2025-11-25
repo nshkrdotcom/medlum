@@ -7,7 +7,7 @@ defmodule Lumainus.Accounts.User do
   alias Lumainus.Tenancy.Tenant
 
   @roles ~w(guest doctor admin system_administrator)
-  @docling_backends ~w(local fast)
+  @docling_backends ~w(local cloud fast)
 
   def docling_backends, do: @docling_backends
 

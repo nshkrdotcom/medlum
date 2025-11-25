@@ -78,6 +78,28 @@ if vast_api_key || ghcr_token do
   end
 end
 
+# Cloudflare DNS configuration (for HTTPS provisioning)
+# Uses LUMAINUS_DOT_COM_CLOUDFLARE_* env vars
+cloudflare_token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
+cloudflare_zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
+cloudflare_account_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ACCOUNT_ID")
+
+if cloudflare_token || cloudflare_zone_id do
+  cloudflare_config =
+    [domain: "lumainus.com"]
+    |> then(fn c ->
+      if cloudflare_token, do: Keyword.put(c, :api_token, cloudflare_token), else: c
+    end)
+    |> then(fn c ->
+      if cloudflare_zone_id, do: Keyword.put(c, :zone_id, cloudflare_zone_id), else: c
+    end)
+    |> then(fn c ->
+      if cloudflare_account_id, do: Keyword.put(c, :account_id, cloudflare_account_id), else: c
+    end)
+
+  config :lumainus, :cloudflare, cloudflare_config
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

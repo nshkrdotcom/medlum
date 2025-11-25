@@ -70,7 +70,17 @@ defmodule Lumainus.VastAI.Offers do
       {:dph_total, {:lt, v}}, acc -> Map.put(acc, :dph_total, %{lt: v})
       {:cuda_vers, v}, acc -> Map.put(acc, :cuda_max_good, %{gte: v})
       {:datacenter, v}, acc -> Map.put(acc, :datacenter, %{eq: v})
-      {:disk_space, v}, acc -> Map.put(acc, :disk_space, %{gte: v})
+      # Tuple patterns must come before bare value patterns
+      {:disk_space, {:gte, v}}, acc -> Map.put(acc, :disk_space, %{gte: v})
+      {:disk_space, v}, acc when is_number(v) -> Map.put(acc, :disk_space, %{gte: v})
+      {:cpu_ram, {:gte, v}}, acc -> Map.put(acc, :cpu_ram, %{gte: v})
+      {:cpu_ram, v}, acc when is_number(v) -> Map.put(acc, :cpu_ram, %{gte: v})
+      {:cpu_cores, {:gte, v}}, acc -> Map.put(acc, :cpu_cores, %{gte: v})
+      {:cpu_cores, v}, acc when is_number(v) -> Map.put(acc, :cpu_cores, %{gte: v})
+      {:inet_down, {:gte, v}}, acc -> Map.put(acc, :inet_down, %{gte: v})
+      {:inet_down, v}, acc when is_number(v) -> Map.put(acc, :inet_down, %{gte: v})
+      {:inet_up, {:gte, v}}, acc -> Map.put(acc, :inet_up, %{gte: v})
+      {:inet_up, v}, acc when is_number(v) -> Map.put(acc, :inet_up, %{gte: v})
       _, acc -> acc
     end)
   end

@@ -1,9 +1,22 @@
 # Dockerfile.gpu - App image (tiny, fast to build/push)
-# Inherits from base image which has PyTorch, Docling, and models
-# Build: docker build -f Dockerfile.gpu -t ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest .
+# =====================================================
+# Inherits from base image which has PyTorch, Docling, and models.
+#
+# Port is configurable via build arg and runtime env:
+#   docker build --build-arg DOCLING_PORT=8043 ...
+#   docker run -e PORT=8043 -p 8043:8043 ...
+#
+# Default ports (from docling-ports.env):
+#   8042 - docker_cpu
+#   8043 - docker_gpu
 
 ARG BASE_IMAGE=ghcr.io/nshkrdotcom/lumainus-docling-base:latest
 FROM ${BASE_IMAGE}
+
+# Port configuration (can be overridden at build time or runtime)
+ARG DOCLING_PORT=8042
+ENV PORT=${DOCLING_PORT}
+ENV HOST=0.0.0.0
 
 # Copy only the service application code
 COPY docling_service/app /app/service/app
@@ -12,15 +25,16 @@ COPY docling_service/run.sh /app/service/run.sh
 # Set environment for GPU inference
 ENV CUDA_VISIBLE_DEVICES=0
 ENV OMP_NUM_THREADS=4
-ENV HOST=0.0.0.0
-ENV PORT=8042
 
-# Health check
+# Health check using the PORT env var
+# Note: Docker healthcheck doesn't expand env vars in CMD form, so use shell form
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8042/health || exit 1
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
-EXPOSE 8042
+# Expose is just documentation; actual port binding happens at runtime
+EXPOSE ${DOCLING_PORT}
 
 WORKDIR /app/service
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8042", "--no-access-log"]
+# Use shell form to allow env var expansion
+CMD python -m uvicorn app.main:app --host ${HOST} --port ${PORT} --no-access-log

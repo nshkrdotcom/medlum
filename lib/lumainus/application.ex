@@ -29,6 +29,16 @@ defmodule Lumainus.Application do
         children ++ [Lumainus.Documents.IngestionHealthChecker]
       end
 
+    # Add VastAI instance manager, activity tracker, auto-shutdown, and provisioning state
+    children =
+      children ++
+        [
+          Lumainus.Docling.VastAI.InstanceManager,
+          Lumainus.Docling.VastAI.ActivityTracker,
+          Lumainus.Docling.VastAI.AutoShutdown,
+          Lumainus.Docling.VastAI.ProvisioningState
+        ]
+
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: LumainusWeb.Supervisor]

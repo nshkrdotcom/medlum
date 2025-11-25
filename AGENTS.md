@@ -1,6 +1,6 @@
 # AI Agents Guide - Lumainus Project
 
-**Last Updated:** November 24, 2025 (dual Docling backend rollout)
+**Last Updated:** November 24, 2025 (5-backend Docling architecture)
 **Project:** Lumainus - Traceable AI Intelligence Platform
 **Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
 
@@ -722,18 +722,92 @@ For ongoing Docling ingestion work:
 - Default Docling queue mode is set to `:http_queue` in `config/config.exs` (test env remains inline). Docling service exposes `/jobs/:id/stream` (SSE) and `/jobs/:id/status`; prefer SSE when available, otherwise poll.
 - LiveView crash on timeout values is fixed; `format_timeout_remaining/1` accepts both `DateTime` structs and ISO strings.
 - Docling progress updates are deduped server-side to reduce churn; intermediate Docling polling updates do not broadcast document reloads.
-- Next steps for dual Docling backends (local CPU default, remote GPU/Vast “Fast” mode with per-user toggle) are captured in `docs/20251123/docling_dual_backend_rollout.md` and `docs/20251123/docling_backend_abstraction.md`. Follow those for backend selection, user setting persistence, and remote endpoint wiring.
-- Earlier handoff items remain in `docs/CONTINUATION_PROMPT.md` (SSE wiring, slow poll fallback, silencing Docling access logs).
 
-## Docling Dual Backend (Agent Quickstart)
+---
 
-- Backends implemented: `:local` (standard CPU) and `:fast`/`:remote` (GPU via `DOCLING_REMOTE_URL`). Vast auto-provisioner remains mocked; Fast expects a pre-provisioned HTTP Docling endpoint.
-- Config keys (`config/config.exs`): `backend`, `timeout_ms`, `poll_interval_ms` (default 250ms), `progress_min_interval_ms` (default 50ms, pages emit immediately), `local_url`, `remote_url`; runtime overrides via `DOCLING_URL` and `DOCLING_REMOTE_URL`. Persisted runtime config now lives in `docling_settings` (singleton row); admin UI at `/admin/docling` edits these values. In `:test`, env overrides take precedence so existing tests can still mutate `Application.put_env/3`.
-- Schema fields: `users.docling_backend` (default `"local"`); `ingestion_jobs.backend` (default `"local"`); upload metadata includes backend, duration_ms, pages when available.
-- Selection: `/reports` shows “Processing speed” toggle; preference is persisted per-user. If remote health fails, Fast is disabled and ingestion falls back to Standard.
-- Health: `Lumainus.Docling.health/1` pings configured backend; health checker can be disabled in tests via `:disable_ingestion_health_checker` config. Fast availability depends on `remote_url` presence and health.
-- Tests: Use Bypass; set `prefer_sse: false` in opts where SSE routes aren’t mocked. Avoid hitting real Docling services in CI.
-- Migrations: run `mix ecto.migrate` to add backend fields before using Fast mode.
-- URL safety: Docling URLs must be `https://` unless pointing to `localhost`/`127.0.0.1`; enforced in admin form and runtime guardrails.
-- Poll fallback: when SSE is unavailable, status is polled every 250ms by default (`poll_interval_ms` config); adjust only if needed. Progress broadcasts emit immediately on page movement and are otherwise debounced to `progress_min_interval_ms` (50ms default).
-- Progress latency debugging: enable `[docling-progress-debug]` logging by setting `config :lumainus, :docling, debug_progress_log: true` (or via `Application.put_env/3`). This logs Docling `event_ts` vs Phoenix `now_ms` to compare with Docling CLI timestamps (see `docs/20251124/docling_progress_latency_prompt.md` for the exact prompt and steps).
+## Docling 5-Backend Architecture (Updated 2025-11-24)
+
+### Port Assignments (Standardized)
+
+| Port | Backend | Type | Description |
+|------|---------|------|-------------|
+| **8040** | `native_cpu` | Local | Host Python/uvicorn, CPU only |
+| **8041** | `native_gpu` | Local | Host Python/uvicorn, CUDA GPU |
+| **8042** | `docker_cpu` | Local | Docker container, CPU mode |
+| **8043** | `docker_gpu` | Local | Docker container, GPU mode |
+| **8044** | `vast_ai` | Cloud | Vast.ai remote GPU ($$$) |
+
+### User-Facing Modes
+
+- **Local (free)**: Admin selects which of the 4 local backends is active via `/admin/docling`
+- **Cloud ($$$)**: Vast.ai GPU - costs money, users opt-in
+
+Users choose between "Local" and "Cloud" in `/reports`. The choice is stored on `users.docling_backend`.
+
+### Key Configuration
+
+```elixir
+# config/config.exs
+config :lumainus, :docling,
+  default_mode: :local,
+  active_local_backend: :docker_cpu,
+  native_cpu_url: "http://127.0.0.1:8040",
+  native_gpu_url: "http://127.0.0.1:8041",
+  docker_cpu_url: "http://127.0.0.1:8042",
+  docker_gpu_url: "http://127.0.0.1:8043",
+  cloud_url: System.get_env("DOCLING_CLOUD_URL"),
+  timeout_ms: 1_200_000,
+  poll_interval_ms: 250,
+  progress_min_interval_ms: 50
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/docling-ports.env` | Central port definitions (source in scripts) |
+| `scripts/docling-compose.sh` | Docker Compose management (interactive menu) |
+| `scripts/docling-gpu.sh` | Docker image management (build/run/push) |
+| `scripts/setup_docling_service.sh` | Native Python setup |
+| `lib/lumainus/docling.ex` | Backend resolution logic |
+| `lib/lumainus/docling/setting.ex` | Schema (5 URLs + settings) |
+| `lib/lumainus/docling/settings.ex` | Persistence layer |
+| `lib/lumainus_web/live/admin/docling_settings_live.ex` | Admin UI |
+| `docker-compose.yml` | Docker service definitions |
+
+### Running Backends
+
+```bash
+# Docker Compose (recommended)
+./scripts/docling-compose.sh          # Interactive menu
+docker compose up -d docling-cpu      # Start CPU on 8042
+docker compose --profile gpu up -d    # Start GPU on 8043
+
+# Docker image management
+./scripts/docling-gpu.sh              # Interactive menu
+./scripts/docling-gpu.sh run-cpu      # Direct command
+
+# Native Python (no Docker)
+./scripts/setup_docling_service.sh native_cpu  # Port 8040
+./scripts/setup_docling_service.sh native_gpu  # Port 8041
+```
+
+### Schema Changes
+
+The `docling_settings` table now includes:
+- `default_mode` - User default (local/cloud)
+- `active_local_backend` - Which local backend is active
+- `native_cpu_url`, `native_gpu_url`, `docker_cpu_url`, `docker_gpu_url`, `cloud_url`
+
+Run `mix ecto.migrate` to apply the expansion migration.
+
+### Agent Notes
+
+- **Port source of truth**: `scripts/docling-ports.env` - always source this in new scripts
+- **Backend resolution**: `Lumainus.Docling.backend_name_from_opts/1` handles mode → backend mapping
+- **URL lookup**: `Lumainus.Docling.url_for_backend/1` returns the URL for any backend type
+- **Health checks**: Admin UI at `/admin/docling` shows health for all 5 backends
+- **User choice**: Stored as `"local"` or `"cloud"` on `users.docling_backend`
+- **Tests**: Use Bypass mocks; set `prefer_env_overrides: true` in test config
+- **URL safety**: Must use `https://` unless localhost/127.0.0.1
+- **Progress latency debugging**: Enable `[docling-progress-debug]` logging by setting `config :lumainus, :docling, debug_progress_log: true`

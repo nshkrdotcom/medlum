@@ -23,13 +23,14 @@ defmodule Lumainus.Docling.Backends.VastAI do
 
   alias Lumainus.Docling.HTTP
   alias Lumainus.Docling.VastAI.InstanceManager
+  alias Lumainus.Docling.VastAI.ActivityTracker
 
   @default_timeout 1_200_000
 
   @impl true
   def convert(binary, opts) when is_binary(binary) do
     with {:ok, endpoint} <- InstanceManager.ensure_instance() do
-      InstanceManager.update_activity()
+      record_activity()
       HTTP.convert(binary, opts, base_url: endpoint)
     end
   end
@@ -38,7 +39,7 @@ defmodule Lumainus.Docling.Backends.VastAI do
   def enqueue(binary, opts) when is_binary(binary) do
     with {:ok, endpoint} <- InstanceManager.ensure_instance(),
          {:ok, response} <- HTTP.enqueue(binary, opts, base_url: endpoint) do
-      InstanceManager.update_activity()
+      record_activity()
       {:ok, build_job(response, opts, endpoint)}
     end
   end
@@ -49,9 +50,15 @@ defmodule Lumainus.Docling.Backends.VastAI do
     result = HTTP.await(job, opts, base_url: endpoint)
 
     # Update activity after job completes
-    InstanceManager.update_activity()
+    record_activity()
 
     result
+  end
+
+  # Record activity in both trackers
+  defp record_activity do
+    InstanceManager.update_activity()
+    ActivityTracker.record_activity()
   end
 
   @impl true
