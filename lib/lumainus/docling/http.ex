@@ -116,11 +116,11 @@ defmodule Lumainus.Docling.HTTP do
   ## HTTP Options
     * `:base_url` - Required. The Docling service base URL.
   """
-  @spec health(keyword()) :: {:ok, map()} | {:error, term()}
-  def health(http_opts) do
+  @spec health(keyword(), keyword()) :: {:ok, map()} | {:error, term()}
+  def health(http_opts, opts \\ []) do
     base_url = Keyword.fetch!(http_opts, :base_url)
 
-    request(:get, "#{base_url}/health", receive_timeout: @default_status_timeout)
+    request(:get, "#{base_url}/health", [receive_timeout: @default_status_timeout] ++ opts)
   end
 
   @doc """

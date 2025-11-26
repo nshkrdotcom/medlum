@@ -29,10 +29,11 @@ defmodule Lumainus.Application do
         children ++ [Lumainus.Documents.IngestionHealthChecker]
       end
 
-    # Add VastAI instance manager, activity tracker, auto-shutdown, and provisioning state
+    # Add VastAI workers: StartTracker must start before InstanceManager (dependency)
     children =
       children ++
         [
+          Lumainus.Docling.VastAI.StartTracker,
           Lumainus.Docling.VastAI.InstanceManager,
           Lumainus.Docling.VastAI.ActivityTracker,
           Lumainus.Docling.VastAI.AutoShutdown,

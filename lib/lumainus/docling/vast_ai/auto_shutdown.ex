@@ -2,8 +2,16 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   @moduledoc """
   Automatic shutdown of idle Vast.ai GPU instances.
 
-  Runs on a configurable schedule (default: every 5 minutes) and destroys
+  Runs on a configurable schedule (default: every 5 minutes) and STOPS
   instances that have been idle for longer than the timeout (default: 15 minutes).
+
+  IMPORTANT: This module STOPS instances (preserving them for fast restart),
+  it does NOT destroy them. Destroying is an admin-only operation.
+
+  Stopped instances:
+  - Can be restarted quickly (no Docker re-pull)
+  - Cost ~$0 (only disk storage)
+  - Preserve all configuration
 
   All events are logged to the database via the GPU context for audit trail.
 
@@ -33,6 +41,8 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   alias Lumainus.VastAI
   alias Lumainus.VastAI.Instances
   alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Lumainus.Docling.VastAI.InstanceManager
+  alias Lumainus.Docling.VastAI.StartTracker
 
   # =============================================================================
   # Public API
@@ -43,13 +53,13 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   end
 
   @doc """
-  Manually trigger an idle check and shutdown if needed.
+  Manually trigger an idle check and stop if needed.
   Can be called from crontab via Mix task or release command.
 
   Returns:
-    - {:ok, :no_instances} - No instances running
+    - {:ok, :no_instances} - No running instances found
     - {:ok, :still_active} - Instance running but not idle
-    - {:ok, :destroyed, instance_id} - Instance was destroyed
+    - {:ok, :stopped, instance_id} - Instance was stopped (can be restarted)
     - {:error, reason} - Error occurred
   """
   def check_and_shutdown do
@@ -155,7 +165,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
       last_check: nil,
       last_result: nil,
       checks_performed: 0,
-      instances_destroyed: 0
+      instances_stopped: 0
     }
 
     # Schedule first check
@@ -188,7 +198,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
       last_check: state.last_check,
       last_result: state.last_result,
       checks_performed: state.checks_performed,
-      instances_destroyed: state.instances_destroyed,
+      instances_stopped: state.instances_stopped,
       activity: activity_status
     }
 
@@ -225,8 +235,8 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
 
     state =
       case result do
-        {:ok, :destroyed, _id} ->
-          %{state | instances_destroyed: state.instances_destroyed + 1}
+        {:ok, :stopped, _id} ->
+          %{state | instances_stopped: state.instances_stopped + 1}
 
         _ ->
           state
@@ -336,6 +346,9 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
     idle_minutes = ActivityTracker.idle_for_minutes()
     timeout = idle_timeout_minutes()
 
+    # Calculate instance age from start_date
+    instance_age_minutes = instance_age_in_minutes(instance)
+
     # Log the idle check to database
     GPU.log_auto_shutdown_check(instance_id, idle_minutes_value(idle_minutes), timeout)
 
@@ -344,26 +357,51 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
 
     case idle_minutes do
       :never ->
-        # Never had activity - consider idle from start
-        Logger.info(
-          "[AutoShutdown] Instance #{instance_id} has never had activity, destroying..."
-        )
+        # Never had activity - BUT check instance age first!
+        # Don't stop newly provisioned instances - give them time to receive first request
+        # Grace period = timeout (15 min by default)
+        if instance_age_minutes < timeout do
+          Logger.info(
+            "[AutoShutdown] Instance #{instance_id} has no activity but is new (#{instance_age_minutes} min old < #{timeout} min grace period), keeping alive"
+          )
 
-        GPU.log(:auto_shutdown, :no_activity, "Instance has never had activity, will destroy",
-          instance_id: instance_id,
-          severity: "warning",
-          source: "auto_shutdown"
-        )
+          GPU.log(
+            :auto_shutdown,
+            :new_instance_grace,
+            "New instance in grace period, keeping alive",
+            instance_id: instance_id,
+            severity: "info",
+            source: "auto_shutdown",
+            details: %{age_minutes: instance_age_minutes, grace_period: timeout}
+          )
 
-        destroy_instance(instance_id, "idle_timeout")
+          {:ok, :still_active}
+        else
+          # Instance is old enough but never had activity - stop it
+          Logger.info(
+            "[AutoShutdown] Instance #{instance_id} has no activity and is #{instance_age_minutes} min old (>= #{timeout} min), stopping..."
+          )
+
+          GPU.log(
+            :auto_shutdown,
+            :no_activity,
+            "Instance has never had activity and exceeded grace period, will stop",
+            instance_id: instance_id,
+            severity: "warning",
+            source: "auto_shutdown",
+            details: %{age_minutes: instance_age_minutes, grace_period: timeout}
+          )
+
+          stop_instance(instance_id, "idle_timeout")
+        end
 
       mins when mins >= timeout ->
         Logger.info(
-          "[AutoShutdown] Instance #{instance_id} idle for #{mins} min (>= #{timeout}), destroying..."
+          "[AutoShutdown] Instance #{instance_id} idle for #{mins} min (>= #{timeout}), stopping..."
         )
 
         GPU.log_auto_shutdown_triggered(instance_id, mins)
-        destroy_instance(instance_id, "idle_timeout")
+        stop_instance(instance_id, "idle_timeout")
 
       mins ->
         Logger.debug(
@@ -371,6 +409,37 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
         )
 
         {:ok, :still_active}
+    end
+  end
+
+  # Calculate how many minutes the instance has been running
+  defp instance_age_in_minutes(instance) do
+    api_age =
+      case instance["start_date"] do
+        start_date when is_number(start_date) ->
+          # Vast.ai returns start_date as Unix timestamp (seconds)
+          now = System.system_time(:second)
+          max(0, div(now - trunc(start_date), 60))
+
+        _ ->
+          nil
+      end
+
+    local_age =
+      case StartTracker.first_seen(instance["id"]) do
+        nil ->
+          nil
+
+        first_seen_monotonic ->
+          now = System.monotonic_time(:millisecond)
+          max(0, div(now - first_seen_monotonic, 60_000))
+      end
+
+    cond do
+      is_number(api_age) and is_number(local_age) -> min(api_age, local_age)
+      is_number(api_age) -> api_age
+      is_number(local_age) -> local_age
+      true -> 0
     end
   end
 
@@ -393,20 +462,88 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
     end
   end
 
+  defp stop_instance(instance_id, reason) do
+    with {:ok, _} <- VastAI.stop(instance_id) do
+      Logger.info("[AutoShutdown] Instance #{instance_id} stopped successfully")
+
+      # Log stop to database
+      GPU.log(:auto_shutdown, :instance_stopped, "Instance stopped by auto-shutdown",
+        instance_id: instance_id,
+        severity: "info",
+        source: "auto_shutdown",
+        details: %{reason: reason}
+      )
+
+      # Update session status to stopped (not destroyed - can be restarted)
+      case GPU.get_session_by_instance(instance_id) do
+        nil -> :ok
+        session -> GPU.update_session_status(session, "stopped")
+      end
+
+      # Update InstanceManager to reflect stopped state
+      InstanceManager.set_stopped(instance_id)
+
+      {:ok, :stopped, instance_id}
+    else
+      {:error, err} ->
+        Logger.error("[AutoShutdown] Failed to stop instance #{instance_id}: #{inspect(err)}")
+
+        GPU.log_error(:auto_shutdown, :stop_failed, "Failed to stop instance", err,
+          instance_id: instance_id,
+          source: "auto_shutdown"
+        )
+
+        # Single retry after short backoff for transient API hiccups
+        Process.sleep(2_000)
+
+        case VastAI.stop(instance_id) do
+          {:ok, _} ->
+            Logger.info("[AutoShutdown] Retry stop succeeded for instance #{instance_id}")
+
+            GPU.log(:auto_shutdown, :instance_stopped_retry, "Instance stopped on retry",
+              instance_id: instance_id,
+              severity: "info",
+              source: "auto_shutdown",
+              details: %{reason: reason}
+            )
+
+            case GPU.get_session_by_instance(instance_id) do
+              nil -> :ok
+              session -> GPU.update_session_status(session, "stopped")
+            end
+
+            InstanceManager.set_stopped(instance_id)
+            {:ok, :stopped, instance_id}
+
+          {:error, retry_err} ->
+            GPU.log_error(
+              :auto_shutdown,
+              :stop_failed_retry,
+              "Failed to stop instance (retry)",
+              retry_err,
+              instance_id: instance_id,
+              source: "auto_shutdown"
+            )
+
+            {:error, {:stop_failed, retry_err}}
+        end
+    end
+  end
+
+  # Keep destroy_instance for duplicate cleanup (duplicates should be destroyed, not stopped)
   defp destroy_instance(instance_id, reason) do
     case VastAI.destroy(instance_id) do
       {:ok, _} ->
-        Logger.info("[AutoShutdown] Instance #{instance_id} destroyed successfully")
+        Logger.info("[AutoShutdown] Duplicate instance #{instance_id} destroyed")
 
-        # Log destruction to database
-        GPU.log(:auto_shutdown, :instance_destroyed, "Instance destroyed by auto-shutdown",
+        GPU.log(:auto_shutdown, :instance_destroyed, "Duplicate instance destroyed",
           instance_id: instance_id,
           severity: "warning",
           source: "auto_shutdown",
           details: %{reason: reason}
         )
 
-        # Update session if exists
+        # Destroy session for duplicates
         case GPU.get_session_by_instance(instance_id) do
           nil -> :ok
           session -> GPU.destroy_session(session, reason)
@@ -414,17 +551,12 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
 
         {:ok, :destroyed, instance_id}
 
-      {:error, reason} ->
+      {:error, err} ->
         Logger.error(
-          "[AutoShutdown] Failed to destroy instance #{instance_id}: #{inspect(reason)}"
+          "[AutoShutdown] Failed to destroy duplicate instance #{instance_id}: #{inspect(err)}"
         )
 
-        GPU.log_error(:auto_shutdown, :destroy_failed, "Failed to destroy instance", reason,
-          instance_id: instance_id,
-          source: "auto_shutdown"
-        )
-
-        {:error, {:destroy_failed, reason}}
+        {:error, {:destroy_failed, err}}
     end
   end
 

@@ -21,6 +21,8 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
   use LumainusWeb, :live_view
 
+  require Logger
+
   alias Lumainus.Docling
   alias Lumainus.Docling.Settings
 
@@ -97,8 +99,12 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
   defp do_health_check(backend) do
     case Docling.health(backend: backend) do
-      {:ok, details} -> %{status: "healthy", details: details}
-      {:error, reason} -> %{status: "unreachable", details: %{error: inspect(reason)}}
+      {:ok, details} ->
+        %{status: "healthy", details: details}
+
+      {:error, reason} ->
+        Logger.warning("[Admin.Docling] Health check for #{backend} failed: #{inspect(reason)}")
+        %{status: "unreachable", details: normalize_error(reason)}
     end
   rescue
     e -> %{status: "error", details: %{error: Exception.message(e)}}
@@ -320,6 +326,14 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
         <span class={"w-2 h-2 rounded-full #{status_dot_color(@status)}"}></span>
         <span class="text-xs capitalize">{@status}</span>
       </div>
+      <%= if show_error?(@status, @health) do %>
+        <div
+          class="mt-1 text-[10px] leading-tight text-red-700 dark:text-red-300 line-clamp-2"
+          title={error_full_text(@health)}
+        >
+          {error_summary(@health)}
+        </div>
+      <% end %>
       <%= if @active do %>
         <div class="mt-1 text-xs font-semibold text-blue-600 dark:text-blue-400">Active</div>
       <% end %>
@@ -338,4 +352,55 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     active = setting.active_local_backend || "docker_cpu"
     to_string(backend) == active
   end
+
+  defp normalize_error({:fallback_failed, detail}) when is_map(detail) do
+    %{error: "fallback_failed", detail: detail}
+  end
+
+  defp normalize_error(reason) do
+    %{error: inspect(reason)}
+  end
+
+  defp show_error?("healthy", _health), do: false
+  defp show_error?("unconfigured", _health), do: false
+  defp show_error?(_status, _health), do: true
+
+  defp error_summary(%{details: %{error: error} = details}) when is_binary(error) do
+    attempt = format_attempts(details[:detail] || details[:attempts])
+    if attempt, do: "#{error} (#{attempt})", else: error
+  end
+
+  defp error_summary(%{details: details}) when is_map(details) do
+    inspect(details)
+  end
+
+  defp error_summary(_), do: "unreachable"
+
+  defp error_full_text(%{details: details}) when is_map(details) do
+    inspect(details)
+  end
+
+  defp error_full_text(_), do: ""
+
+  defp format_attempts(nil), do: nil
+
+  defp format_attempts(%{attempts: attempts}) when is_list(attempts) do
+    attempts
+    |> Enum.map(fn
+      %{url: url, result: res} -> "#{url} -> #{inspect(res)}"
+      other -> inspect(other)
+    end)
+    |> Enum.join("; ")
+  end
+
+  defp format_attempts(attempts) when is_list(attempts) do
+    attempts
+    |> Enum.map(fn
+      %{url: url, result: res} -> "#{url} -> #{inspect(res)}"
+      other -> inspect(other)
+    end)
+    |> Enum.join("; ")
+  end
+
+  defp format_attempts(_), do: nil
 end

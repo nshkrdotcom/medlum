@@ -272,6 +272,81 @@ defmodule LumainusWeb.ReportsLive do
     {:noreply, assign(socket, :gpu_prompt_dismissed, true)}
   end
 
+  # Start a stopped GPU instance
+  def handle_event("start_gpu", _params, socket) do
+    unless socket.assigns.can_manage_gpu? do
+      {:noreply, put_flash(socket, :error, "You don't have permission to manage GPU instances.")}
+    else
+      case InstanceManager.start_instance() do
+        {:ok, endpoint} ->
+          Logger.info("[ReportsLive] GPU instance started, endpoint: #{endpoint}")
+
+          # Update user preference to cloud
+          socket =
+            case Accounts.update_docling_backend(socket.assigns.current_scope.user, :cloud) do
+              {:ok, user} ->
+                scope = %{socket.assigns.current_scope | user: user}
+                socket |> assign(:docling_backend, :cloud) |> assign(:current_scope, scope)
+
+              {:error, _} ->
+                socket
+            end
+
+          {:noreply,
+           socket
+           |> assign(:gpu_instance_status, %{
+             status: :running,
+             endpoint: endpoint,
+             instance_id: socket.assigns.gpu_instance_status[:instance_id]
+           })
+           |> assign(:fast_available?, nil)
+           |> assign(:fast_unavailable_reason, "Checking...")
+           |> put_flash(:info, "GPU instance starting... This may take a moment.")}
+
+        {:error, :no_instance} ->
+          {:noreply,
+           put_flash(socket, :error, "No GPU instance exists. Contact admin to provision one.")}
+
+        {:error, :instance_loading} ->
+          {:noreply, put_flash(socket, :info, "GPU instance is already starting...")}
+
+        {:error, reason} ->
+          Logger.error("[ReportsLive] Failed to start GPU: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, "Failed to start GPU: #{inspect(reason)}")}
+      end
+    end
+  end
+
+  # Stop a running GPU instance
+  def handle_event("stop_gpu", _params, socket) do
+    unless socket.assigns.can_manage_gpu? do
+      {:noreply, put_flash(socket, :error, "You don't have permission to manage GPU instances.")}
+    else
+      case InstanceManager.stop_instance() do
+        :ok ->
+          Logger.info("[ReportsLive] GPU instance stopped")
+
+          {:noreply,
+           socket
+           |> assign(:gpu_instance_status, %{
+             status: :stopped,
+             endpoint: nil,
+             instance_id: socket.assigns.gpu_instance_status[:instance_id]
+           })
+           |> assign(:fast_available?, false)
+           |> assign(:fast_unavailable_reason, "GPU instance stopped")
+           |> put_flash(:info, "GPU instance stopped. Start it again when needed.")}
+
+        {:error, :no_instance} ->
+          {:noreply, put_flash(socket, :info, "No GPU instance to stop.")}
+
+        {:error, reason} ->
+          Logger.error("[ReportsLive] Failed to stop GPU: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, "Failed to stop GPU: #{inspect(reason)}")}
+      end
+    end
+  end
+
   @impl true
   def handle_event("run_full_report", _params, socket) do
     section_ids = Enum.map(socket.assigns.sections, & &1.section.id)
@@ -1024,29 +1099,35 @@ defmodule LumainusWeb.ReportsLive do
 
   # Fast version that only checks local state - NO HTTP calls
   # Used during mount to avoid blocking page load
+  # Returns map with: status (:running, :stopped, :loading, :none, :unknown), endpoint, instance_id
   defp check_gpu_instance_status_fast do
     if Process.whereis(InstanceManager) do
       try do
-        case InstanceManager.get_endpoint() do
-          {:ok, endpoint} ->
-            %{status: :running, endpoint: endpoint}
+        # Use the new status() function that returns full state
+        status_map = InstanceManager.status()
 
-          {:error, :no_instance} ->
-            %{status: :no_instance, endpoint: nil}
+        # Normalize status values for backward compatibility
+        normalized_status =
+          case status_map.status do
+            :running -> :running
+            :stopped -> :stopped
+            :loading -> :loading
+            :none -> :no_instance
+            _ -> :unknown
+          end
 
-          {:error, {:instance_loading, _id}} ->
-            %{status: :loading, endpoint: nil}
-
-          {:error, _} ->
-            %{status: :unknown, endpoint: nil}
-        end
+        %{
+          status: normalized_status,
+          endpoint: status_map.endpoint,
+          instance_id: status_map.instance_id
+        }
       rescue
-        _ -> %{status: :unknown, endpoint: nil}
+        _ -> %{status: :unknown, endpoint: nil, instance_id: nil}
       catch
-        :exit, _ -> %{status: :unknown, endpoint: nil}
+        :exit, _ -> %{status: :unknown, endpoint: nil, instance_id: nil}
       end
     else
-      %{status: :unknown, endpoint: nil}
+      %{status: :unknown, endpoint: nil, instance_id: nil}
     end
   end
 
@@ -1403,7 +1484,7 @@ defmodule LumainusWeb.ReportsLive do
           # CRITICAL: Update InstanceManager so it knows about this instance
           # This prevents duplicate provisioning when cloud backend is used
           ProvisioningState.add_log(:info, "Registering instance with InstanceManager...")
-          InstanceManager.set_endpoint(instance_id, endpoint)
+          InstanceManager.set_endpoint(instance_id, endpoint, ip)
           ProvisioningState.add_log(:success, "Instance registered with InstanceManager")
 
           ProvisioningState.add_log(:success, "=== PROVISIONING COMPLETE ===")
@@ -1439,7 +1520,7 @@ defmodule LumainusWeb.ReportsLive do
     # CRITICAL: Update InstanceManager so it knows about this instance
     # This prevents duplicate provisioning when cloud backend is used
     ProvisioningState.add_log(:info, "Registering instance with InstanceManager...")
-    InstanceManager.set_endpoint(instance_id, endpoint)
+    InstanceManager.set_endpoint(instance_id, endpoint, ip)
     ProvisioningState.add_log(:success, "Instance registered with InstanceManager")
 
     ProvisioningState.complete(instance_id, endpoint)
@@ -1825,8 +1906,18 @@ defmodule LumainusWeb.ReportsLive do
   defp docling_unreachable?(%{status: "unreachable"}), do: true
   defp docling_unreachable?(_), do: false
 
-  defp show_gpu_boot_prompt?(gpu_status, dismissed) do
-    # Show prompt if: no instance running AND user hasn't dismissed it
+  # Show start button when instance exists but is stopped
+  defp show_gpu_start_button?(gpu_status) do
+    gpu_status.status == :stopped
+  end
+
+  # Show stop button when instance is running
+  defp show_gpu_stop_button?(gpu_status) do
+    gpu_status.status == :running
+  end
+
+  # Show "no instance" message when admin hasn't provisioned
+  defp show_gpu_no_instance_message?(gpu_status, dismissed) do
     not dismissed and gpu_status.status == :no_instance
   end
 
@@ -2453,88 +2544,117 @@ defmodule LumainusWeb.ReportsLive do
         </div>
       <% end %>
 
-      <%= if @can_manage_gpu? and (show_gpu_boot_prompt?(@gpu_instance_status, @gpu_prompt_dismissed) or @gpu_provisioning) do %>
-        <div class="rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 px-5 py-4 flex items-center justify-between gap-4 shadow-sm">
+      <%!-- GPU Start Button (when instance is stopped) --%>
+      <%= if @can_manage_gpu? and show_gpu_start_button?(@gpu_instance_status) do %>
+        <div class="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-5 py-4 flex items-center justify-between gap-4 shadow-sm">
           <div class="flex items-center gap-4">
-            <%= if @gpu_provisioning do %>
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600">
-                <svg class="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    class="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    stroke-width="4"
-                  >
-                  </circle>
-                  <path
-                    class="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  >
-                  </path>
-                </svg>
-              </div>
-              <div class="flex flex-col">
-                <span class="text-sm font-semibold text-gray-900">
-                  Provisioning GPU Instance...
-                </span>
-                <span class="text-xs text-gray-600">
-                  Searching for best offer and starting instance. This may take a few minutes.
-                </span>
-              </div>
-            <% else %>
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600">
-                <svg
-                  class="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
-                  />
-                </svg>
-              </div>
-              <div class="flex flex-col">
-                <span class="text-sm font-semibold text-gray-900">
-                  Speed up document processing with GPU
-                </span>
-                <span class="text-xs text-gray-600">
-                  No GPU instance is currently running. Boot one to enable fast processing (~10x faster).
-                </span>
-              </div>
-            <% end %>
-          </div>
-          <div class="flex items-center gap-3">
-            <%= unless @gpu_provisioning do %>
-              <button
-                type="button"
-                phx-click="dismiss_gpu_prompt"
-                class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1"
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+              <svg
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
               >
-                Not now
-              </button>
-            <% end %>
-            <button
-              type="button"
-              phx-click="boot_gpu_and_enable"
-              disabled={@gpu_provisioning}
-              class={[
-                "rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors",
-                if(@gpu_provisioning,
-                  do: "bg-sky-400 cursor-not-allowed",
-                  else: "bg-sky-600 hover:bg-sky-500"
-                )
-              ]}
-            >
-              {if @gpu_provisioning, do: "Provisioning...", else: "Boot GPU Instance"}
-            </button>
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
+                />
+              </svg>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-semibold text-gray-900">
+                GPU Instance Stopped
+              </span>
+              <span class="text-xs text-gray-600">
+                Start the GPU to enable fast document processing (~10x faster).
+              </span>
+            </div>
           </div>
+          <button
+            type="button"
+            phx-click="start_gpu"
+            class="rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors bg-amber-600 hover:bg-amber-500"
+          >
+            Start GPU
+          </button>
+        </div>
+      <% end %>
+
+      <%!-- GPU Stop Button (when instance is running) --%>
+      <%= if @can_manage_gpu? and show_gpu_stop_button?(@gpu_instance_status) do %>
+        <div class="rounded-xl border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 px-5 py-4 flex items-center justify-between gap-4 shadow-sm">
+          <div class="flex items-center gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-600">
+              <svg
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
+                />
+              </svg>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-semibold text-gray-900">
+                GPU Instance Running
+              </span>
+              <span class="text-xs text-gray-600">
+                Fast processing enabled. Stop when done to save costs.
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            phx-click="stop_gpu"
+            class="rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors bg-slate-600 hover:bg-slate-500"
+          >
+            Stop GPU
+          </button>
+        </div>
+      <% end %>
+
+      <%!-- No Instance Message (when admin hasn't provisioned) --%>
+      <%= if @can_manage_gpu? and show_gpu_no_instance_message?(@gpu_instance_status, @gpu_prompt_dismissed) do %>
+        <div class="rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-gray-50 px-5 py-4 flex items-center justify-between gap-4 shadow-sm">
+          <div class="flex items-center gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+              <svg
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
+                />
+              </svg>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-semibold text-gray-900">
+                No GPU Instance Available
+              </span>
+              <span class="text-xs text-gray-600">
+                An administrator needs to provision a GPU instance first.
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            phx-click="dismiss_gpu_prompt"
+            class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded border border-slate-300 hover:border-slate-400"
+          >
+            Dismiss
+          </button>
         </div>
       <% end %>
 

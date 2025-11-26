@@ -1,11 +1,18 @@
 defmodule Lumainus.Docling.VastAI.InstanceManager do
   @moduledoc """
-  Manages Vast.ai GPU instance lifecycle.
+  Manages Vast.ai GPU instance lifecycle with start/stop support.
 
-  - Provisions instances on-demand
-  - Monitors health
-  - Destroys idle instances
-  - Tracks active instance endpoint
+  Tracks instance state:
+  - :none - No instance exists
+  - :running - Instance is running and available
+  - :stopped - Instance exists but is stopped (can be started quickly)
+  - :loading - Instance is starting up
+
+  ## Architecture
+
+  - **Admin** provisions and destroys instances (via mix tasks or admin UI)
+  - **Users** can only start/stop existing instances (via /reports UI)
+  - **AutoShutdown** stops (not destroys) idle instances to preserve state
 
   ## Configuration
 
@@ -19,13 +26,19 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
   ## Usage
 
-      # Get or provision an instance
-      {:ok, endpoint} = InstanceManager.ensure_instance()
+      # Check instance status
+      status = InstanceManager.status()  # %{status: :running, instance_id: 123, endpoint: "..."}
+
+      # Start a stopped instance
+      {:ok, endpoint} = InstanceManager.start_instance()
+
+      # Stop a running instance
+      :ok = InstanceManager.stop_instance()
 
       # Update activity (resets idle timer)
       :ok = InstanceManager.update_activity()
 
-      # Destroy instance
+      # Admin only: destroy instance completely
       :ok = InstanceManager.destroy_instance()
   """
 
@@ -34,9 +47,18 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
   alias Lumainus.GPU
   alias Lumainus.VastAI
+  alias Lumainus.Cloudflare
+  alias Lumainus.Docling.VastAI.StartTracker
+  alias Lumainus.Docling.VastAI.ActivityTracker
   @compile {:no_warn_undefined, Lumainus.VastAI}
 
   @idle_check_interval_ms 60_000
+
+  # Instance status values
+  @status_none :none
+  @status_running :running
+  @status_stopped :stopped
+  @status_loading :loading
 
   # =============================================================================
   # Public API
@@ -48,9 +70,52 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   end
 
   @doc """
+  Get comprehensive status of the current instance.
+
+  Returns a map with:
+  - :status - One of :none, :running, :stopped, :loading
+  - :instance_id - The Vast.ai instance ID (or nil)
+  - :endpoint - The service endpoint URL (or nil)
+  - :last_activity - Timestamp of last activity (or nil)
+  """
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
+  end
+
+  @doc """
+  Start a stopped instance.
+
+  Only works if an instance exists and is in stopped state.
+  Returns {:ok, endpoint} on success, {:error, reason} on failure.
+  """
+  def start_instance(server \\ __MODULE__) do
+    GenServer.call(server, :start_instance, 60_000)
+  end
+
+  @doc """
+  Stop a running instance.
+
+  Stops the instance but preserves it for fast restart.
+  Returns :ok on success, {:error, reason} on failure.
+  """
+  def stop_instance(server \\ __MODULE__) do
+    GenServer.call(server, :stop_instance, 30_000)
+  end
+
+  @doc """
+  Mark instance as stopped (called by AutoShutdown).
+
+  This updates the local state to reflect that the instance was stopped.
+  """
+  def set_stopped(instance_id, server \\ __MODULE__) do
+    GenServer.cast(server, {:set_stopped, instance_id})
+  end
+
+  @doc """
   Ensure an instance is running and return its endpoint.
 
-  If no instance exists, provisions a new one. Otherwise returns the cached endpoint.
+  If instance is stopped, starts it. If no instance exists, returns error
+  (provisioning is admin-only now).
   """
   def ensure_instance(server \\ __MODULE__) do
     GenServer.call(server, :ensure_instance, 120_000)
@@ -71,7 +136,9 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   end
 
   @doc """
-  Destroy current instance.
+  Destroy current instance (ADMIN ONLY).
+
+  Permanently destroys the instance. Use stop_instance for normal shutdown.
   """
   def destroy_instance(server \\ __MODULE__) do
     GenServer.call(server, :destroy_instance)
@@ -85,14 +152,32 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   end
 
   @doc """
-  Set the instance endpoint from external provisioning (e.g., auto_provision_gpu).
+  Set the instance endpoint from external provisioning (e.g., admin provision).
 
   This is called when provisioning happens through a different code path
-  to ensure InstanceManager knows about the instance and doesn't try to
-  provision a duplicate.
+  to ensure InstanceManager knows about the instance.
+
+  If `ip` is provided, DNS will be automatically updated to point to that IP.
+  If `ip` is nil, we will try to extract the IP from `endpoint` for DNS updates.
   """
-  def set_endpoint(instance_id, endpoint, server \\ __MODULE__) do
-    GenServer.call(server, {:set_endpoint, instance_id, endpoint})
+  def set_endpoint(instance_id, endpoint) do
+    set_endpoint(instance_id, endpoint, nil, __MODULE__)
+  end
+
+  @doc """
+  Set the instance endpoint with IP for DNS update.
+  """
+  def set_endpoint(instance_id, endpoint, ip) when is_binary(ip) or is_nil(ip) do
+    set_endpoint(instance_id, endpoint, ip, __MODULE__)
+  end
+
+  def set_endpoint(instance_id, endpoint, server) when is_atom(server) or is_pid(server) do
+    set_endpoint(instance_id, endpoint, nil, server)
+  end
+
+  def set_endpoint(instance_id, endpoint, ip, server) do
+    # DNS updates can be slow; allow generous timeout
+    GenServer.call(server, {:set_endpoint, instance_id, endpoint, ip}, 30_000)
   end
 
   @doc """
@@ -147,28 +232,151 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
      %{
        instance_id: nil,
        endpoint: nil,
+       status: @status_none,
        last_activity: nil,
        provisioning: false
      }}
   end
 
+  # Handle :status - return comprehensive status
   @impl true
-  def handle_call(:ensure_instance, _from, %{endpoint: endpoint} = state)
-      when not is_nil(endpoint) do
+  def handle_call(:status, _from, state) do
+    status_map = %{
+      status: state.status,
+      instance_id: state.instance_id,
+      endpoint: state.endpoint,
+      last_activity: state.last_activity
+    }
+
+    {:reply, status_map, state}
+  end
+
+  # Handle :start_instance - start a stopped instance
+  def handle_call(:start_instance, _from, %{status: @status_stopped, instance_id: id} = state)
+      when not is_nil(id) do
+    Logger.info("[InstanceManager] Starting stopped instance #{id}...")
+
+    case VastAI.start(id) do
+      {:ok, _} ->
+        Logger.info("[InstanceManager] Instance #{id} start command sent")
+
+        GPU.log(:lifecycle, :instance_starting, "Starting stopped instance",
+          instance_id: id,
+          source: "instance_manager"
+        )
+
+        # Wait for instance to be ready
+        case wait_for_instance_running(id) do
+          {:ok, endpoint, ip} ->
+            # Update DNS to point to the started instance
+            update_dns_for_instance(ip, id)
+
+            # Mark activity and first-seen for graceful idle handling
+            ActivityTracker.record_activity_if_missing()
+            StartTracker.record_first_seen(id)
+
+            state = %{
+              state
+              | status: @status_running,
+                endpoint: endpoint,
+                last_activity: System.monotonic_time(:millisecond)
+            }
+
+            # Update session status
+            case GPU.get_session_by_instance(id) do
+              nil -> :ok
+              session -> GPU.update_session_status(session, "running")
+            end
+
+            schedule_idle_check()
+            {:reply, {:ok, endpoint}, state}
+
+          {:error, reason} ->
+            {:reply, {:error, {:start_failed, reason}}, state}
+        end
+
+      {:error, reason} ->
+        Logger.error("[InstanceManager] Failed to start instance #{id}: #{inspect(reason)}")
+        {:reply, {:error, {:start_failed, reason}}, state}
+    end
+  end
+
+  def handle_call(:start_instance, _from, %{status: @status_running, endpoint: endpoint} = state) do
+    # Already running
+    {:reply, {:ok, endpoint}, state}
+  end
+
+  def handle_call(:start_instance, _from, %{status: @status_none} = state) do
+    {:reply, {:error, :no_instance}, state}
+  end
+
+  def handle_call(:start_instance, _from, %{status: @status_loading} = state) do
+    {:reply, {:error, :instance_loading}, state}
+  end
+
+  # Handle :stop_instance - stop a running instance (preserves it)
+  def handle_call(:stop_instance, _from, %{status: @status_running, instance_id: id} = state)
+      when not is_nil(id) do
+    Logger.info("[InstanceManager] Stopping instance #{id}...")
+
+    case VastAI.stop(id) do
+      {:ok, _} ->
+        Logger.info("[InstanceManager] Instance #{id} stopped successfully")
+
+        GPU.log(:lifecycle, :instance_stopped, "Instance stopped by user",
+          instance_id: id,
+          source: "instance_manager"
+        )
+
+        # Update session status
+        case GPU.get_session_by_instance(id) do
+          nil -> :ok
+          session -> GPU.update_session_status(session, "stopped")
+        end
+
+        state = %{state | status: @status_stopped, endpoint: nil}
+        {:reply, :ok, state}
+
+      {:error, reason} ->
+        Logger.error("[InstanceManager] Failed to stop instance #{id}: #{inspect(reason)}")
+        {:reply, {:error, {:stop_failed, reason}}, state}
+    end
+  end
+
+  def handle_call(:stop_instance, _from, %{status: @status_stopped} = state) do
+    # Already stopped
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:stop_instance, _from, %{status: @status_none} = state) do
+    {:reply, {:error, :no_instance}, state}
+  end
+
+  # Handle :ensure_instance - now just starts stopped instances, doesn't provision
+  def handle_call(:ensure_instance, _from, %{status: @status_running, endpoint: endpoint} = state) do
     state = %{state | last_activity: System.monotonic_time(:millisecond)}
     {:reply, {:ok, endpoint}, state}
   end
 
-  def handle_call(:ensure_instance, _from, state) do
-    # SAFETY: First check if there's already a running instance on Vast.ai
-    # This handles the case where our state was lost (e.g., server restart)
-    case check_vast_ai_for_running_instances() do
-      {:ok, instance_id, ip} when is_binary(ip) and ip != "" ->
-        # Found existing instance - recover it instead of provisioning new one
-        Logger.info("[InstanceManager] Recovering existing instance #{instance_id} at #{ip}")
+  def handle_call(:ensure_instance, _from, %{status: @status_stopped} = state) do
+    # Instance exists but stopped - try to start it
+    handle_call(:start_instance, nil, state)
+  end
 
-        # Build endpoint from the FQDN (for HTTPS) or IP (for HTTP fallback)
+  def handle_call(:ensure_instance, _from, %{status: @status_none} = state) do
+    # No instance - sync with Vast.ai first to see if there's one we don't know about
+    case check_vast_ai_for_instances() do
+      {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
+        # Found running instance - recover it
+        Logger.info("[InstanceManager] Recovering running instance #{instance_id} at #{ip}")
         endpoint = recover_endpoint(ip)
+
+        # Seed activity/start time on recovery
+        ActivityTracker.record_activity_if_missing()
+        StartTracker.record_first_seen(instance_id)
+
+        # Ensure DNS points at the recovered instance
+        update_dns_for_instance(ip, instance_id)
 
         GPU.log(:lifecycle, :instance_recovered, "Recovered existing Vast.ai instance",
           instance_id: instance_id,
@@ -180,46 +388,36 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
           state
           | instance_id: instance_id,
             endpoint: endpoint,
+            status: @status_running,
             last_activity: System.monotonic_time(:millisecond)
         }
 
         schedule_idle_check()
         {:reply, {:ok, endpoint}, state}
 
-      {:ok, instance_id, nil} ->
-        # Instance exists but no IP yet - it may still be loading
-        Logger.warning(
-          "[InstanceManager] Found instance #{instance_id} but no IP - may still be loading"
-        )
+      {:ok, :stopped, instance_id} ->
+        # Found stopped instance - update state and try to start
+        Logger.info("[InstanceManager] Found stopped instance #{instance_id}, starting...")
+        state = %{state | instance_id: instance_id, status: @status_stopped}
+        handle_call(:start_instance, nil, state)
 
+      {:ok, :loading, instance_id} ->
+        Logger.warning("[InstanceManager] Instance #{instance_id} is still loading")
         {:reply, {:error, {:instance_loading, instance_id}}, state}
 
       {:ok, :none} ->
-        # No existing instance - proceed with provisioning
-        case provision_instance() do
-          {:ok, instance_id, endpoint} ->
-            state = %{
-              state
-              | instance_id: instance_id,
-                endpoint: endpoint,
-                last_activity: System.monotonic_time(:millisecond)
-            }
-
-            schedule_idle_check()
-            {:reply, {:ok, endpoint}, state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        # No instance exists - provisioning is admin-only
+        Logger.info("[InstanceManager] No instance exists. Provisioning is admin-only.")
+        {:reply, {:error, :no_instance_provision_required}, state}
 
       {:error, reason} ->
-        # API error - can't check, don't provision blindly
-        Logger.error(
-          "[InstanceManager] Failed to check for existing instances: #{inspect(reason)}"
-        )
-
+        Logger.error("[InstanceManager] Failed to check Vast.ai: #{inspect(reason)}")
         {:reply, {:error, {:api_check_failed, reason}}, state}
     end
+  end
+
+  def handle_call(:ensure_instance, _from, %{status: @status_loading} = state) do
+    {:reply, {:error, :instance_loading}, state}
   end
 
   def handle_call(:get_endpoint, _from, state) do
@@ -235,21 +433,32 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
   def handle_call(:destroy_instance, _from, state) do
     if state.instance_id do
-      GPU.log(:lifecycle, :destroy_requested, "Instance destruction requested",
+      GPU.log(:lifecycle, :destroy_requested, "Instance destruction requested (ADMIN)",
         instance_id: state.instance_id,
         source: "instance_manager"
       )
 
-      destroy_vast_instance(state.instance_id, "manual")
+      destroy_vast_instance(state.instance_id, "admin_manual")
     end
 
-    {:reply, :ok, %{state | instance_id: nil, endpoint: nil, last_activity: nil}}
+    {:reply, :ok,
+     %{state | instance_id: nil, endpoint: nil, status: @status_none, last_activity: nil}}
   end
 
-  def handle_call({:set_endpoint, instance_id, endpoint}, _from, state) do
+  def handle_call({:set_endpoint, instance_id, endpoint, ip}, _from, state) do
     Logger.info(
       "[InstanceManager] Setting endpoint from external provisioning: #{instance_id} -> #{endpoint}"
     )
+
+    # Record first-seen time for grace calculation
+    StartTracker.record_first_seen(instance_id)
+
+    # Update DNS when we know the IP (either provided or extracted from endpoint)
+    ip_for_dns = ip || extract_ip_from_endpoint(endpoint)
+
+    if ip_for_dns do
+      update_dns_for_instance(ip_for_dns, instance_id)
+    end
 
     GPU.log(:lifecycle, :endpoint_set, "Instance endpoint set from external provisioning",
       instance_id: instance_id,
@@ -261,6 +470,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       state
       | instance_id: instance_id,
         endpoint: endpoint,
+        status: @status_running,
         last_activity: System.monotonic_time(:millisecond)
     }
 
@@ -361,7 +571,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       )
     end
 
-    {:reply, :ok, %{state | instance_id: nil, endpoint: nil, last_activity: nil}}
+    {:reply, :ok,
+     %{state | instance_id: nil, endpoint: nil, status: @status_none, last_activity: nil}}
   end
 
   @impl true
@@ -369,21 +580,39 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     {:noreply, %{state | last_activity: System.monotonic_time(:millisecond)}}
   end
 
+  # Handle set_stopped from AutoShutdown
+  def handle_cast({:set_stopped, instance_id}, state) do
+    if state.instance_id == instance_id do
+      Logger.info("[InstanceManager] Instance #{instance_id} marked as stopped by AutoShutdown")
+      {:noreply, %{state | status: @status_stopped, endpoint: nil}}
+    else
+      # Instance ID doesn't match - may be stale notification
+      Logger.warning(
+        "[InstanceManager] Received set_stopped for #{instance_id} but tracking #{state.instance_id}"
+      )
+
+      {:noreply, state}
+    end
+  end
+
   @impl true
   def handle_info(:check_idle, state) do
+    # NOTE: This is InstanceManager's own idle check. AutoShutdown handles the main idle logic.
+    # This is a backup in case AutoShutdown isn't running.
+    # We STOP (not destroy) to preserve the instance.
     now = System.monotonic_time(:millisecond)
     idle_time = now - (state.last_activity || now)
     idle_timeout = idle_timeout_ms()
     idle_minutes = div(idle_time, 60_000)
     timeout_minutes = div(idle_timeout, 60_000)
 
-    if idle_time > idle_timeout and state.instance_id do
+    if idle_time > idle_timeout and state.instance_id and state.status == @status_running do
       Logger.info(
-        "[VastAI] Destroying idle instance #{state.instance_id} (idle for #{idle_minutes} minutes)"
+        "[InstanceManager] Stopping idle instance #{state.instance_id} (idle for #{idle_minutes} minutes)"
       )
 
       # Log to database
-      GPU.log(:lifecycle, :idle_shutdown, "Instance idle timeout triggered",
+      GPU.log(:lifecycle, :idle_stop, "Instance idle timeout - stopping (preserving instance)",
         instance_id: state.instance_id,
         severity: "warning",
         source: "instance_manager",
@@ -393,8 +622,22 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         }
       )
 
-      destroy_vast_instance(state.instance_id, "idle_timeout")
-      {:noreply, %{state | instance_id: nil, endpoint: nil, last_activity: nil}}
+      # STOP instead of destroy
+      case VastAI.stop(state.instance_id) do
+        {:ok, _} ->
+          # Update session status
+          case GPU.get_session_by_instance(state.instance_id) do
+            nil -> :ok
+            session -> GPU.update_session_status(session, "stopped")
+          end
+
+          {:noreply, %{state | status: @status_stopped, endpoint: nil}}
+
+        {:error, reason} ->
+          Logger.error("[InstanceManager] Failed to stop idle instance: #{inspect(reason)}")
+          schedule_idle_check()
+          {:noreply, state}
+      end
     else
       schedule_idle_check()
       {:noreply, state}
@@ -404,19 +647,26 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   def handle_info(:startup_sync, state) do
     Logger.info("[InstanceManager] Running startup sync with Vast.ai...")
 
-    case check_vast_ai_for_running_instances() do
+    case check_vast_ai_for_instances() do
       {:ok, :none} ->
-        Logger.info("[InstanceManager] No running instances found on Vast.ai")
-        {:noreply, state}
+        Logger.info("[InstanceManager] No instances found on Vast.ai")
+        {:noreply, %{state | status: @status_none}}
 
-      {:ok, instance_id, ip} when is_binary(ip) and ip != "" ->
+      {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
+        # Update DNS to point to this instance's IP
+        update_dns_for_instance(ip, instance_id)
+
         endpoint = recover_endpoint(ip)
+
+        # Seed activity/start time on recovery
+        ActivityTracker.record_activity_if_missing()
+        StartTracker.record_first_seen(instance_id)
 
         Logger.info(
           "[InstanceManager] Found running instance #{instance_id} at #{endpoint} on startup"
         )
 
-        GPU.log(:lifecycle, :startup_sync, "Recovered instance on startup",
+        GPU.log(:lifecycle, :startup_sync, "Recovered running instance on startup",
           instance_id: instance_id,
           endpoint: endpoint,
           source: "instance_manager"
@@ -426,18 +676,28 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
           state
           | instance_id: instance_id,
             endpoint: endpoint,
+            status: @status_running,
             last_activity: System.monotonic_time(:millisecond)
         }
 
         schedule_idle_check()
         {:noreply, new_state}
 
-      {:ok, instance_id, nil} ->
-        Logger.info(
-          "[InstanceManager] Found instance #{instance_id} on startup but no IP (still loading)"
+      {:ok, :stopped, instance_id} ->
+        Logger.info("[InstanceManager] Found stopped instance #{instance_id} on startup")
+
+        GPU.log(:lifecycle, :startup_sync, "Found stopped instance on startup",
+          instance_id: instance_id,
+          source: "instance_manager"
         )
 
-        {:noreply, state}
+        new_state = %{state | instance_id: instance_id, status: @status_stopped}
+        {:noreply, new_state}
+
+      {:ok, :loading, instance_id} ->
+        Logger.info("[InstanceManager] Found loading instance #{instance_id} on startup")
+        new_state = %{state | instance_id: instance_id, status: @status_loading}
+        {:noreply, new_state}
 
       {:error, reason} ->
         Logger.warning("[InstanceManager] Startup sync failed: #{inspect(reason)}")
@@ -449,40 +709,91 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   # Private Functions
   # =============================================================================
 
+  defp extract_ip_from_endpoint(endpoint) when is_binary(endpoint) do
+    case Regex.run(~r/(\d{1,3}(?:\.\d{1,3}){3})/, endpoint) do
+      [_, ip] ->
+        case :inet.parse_address(String.to_charlist(ip)) do
+          {:ok, _tuple} -> ip
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_ip_from_endpoint(_), do: nil
+
+  # Update Cloudflare DNS to point to the instance IP
+  defp update_dns_for_instance(ip, instance_id) when is_binary(ip) and ip != "" do
+    Logger.info("[InstanceManager] Updating DNS for instance #{instance_id} to IP #{ip}")
+
+    case Cloudflare.update_dns_record(ip) do
+      {:ok, %{fqdn: fqdn}} ->
+        Logger.info("[InstanceManager] DNS updated: #{fqdn} → #{ip}")
+
+        GPU.log(:lifecycle, :dns_updated, "DNS updated for instance",
+          instance_id: instance_id,
+          ip: ip,
+          fqdn: fqdn,
+          source: "instance_manager"
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Logger.error("[InstanceManager] Failed to update DNS: #{inspect(reason)}")
+
+        GPU.log_error(:lifecycle, :dns_update_failed, "Failed to update DNS", reason,
+          instance_id: instance_id,
+          ip: ip,
+          source: "instance_manager"
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp update_dns_for_instance(ip, _instance_id) do
+    Logger.warning("[InstanceManager] Cannot update DNS - invalid IP: #{inspect(ip)}")
+    {:error, :invalid_ip}
+  end
+
   defp schedule_idle_check do
     Process.send_after(self(), :check_idle, @idle_check_interval_ms)
   end
 
-  defp check_vast_ai_for_running_instances do
+  # Check Vast.ai for any instances (running, stopped, or loading)
+  # Returns:
+  #   {:ok, :none} - No instances
+  #   {:ok, :running, instance_id, ip} - Running instance with IP
+  #   {:ok, :stopped, instance_id} - Stopped instance
+  #   {:ok, :loading, instance_id} - Loading instance (no IP yet)
+  #   {:error, reason} - API error
+  defp check_vast_ai_for_instances do
     alias Lumainus.VastAI.Instances
 
     case Instances.list() do
       {:ok, %{"instances" => instances}} when is_list(instances) ->
-        running =
-          Enum.filter(instances, fn inst ->
-            inst["actual_status"] in ["running", "loading"] ||
-              inst["cur_state"] in ["running", "loading"]
-          end)
-
-        case running do
+        # Filter to find our instances (could be multiple)
+        case instances do
           [] ->
             {:ok, :none}
 
-          [instance | _rest] ->
-            instance_id = instance["id"]
-            ip = instance["public_ipaddr"]
-            {:ok, instance_id, ip}
+          _ ->
+            # Find first instance that's not destroyed
+            instance =
+              Enum.find(instances, fn inst ->
+                status = inst["actual_status"] || inst["cur_state"]
+                status not in ["exited", "destroyed", nil]
+              end)
+
+            classify_instance(instance)
         end
 
-      {:ok, %{"instances" => %{"id" => id} = instance}} ->
+      {:ok, %{"instances" => %{"id" => _} = instance}} ->
         # Single instance returned as map
-        status = instance["actual_status"] || instance["cur_state"]
-
-        if status in ["running", "loading"] do
-          {:ok, id, instance["public_ipaddr"]}
-        else
-          {:ok, :none}
-        end
+        classify_instance(instance)
 
       {:ok, _} ->
         {:ok, :none}
@@ -490,6 +801,89 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:error, reason} ->
         Logger.error("[InstanceManager] Failed to check Vast.ai instances: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  defp classify_instance(nil), do: {:ok, :none}
+
+  defp classify_instance(instance) do
+    instance_id = instance["id"]
+    status = instance["actual_status"] || instance["cur_state"]
+    ip = instance["public_ipaddr"]
+
+    cond do
+      status == "running" and is_binary(ip) and ip != "" ->
+        {:ok, :running, instance_id, ip}
+
+      status == "running" ->
+        # Running but no IP yet
+        {:ok, :loading, instance_id}
+
+      status == "loading" ->
+        {:ok, :loading, instance_id}
+
+      status == "stopped" ->
+        {:ok, :stopped, instance_id}
+
+      status in ["exited", "destroyed"] ->
+        {:ok, :none}
+
+      true ->
+        # Unknown status - treat as loading
+        Logger.warning("[InstanceManager] Unknown instance status: #{status}")
+        {:ok, :loading, instance_id}
+    end
+  end
+
+  # Wait for instance to become running after start command
+  # Returns {:ok, endpoint, ip} on success
+  defp wait_for_instance_running(instance_id, timeout_ms \\ 60_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    poll_interval = 5_000
+
+    do_wait_for_running(instance_id, deadline, poll_interval)
+  end
+
+  defp do_wait_for_running(instance_id, deadline, poll_interval) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      {:error, :timeout}
+    else
+      case VastAI.status(instance_id) do
+        {:ok, %{"actual_status" => "running", "public_ipaddr" => ip}}
+        when is_binary(ip) and ip != "" ->
+          endpoint = recover_endpoint(ip)
+          {:ok, endpoint, ip}
+
+        {:ok, %{"actual_status" => "running"}} ->
+          # Running but no IP yet - keep waiting
+          Process.sleep(poll_interval)
+          do_wait_for_running(instance_id, deadline, poll_interval)
+
+        {:ok, %{"actual_status" => status}} when status in ["loading", "starting", "stopped"] ->
+          Process.sleep(poll_interval)
+          do_wait_for_running(instance_id, deadline, poll_interval)
+
+        {:ok, %{"actual_status" => "exited"}} ->
+          {:error, :instance_exited}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        _ ->
+          Process.sleep(poll_interval)
+          do_wait_for_running(instance_id, deadline, poll_interval)
+      end
+    end
+  end
+
+  # Keep the old function for backward compatibility (used by sync_with_vast_ai)
+  defp check_vast_ai_for_running_instances do
+    case check_vast_ai_for_instances() do
+      {:ok, :running, instance_id, ip} -> {:ok, instance_id, ip}
+      {:ok, :loading, instance_id} -> {:ok, instance_id, nil}
+      {:ok, :stopped, _instance_id} -> {:ok, :none}
+      {:ok, :none} -> {:ok, :none}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -507,19 +901,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     end
   end
 
-  defp provision_instance do
-    config = vast_ai_config()
-
-    # Check for mock provisioner first (for testing)
-    case Keyword.get(config, :provisioner) do
-      nil ->
-        # Real provisioning via Python script or Elixir HTTP client
-        provision_via_api(config)
-
-      provisioner when is_function(provisioner, 0) ->
-        provisioner.()
-    end
-  end
+  # NOTE: Provisioning is now done via mix tasks (mix vast_ai.provision)
+  # The provision_instance and provision_via_api functions have been removed.
 
   defp destroy_vast_instance(instance_id, reason) do
     config = vast_ai_config()
@@ -561,81 +944,11 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     result
   end
 
-  defp provision_via_api(config) do
-    max_price = Keyword.get(config, :max_price, 0.18)
-    disk_gb = Keyword.get(config, :min_disk_gb, 16)
-    geo = Keyword.get(config, :geolocation, ["US", "CA"])
-    label = Keyword.get(config, :label, "docling-dev")
-    use_https = Keyword.get(config, :use_https, true)
-
-    opts = [
-      max_price: max_price,
-      disk_gb: disk_gb,
-      geolocation: geo,
-      label: label
-    ]
-
-    # Log provisioning start
-    GPU.log(:lifecycle, :provision_started, "Instance provisioning started via InstanceManager",
-      source: "instance_manager",
-      details: %{
-        max_price: max_price,
-        disk_gb: disk_gb,
-        geolocation: geo,
-        label: label,
-        use_https: use_https
-      }
-    )
-
-    result =
-      if use_https do
-        # Provision with Caddy + Let's Encrypt HTTPS
-        VastAI.provision_with_https(opts)
-      else
-        # Legacy HTTP-only provisioning
-        with {:ok, instance_id} <- VastAI.provision(opts),
-             {:ok, inst} <- VastAI.wait_for_ready(instance_id, 300_000),
-             {:ok, endpoint} <- build_endpoint(inst) do
-          {:ok, instance_id, endpoint}
-        end
-      end
-
-    case result do
-      {:ok, instance_id, endpoint} ->
-        Logger.info("[VastAI] Provisioned instance #{instance_id} at #{endpoint}")
-
-        GPU.log(:lifecycle, :provision_completed, "Instance provisioned successfully",
-          instance_id: instance_id,
-          endpoint: endpoint,
-          instance_status: "ready",
-          source: "instance_manager"
-        )
-
-        {:ok, instance_id, endpoint}
-
-      {:error, reason} ->
-        Logger.error("[VastAI] Provisioning failed: #{inspect(reason)}")
-
-        GPU.log_error(:lifecycle, :provision_failed, "Instance provisioning failed", reason,
-          source: "instance_manager"
-        )
-
-        {:error, reason}
-    end
-  end
-
   defp destroy_via_api(instance_id, _config) do
     Logger.info("[VastAI] Destroying instance #{instance_id}")
     VastAI.destroy(instance_id)
     :ok
   end
-
-  defp build_endpoint(%{"public_ipaddr" => ip}) when is_binary(ip) do
-    port = Lumainus.VastAI.cloud_port()
-    {:ok, "http://#{ip}:#{port}"}
-  end
-
-  defp build_endpoint(_), do: {:error, :no_ip}
 
   defp vast_ai_config do
     Application.get_env(:lumainus, :docling, [])

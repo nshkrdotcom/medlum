@@ -20,12 +20,17 @@ defmodule Lumainus.Docling.Backends.VastAI do
   """
 
   @behaviour Lumainus.Docling.Backend
+  require Logger
 
   alias Lumainus.Docling.HTTP
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Lumainus.Cloudflare
+  alias Lumainus.VastAI
+  alias Lumainus.GPU
 
   @default_timeout 1_200_000
+  @default_health_timeout_ms 5_000
 
   @impl true
   def convert(binary, opts) when is_binary(binary) do
@@ -65,7 +70,27 @@ defmodule Lumainus.Docling.Backends.VastAI do
   def health do
     case InstanceManager.get_endpoint() do
       {:ok, endpoint} ->
-        HTTP.health(base_url: endpoint)
+        case HTTP.health([base_url: endpoint], health_req_opts()) do
+          {:ok, _} = ok ->
+            ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "[Docling.VastAI] Primary endpoint #{endpoint} unreachable: #{inspect(reason)}. Attempting direct IP fallback..."
+            )
+
+            case fallback_health_via_ip(reason) do
+              {:ok, _} = ok ->
+                ok
+
+              {:error, fallback_reason} = error ->
+                Logger.warning(
+                  "[Docling.VastAI] Fallback health failed: #{inspect(fallback_reason)}"
+                )
+
+                error
+            end
+        end
 
       {:error, :no_instance} ->
         {:ok, %{"status" => "no_instance", "message" => "No active Vast.ai instance"}}
@@ -105,4 +130,267 @@ defmodule Lumainus.Docling.Backends.VastAI do
       }
     }
   end
+
+  # Try direct IP health when HTTPS/Cloudflare is unreachable
+  defp fallback_health_via_ip(primary_reason) do
+    with {:ok, instance_id} <- current_instance_id_for_fallback(),
+         {:ok, ip, ip_attempts} <- ip_for_fallback(instance_id),
+         {:ok, resp, endpoint, attempts} <- try_health_endpoints(ip) do
+      Logger.info(
+        "[Docling.VastAI] Fallback health succeeded via #{endpoint}/health; updating endpoint"
+      )
+
+      Logger.info("[Docling.VastAI] Fallback resolved IP #{ip} (sources=#{inspect(ip_attempts)})")
+
+      InstanceManager.set_endpoint(instance_id, endpoint, ip)
+
+      GPU.log(:lifecycle, :vast_ai_health_fallback, "Vast.ai health fallback via direct IP",
+        instance_id: instance_id,
+        endpoint: endpoint,
+        ip: ip,
+        primary_reason: inspect(primary_reason),
+        ip_attempts: ip_attempts,
+        attempts: attempts,
+        source: "docling_vast_ai_backend"
+      )
+
+      {:ok, Map.put(resp, "fallback", true)}
+    else
+      {:error, reason} ->
+        detail =
+          format_fallback_error(reason, primary_reason, Keyword.get(binding(), :ip_attempts))
+
+        Logger.warning("[Docling.VastAI] Fallback health attempts exhausted: #{inspect(detail)}")
+        {:error, {:fallback_failed, detail}}
+    end
+  end
+
+  defp current_instance_id_for_fallback do
+    case InstanceManager.current_instance_id() do
+      nil -> {:error, :no_instance}
+      id -> {:ok, id}
+    end
+  end
+
+  defp ip_for_fallback(instance_id) do
+    case ip_from_vast_status(instance_id) do
+      {:ok, ip, status_val} ->
+        {:ok, ip, [%{source: :vast_status, value: ip, status: status_val}]}
+
+      {:error, status_reason} ->
+        case ip_from_endpoint() do
+          {:ok, ip, endpoint} ->
+            {:ok, ip,
+             [
+               %{source: :vast_status, error: status_reason},
+               %{source: :endpoint, value: ip, endpoint: endpoint}
+             ]}
+
+          {:error, endpoint_reason} ->
+            case ip_from_dns() do
+              {:ok, ip, domain} ->
+                {:ok, ip,
+                 [
+                   %{source: :vast_status, error: status_reason},
+                   %{source: :endpoint, error: endpoint_reason},
+                   %{source: :dns, value: ip, domain: domain}
+                 ]}
+
+              {:error, dns_reason} ->
+                {:error,
+                 {:no_ip_available,
+                  [
+                    %{source: :vast_status, error: status_reason},
+                    %{source: :endpoint, error: endpoint_reason},
+                    %{source: :dns, error: dns_reason}
+                  ]}}
+            end
+        end
+    end
+  end
+
+  defp ip_from_vast_status(instance_id) do
+    case VastAI.status(instance_id) do
+      {:ok, %{"public_ipaddr" => ip} = status} when is_binary(ip) ->
+        status_val = status_value(status)
+
+        if valid_ip?(ip) do
+          {:ok, ip, status_val}
+        else
+          {:error, {:invalid_ip_in_status, ip, status_val}}
+        end
+
+      {:ok, status} ->
+        {:error, {:status_missing_ip, status_value(status)}}
+
+      {:error, reason} ->
+        {:error, {:status_error, reason}}
+    end
+  end
+
+  defp ip_from_endpoint do
+    case InstanceManager.get_endpoint() do
+      {:ok, endpoint} ->
+        case Regex.run(~r/(\d{1,3}(?:\.\d{1,3}){3})/, endpoint) do
+          [_, ip] ->
+            if valid_ip?(ip) do
+              {:ok, ip, endpoint}
+            else
+              {:error, {:invalid_ip_in_endpoint, ip, endpoint}}
+            end
+
+          _ ->
+            {:error, {:no_ip_in_endpoint, endpoint}}
+        end
+
+      {:error, reason} ->
+        {:error, {:no_endpoint, reason}}
+    end
+  end
+
+  defp ip_from_dns do
+    domain =
+      case Cloudflare.cloud_fqdn() do
+        fqdn when is_binary(fqdn) and fqdn != "" -> fqdn
+        _ -> "docling.lumainus.com"
+      end
+
+    case resolve_domain_ip(domain) do
+      {:ok, ip} -> {:ok, ip, domain}
+      {:error, reason} -> {:error, {:dns_lookup_failed, domain, reason}}
+    end
+  end
+
+  defp resolve_domain_ip(domain) do
+    case :inet.getaddr(String.to_charlist(domain), :inet) do
+      {:ok, {a, b, c, d}} -> {:ok, Enum.join([a, b, c, d], ".")}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp try_health_endpoints(ip) do
+    allow_insecure = allow_insecure_ip_https?()
+
+    health_attempts(ip, allow_insecure)
+    |> Enum.reduce_while([], fn attempt, acc ->
+      {result, attempt_record} = perform_health_attempt(attempt)
+      acc = acc ++ [attempt_record]
+
+      case result do
+        {:ok, resp} ->
+          {:halt, {:ok, resp, attempt.base_url, acc}}
+
+        {:error, _} ->
+          {:cont, acc}
+      end
+    end)
+    |> case do
+      {:ok, resp, endpoint, attempts} -> {:ok, resp, endpoint, attempts}
+      attempts when is_list(attempts) -> {:error, {:all_failed, attempts}}
+    end
+  end
+
+  defp health_attempts(ip, allow_insecure_https?) do
+    port = VastAI.cloud_port()
+    http_base = "http://#{ip}:#{port}"
+    https_base = "https://#{ip}:#{port}"
+
+    attempts = [
+      %{scheme: "http", base_url: http_base, insecure?: false, opts: []},
+      %{scheme: "https", base_url: https_base, insecure?: false, opts: []}
+    ]
+
+    if allow_insecure_https? do
+      attempts ++
+        [
+          %{
+            scheme: "https",
+            base_url: https_base,
+            insecure?: true,
+            opts: [connect_options: [transport_opts: [verify: :verify_none]]]
+          }
+        ]
+    else
+      attempts
+    end
+  end
+
+  defp perform_health_attempt(%{base_url: base_url, scheme: scheme} = attempt) do
+    insecure? = Map.get(attempt, :insecure?, false)
+    opts = Map.get(attempt, :opts, []) ++ health_req_opts()
+    url = "#{base_url}/health"
+
+    Logger.warning(
+      "[Docling.VastAI] Fallback health attempt #{url} (scheme=#{scheme}, insecure=#{insecure?})"
+    )
+
+    result = HTTP.health([base_url: base_url], opts)
+
+    attempt_record = %{
+      url: url,
+      scheme: scheme,
+      insecure?: insecure?,
+      result: attempt_result(result)
+    }
+
+    case result do
+      {:ok, _} ->
+        Logger.info("[Docling.VastAI] Fallback health succeeded via #{url}")
+        {result, attempt_record}
+
+      {:error, error} ->
+        Logger.warning("[Docling.VastAI] Fallback health failed via #{url}: #{inspect(error)}")
+        {result, attempt_record}
+    end
+  end
+
+  defp health_req_opts do
+    timeout = health_timeout_ms()
+    [receive_timeout: timeout, connect_options: [timeout: timeout]]
+  end
+
+  defp health_timeout_ms do
+    Application.get_env(:lumainus, :docling, [])
+    |> Keyword.get(:health_timeout_ms, @default_health_timeout_ms)
+  end
+
+  defp attempt_result({:ok, _}), do: :ok
+  defp attempt_result({:error, reason}), do: {:error, reason}
+
+  defp allow_insecure_ip_https? do
+    Application.get_env(:lumainus, :docling, [])
+    |> Keyword.get(:allow_insecure_ip_https, true)
+  end
+
+  defp valid_ip?(ip) when is_binary(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
+
+  defp valid_ip?(_), do: false
+
+  defp status_value(status) do
+    status["actual_status"] || status["cur_state"] || status["status"]
+  end
+
+  defp format_fallback_error({:no_ip_available, ip_attempts}, primary_reason, _scoped_ip_attempts) do
+    %{primary_reason: primary_reason, ip_attempts: ip_attempts}
+  end
+
+  defp format_fallback_error({:all_failed, attempts}, primary_reason, scoped_ip_attempts) do
+    %{primary_reason: primary_reason, attempts: attempts}
+    |> maybe_add_ip_attempts(scoped_ip_attempts)
+  end
+
+  defp format_fallback_error(reason, primary_reason, scoped_ip_attempts) do
+    %{primary_reason: primary_reason, reason: reason}
+    |> maybe_add_ip_attempts(scoped_ip_attempts)
+  end
+
+  defp maybe_add_ip_attempts(map, ip_attempts) when is_list(ip_attempts),
+    do: Map.put(map, :ip_attempts, ip_attempts)
+
+  defp maybe_add_ip_attempts(map, _), do: map
 end

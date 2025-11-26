@@ -9,6 +9,7 @@ defmodule Lumainus.Docling.VastAI.ProvisioningState do
   use GenServer
 
   alias Lumainus.GPU
+  alias Lumainus.Docling.VastAI.ActivityTracker
 
   @pubsub LumainusWeb.PubSub
   @topic "vast_ai:provisioning"
@@ -198,6 +199,11 @@ defmodule Lumainus.Docling.VastAI.ProvisioningState do
         instance_id: instance_id
       )
     end
+
+    # IMPORTANT: Record activity when provisioning completes
+    # This starts the idle timer from now, not from instance creation
+    # Without this, AutoShutdown might stop the instance immediately
+    ActivityTracker.record_activity()
 
     state = %{
       state

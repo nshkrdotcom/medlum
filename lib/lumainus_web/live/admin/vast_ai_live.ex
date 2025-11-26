@@ -1,5 +1,6 @@
 defmodule LumainusWeb.Admin.VastAILive do
   use LumainusWeb, :live_view
+  require Logger
 
   alias Lumainus.VastAI
   alias Lumainus.VastAI.{Instances, Offers}
@@ -49,7 +50,9 @@ defmodule LumainusWeb.Admin.VastAILive do
        selected_image: @docling_image,
        health_results: %{},
        use_https: prov_state.use_https,
-       auto_shutdown_status: get_auto_shutdown_status()
+       auto_shutdown_status: get_auto_shutdown_status(),
+       dns_status: compute_dns_status(),
+       starting_instance_id: nil
      )}
   end
 
@@ -195,6 +198,48 @@ defmodule LumainusWeb.Admin.VastAILive do
     end
   end
 
+  def handle_info({:start_instance_async, instance_id}, socket) do
+    alias Lumainus.Docling.VastAI.InstanceManager
+
+    socket =
+      case Instances.start(instance_id) do
+        {:ok, _} ->
+          # Find the instance in our loaded list to get IP
+          instance = Enum.find(socket.assigns.instances, &(&1["id"] == instance_id))
+
+          if instance && instance["public_ipaddr"] do
+            ip = instance["public_ipaddr"]
+            endpoint = build_cloud_endpoint(ip)
+            InstanceManager.set_endpoint(instance_id, endpoint, ip)
+          end
+
+          socket
+          |> put_flash(:info, "Instance #{instance_id} starting, syncing DNS...")
+          |> load_instances()
+          |> ensure_start_poll()
+
+        {:error, reason} ->
+          socket
+          |> put_flash(:error, "Failed to start: #{inspect(reason)}")
+          |> assign(starting_instance_id: nil)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:poll_starting_instance, %{assigns: %{starting_instance_id: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info(:poll_starting_instance, socket) do
+    socket =
+      socket
+      |> load_instances()
+      |> ensure_start_poll()
+
+    {:noreply, socket}
+  end
+
   # =============================================================================
   # Handle Events (all grouped together)
   # =============================================================================
@@ -242,6 +287,44 @@ defmodule LumainusWeb.Admin.VastAILive do
         socket = add_log(socket, :error, "Cloudflare error: #{inspect(reason)}")
         {:noreply, put_flash(socket, :error, "Cloudflare error: #{inspect(reason)}")}
     end
+  end
+
+  def handle_event("quick_provision", _params, socket) do
+    # Quick provision with default settings (RTX 3090, HTTPS, US/CA)
+    # Uses shared ProvisioningState for logs (survives page navigation)
+    ProvisioningState.start_provisioning(true)
+    ProvisioningState.add_log(:info, "=== QUICK PROVISION STARTED ===")
+    ProvisioningState.add_log(:info, "Using defaults: RTX 3090, HTTPS, US/CA regions")
+
+    # Spawn async task for provisioning
+    filters = default_filters()
+    image = @docling_image
+
+    Task.start(fn ->
+      ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
+
+      case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
+        {_fqdn, nil} ->
+          ProvisioningState.add_log(:error, "CLOUDFLARE_API_TOKEN not set! Cannot setup HTTPS.")
+          ProvisioningState.fail(:missing_cloudflare_token)
+
+        {fqdn, _token} ->
+          ProvisioningState.add_log(:success, "Cloudflare configured for #{fqdn}")
+          do_provision_with_https(image, filters)
+      end
+    end)
+
+    # Schedule periodic refresh while provisioning
+    Process.send_after(self(), :refresh_while_provisioning, 5_000)
+
+    {:noreply,
+     socket
+     |> assign(
+       provisioning: true,
+       provision_status: "Starting quick provisioning...",
+       use_https: true
+     )
+     |> put_flash(:info, "Quick provisioning started! This will take 2-5 minutes.")}
   end
 
   def handle_event("search_offers", params, socket) do
@@ -323,23 +406,45 @@ defmodule LumainusWeb.Admin.VastAILive do
   def handle_event("start", %{"id" => id}, socket) do
     instance_id = String.to_integer(id)
 
-    case Instances.start(instance_id) do
-      {:ok, _} ->
+    # Show immediate feedback and kick off async start
+    send(self(), {:start_instance_async, instance_id})
+    Process.send_after(self(), :poll_starting_instance, 5_000)
+
+    {:noreply,
+     socket
+     |> assign(starting_instance_id: instance_id)
+     |> put_flash(:info, "Starting instance #{instance_id}...")}
+  end
+
+  def handle_event("refresh_dns_status", _params, socket) do
+    {:noreply, assign(socket, dns_status: compute_dns_status())}
+  end
+
+  # Manual DNS update for a running instance
+  def handle_event("update_dns", %{"ip" => ip}, socket) do
+    case Cloudflare.update_dns_record(ip) do
+      {:ok, %{fqdn: fqdn}} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Instance #{instance_id} starting...")
-         |> load_instances()}
+         |> put_flash(:info, "DNS updated: #{fqdn} → #{ip}")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to start: #{inspect(reason)}")}
+        {:noreply,
+         socket
+         |> put_flash(:error, "DNS update failed: #{inspect(reason)}")}
     end
   end
 
   def handle_event("stop", %{"id" => id}, socket) do
+    alias Lumainus.Docling.VastAI.InstanceManager
+
     instance_id = String.to_integer(id)
 
     case Instances.stop(instance_id) do
       {:ok, _} ->
+        # Also update InstanceManager
+        InstanceManager.set_stopped(instance_id)
+
         {:noreply,
          socket
          |> put_flash(:info, "Instance #{instance_id} stopping...")
@@ -348,6 +453,20 @@ defmodule LumainusWeb.Admin.VastAILive do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to stop: #{inspect(reason)}")}
     end
+  end
+
+  # Sync InstanceManager with a running instance from Vast.ai
+  def handle_event("sync_instance", %{"id" => id, "ip" => ip}, socket) do
+    alias Lumainus.Docling.VastAI.InstanceManager
+
+    instance_id = String.to_integer(id)
+    endpoint = build_cloud_endpoint(ip)
+
+    InstanceManager.set_endpoint(instance_id, endpoint, ip)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Synced instance #{instance_id} with InstanceManager")}
   end
 
   def handle_event("destroy", %{"id" => id}, socket) do
@@ -565,13 +684,18 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   defp load_instances(socket) do
-    case Instances.list() do
-      {:ok, %{"instances" => instances}} ->
-        assign(socket, instances: instances, error: nil)
+    socket =
+      case Instances.list() do
+        {:ok, %{"instances" => instances}} ->
+          assign(socket, instances: instances, error: nil)
 
-      {:error, reason} ->
-        assign(socket, instances: [], error: reason)
-    end
+        {:error, reason} ->
+          assign(socket, instances: [], error: reason)
+      end
+
+    socket
+    |> assign(dns_status: compute_dns_status())
+    |> maybe_clear_starting_indicator()
   end
 
   defp load_offers(socket) do
@@ -626,6 +750,94 @@ defmodule LumainusWeb.Admin.VastAILive do
     }
   end
 
+  defp compute_dns_status do
+    fqdn = Cloudflare.cloud_fqdn()
+    zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
+    token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
+
+    {dns_state, resolved_ips} =
+      case resolve_dns_ips(fqdn) do
+        {:ok, ips} -> {:ok, ips}
+        {:error, reason} -> {reason, []}
+      end
+
+    %{
+      fqdn: fqdn,
+      zone_id: mask_zone_id(zone_id),
+      token_present?: token not in [nil, ""],
+      dns_state: dns_state,
+      resolved_ips: resolved_ips,
+      checked_at: DateTime.utc_now()
+    }
+  end
+
+  defp resolve_dns_ips(fqdn) when fqdn in [nil, ""] do
+    {:error, :no_fqdn_configured}
+  end
+
+  defp resolve_dns_ips(fqdn) do
+    try do
+      case :inet_res.lookup(String.to_charlist(fqdn), :in, :a) do
+        [] -> {:ok, []}
+        addresses -> {:ok, Enum.map(addresses, &tuple_to_ip/1)}
+      end
+    rescue
+      error -> {:error, error}
+    catch
+      :exit, reason -> {:error, reason}
+    end
+  end
+
+  defp maybe_clear_starting_indicator(socket) do
+    starting_id = socket.assigns[:starting_instance_id]
+    instances = socket.assigns[:instances] || []
+
+    cond do
+      is_nil(starting_id) ->
+        socket
+
+      instance = Enum.find(instances, &(&1["id"] == starting_id)) ->
+        if instance["actual_status"] == "running" do
+          assign(socket, starting_instance_id: nil)
+        else
+          socket
+        end
+
+      true ->
+        socket
+    end
+  end
+
+  defp ensure_start_poll(%{assigns: %{starting_instance_id: nil}} = socket), do: socket
+
+  defp ensure_start_poll(socket) do
+    Process.send_after(self(), :poll_starting_instance, 5_000)
+    socket
+  end
+
+  defp tuple_to_ip(tuple) do
+    tuple
+    |> :inet.ntoa()
+    |> to_string()
+  end
+
+  defp mask_zone_id(nil), do: nil
+  defp mask_zone_id(""), do: nil
+
+  defp mask_zone_id(zone_id) when is_binary(zone_id) do
+    prefix = String.slice(zone_id, 0, 6)
+    suffix = String.slice(zone_id, -4, 4)
+    "#{prefix}...#{suffix}"
+  end
+
+  defp format_timestamp(nil), do: ""
+
+  defp format_timestamp(%DateTime{} = dt) do
+    dt
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+  end
+
   defp parse_int(nil, default), do: default
   defp parse_int("", default), do: default
   defp parse_int(val, _default) when is_integer(val), do: val
@@ -656,6 +868,17 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   defp parse_geolocation(val) when is_list(val), do: val
+
+  defp build_cloud_endpoint(ip) do
+    # Use HTTPS via Cloudflare if configured, otherwise HTTP
+    fqdn = Cloudflare.cloud_fqdn()
+
+    if fqdn && String.trim(fqdn) != "" do
+      "https://#{fqdn}"
+    else
+      "http://#{ip}:#{cloud_port()}"
+    end
+  end
 
   defp docling_image, do: @docling_image
   defp pytorch_image, do: @pytorch_image
@@ -759,6 +982,111 @@ defmodule LumainusWeb.Admin.VastAILive do
         </div>
       <% end %>
 
+      <%!-- Quick Provision Panel - shows when no instances exist --%>
+      <%= if @instances == [] and not @provisioning do %>
+        <div class="rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-sky-900/30 dark:to-indigo-900/30 dark:border-sky-700 px-6 py-5 shadow-sm">
+          <div class="flex items-center justify-between gap-6">
+            <div class="flex items-center gap-4">
+              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-sky-100 dark:bg-sky-800 text-sky-600 dark:text-sky-300">
+                <svg
+                  class="h-7 w-7"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"
+                  />
+                </svg>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  No GPU Instance Running
+                </span>
+                <span class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Provision a GPU instance to enable fast document processing (~10x faster than CPU).
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              phx-click="quick_provision"
+              class="rounded-lg px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors bg-sky-600 hover:bg-sky-500"
+            >
+              <span class="flex items-center gap-2">
+                <svg
+                  class="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
+                  />
+                </svg>
+                Quick Provision GPU
+              </span>
+            </button>
+          </div>
+          <div class="mt-4 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+            <span class="flex items-center gap-1">
+              <svg
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              ~2-5 min provision time
+            </span>
+            <span class="flex items-center gap-1">
+              <svg
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
+                />
+              </svg>
+              ~$0.15-0.25/hr (RTX 3090)
+            </span>
+            <span class="flex items-center gap-1">
+              <svg
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+                />
+              </svg>
+              HTTPS via Cloudflare
+            </span>
+          </div>
+        </div>
+      <% end %>
+
       <%= if @provisioning do %>
         <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-6">
           <div class="flex items-center justify-between">
@@ -801,6 +1129,89 @@ defmodule LumainusWeb.Admin.VastAILive do
         <h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
           Active Instances ({length(@instances)})
         </h2>
+
+        <div class="grid gap-4 md:grid-cols-2 mb-4">
+          <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">DNS configuration</p>
+              <span class="text-xs text-gray-500 dark:text-gray-400">Cloudflare</span>
+            </div>
+            <div class="space-y-1 text-sm text-gray-700 dark:text-gray-200">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-500 dark:text-gray-400">FQDN:</span>
+                <code class="px-2 py-1 bg-white/80 dark:bg-gray-900/60 rounded text-xs">
+                  {if @dns_status.fqdn && @dns_status.fqdn != "",
+                    do: @dns_status.fqdn,
+                    else: "not configured"}
+                </code>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-500 dark:text-gray-400">Zone ID:</span>
+                <code class="px-2 py-1 bg-white/80 dark:bg-gray-900/60 rounded text-xs">
+                  {if @dns_status.zone_id, do: @dns_status.zone_id, else: "not set"}
+                </code>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <span class={[
+                  "inline-flex items-center gap-1 px-2 py-1 rounded-full",
+                  @dns_status.token_present? && "bg-green-100 text-green-800",
+                  !@dns_status.token_present? && "bg-red-100 text-red-800"
+                ]}>
+                  <span class={[
+                    "w-2 h-2 rounded-full",
+                    @dns_status.token_present? && "bg-green-500",
+                    !@dns_status.token_present? && "bg-red-500"
+                  ]}>
+                  </span>
+                  {if @dns_status.token_present?, do: "API token present", else: "Missing API token"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                Live DNS record (dig)
+              </p>
+              <button
+                type="button"
+                phx-click="refresh_dns_status"
+                class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-100"
+              >
+                Refresh
+              </button>
+            </div>
+            <div class="space-y-1 text-sm text-gray-700 dark:text-gray-200">
+              <div class="flex items-start gap-2">
+                <span class="text-gray-500 dark:text-gray-400">A record:</span>
+                <div class="space-y-1">
+                  <%= cond do %>
+                    <% @dns_status.dns_state == :ok and @dns_status.resolved_ips == [] -> %>
+                      <span class="text-xs text-amber-700 dark:text-amber-300">
+                        No A records returned
+                      </span>
+                    <% @dns_status.dns_state == :ok -> %>
+                      <div class="flex flex-wrap gap-1">
+                        <%= for ip <- @dns_status.resolved_ips do %>
+                          <code class="px-2 py-1 bg-white/80 dark:bg-gray-900/60 rounded text-xs">
+                            {ip}
+                          </code>
+                        <% end %>
+                      </div>
+                    <% true -> %>
+                      <span class="text-xs text-red-700 dark:text-red-300">
+                        DNS lookup error: {inspect(@dns_status.dns_state)}
+                      </span>
+                  <% end %>
+                </div>
+              </div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                Checked at: {format_timestamp(@dns_status.checked_at)}
+              </div>
+            </div>
+          </div>
+        </div>
 
         <%= if @instances == [] do %>
           <p class="text-center text-gray-500 dark:text-gray-400 py-8">
@@ -849,6 +1260,15 @@ defmodule LumainusWeb.Admin.VastAILive do
                       </div>
                     <% end %>
 
+                    <%= if instance["public_ipaddr"] do %>
+                      <div class="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                        <span class="font-medium">Instance IP:</span>
+                        <code class="px-2 py-1 bg-gray-100 dark:bg-gray-900/60 rounded text-xs">
+                          {instance["public_ipaddr"]}
+                        </code>
+                      </div>
+                    <% end %>
+
                     <%= if instance["public_ipaddr"] && instance["actual_status"] == "running" do %>
                       <div class="mt-2 space-y-2">
                         <div class="flex items-center gap-2">
@@ -889,6 +1309,25 @@ defmodule LumainusWeb.Admin.VastAILive do
                           >
                             Use HTTPS
                           </button>
+                          <button
+                            type="button"
+                            phx-click="sync_instance"
+                            phx-value-id={instance["id"]}
+                            phx-value-ip={instance["public_ipaddr"]}
+                            class="px-2 py-1 text-xs font-medium text-cyan-700 bg-cyan-100 rounded hover:bg-cyan-200"
+                            title="Sync this instance to InstanceManager so /reports can use it"
+                          >
+                            Sync
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="update_dns"
+                            phx-value-ip={instance["public_ipaddr"]}
+                            class="px-2 py-1 text-xs font-medium text-orange-700 bg-orange-100 rounded hover:bg-orange-200"
+                            title="Update Cloudflare DNS to point docling.lumainus.com to this IP"
+                          >
+                            Update DNS
+                          </button>
                         </div>
                         <%= case @health_results[instance["id"]] do %>
                           <% {:ok, _} -> %>
@@ -905,35 +1344,62 @@ defmodule LumainusWeb.Admin.VastAILive do
                     <% end %>
                   </div>
 
-                  <div class="flex gap-2 ml-4">
-                    <%= if instance["actual_status"] == "running" do %>
-                      <button
-                        type="button"
-                        phx-click="stop"
-                        phx-value-id={instance["id"]}
-                        class="px-3 py-1 text-sm font-medium text-amber-700 bg-amber-100 rounded hover:bg-amber-200"
-                      >
-                        Stop
-                      </button>
-                    <% else %>
-                      <button
-                        type="button"
-                        phx-click="start"
-                        phx-value-id={instance["id"]}
-                        class="px-3 py-1 text-sm font-medium text-green-700 bg-green-100 rounded hover:bg-green-200"
-                      >
-                        Start
-                      </button>
+                  <div class="flex items-center gap-3 ml-4">
+                    <%= if @starting_instance_id == instance["id"] do %>
+                      <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                        <span class="h-4 w-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin">
+                        </span>
+                        Starting...
+                      </div>
                     <% end %>
-                    <button
-                      type="button"
-                      phx-click="destroy"
-                      phx-value-id={instance["id"]}
-                      data-confirm={"Are you sure you want to destroy instance #{instance["id"]}? This cannot be undone."}
-                      class="px-3 py-1 text-sm font-medium text-red-700 bg-red-100 rounded hover:bg-red-200"
-                    >
-                      Destroy
-                    </button>
+
+                    <div class="flex gap-2">
+                      <%= if instance["actual_status"] == "running" do %>
+                        <button
+                          type="button"
+                          phx-click="stop"
+                          phx-value-id={instance["id"]}
+                          class="px-3 py-1 text-sm font-medium text-amber-700 bg-amber-100 rounded hover:bg-amber-200"
+                        >
+                          Stop
+                        </button>
+                      <% else %>
+                        <button
+                          type="button"
+                          phx-click="start"
+                          phx-value-id={instance["id"]}
+                          class={[
+                            "px-3 py-1 text-sm font-medium rounded",
+                            instance["actual_status"] == "running" &&
+                              "text-gray-400 bg-gray-100 cursor-not-allowed",
+                            @starting_instance_id == instance["id"] &&
+                              "text-gray-500 bg-gray-100 cursor-wait",
+                            instance["actual_status"] != "running" &&
+                              @starting_instance_id != instance["id"] &&
+                              "text-green-700 bg-green-100 hover:bg-green-200"
+                          ]}
+                          disabled={
+                            instance["actual_status"] == "running" ||
+                              @starting_instance_id == instance["id"]
+                          }
+                        >
+                          <%= if @starting_instance_id == instance["id"] do %>
+                            Starting...
+                          <% else %>
+                            Start
+                          <% end %>
+                        </button>
+                      <% end %>
+                      <button
+                        type="button"
+                        phx-click="destroy"
+                        phx-value-id={instance["id"]}
+                        data-confirm={"Are you sure you want to destroy instance #{instance["id"]}? This cannot be undone."}
+                        class="px-3 py-1 text-sm font-medium text-red-700 bg-red-100 rounded hover:bg-red-200"
+                      >
+                        Destroy
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

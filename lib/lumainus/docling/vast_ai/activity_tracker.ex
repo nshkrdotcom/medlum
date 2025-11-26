@@ -43,6 +43,16 @@ defmodule Lumainus.Docling.VastAI.ActivityTracker do
   end
 
   @doc """
+  Record activity if none exists yet. Useful to seed activity on instance start.
+  """
+  def record_activity_if_missing do
+    case last_activity() do
+      nil -> record_activity()
+      _ -> :ok
+    end
+  end
+
+  @doc """
   Get the last activity timestamp (monotonic milliseconds).
   Returns nil if no activity recorded.
   """
