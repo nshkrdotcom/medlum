@@ -42,6 +42,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   alias Lumainus.VastAI.Instances
   alias Lumainus.Docling.VastAI.ActivityTracker
   alias Lumainus.Docling.VastAI.InstanceManager
+  alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Docling.VastAI.StartTracker
 
   # =============================================================================
@@ -246,6 +247,26 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   end
 
   defp perform_check do
+    # CRITICAL: Skip check entirely if provisioning is in progress
+    # We don't want to shut down instances while they're being set up
+    if ProvisioningState.is_provisioning?() do
+      Logger.info("[AutoShutdown] Skipping check - provisioning in progress")
+
+      GPU.log(
+        :auto_shutdown,
+        :skipped_provisioning,
+        "Auto-shutdown check skipped - provisioning in progress",
+        severity: "info",
+        source: "auto_shutdown"
+      )
+
+      {:ok, :provisioning_in_progress}
+    else
+      do_perform_check()
+    end
+  end
+
+  defp do_perform_check do
     # Get running instances
     case Instances.list() do
       {:ok, %{"instances" => instances}} when is_list(instances) ->
@@ -396,12 +417,36 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
         end
 
       mins when mins >= timeout ->
-        Logger.info(
-          "[AutoShutdown] Instance #{instance_id} idle for #{mins} min (>= #{timeout}), stopping..."
-        )
+        # IMPORTANT: Check instance age too - if instance is new, the idle_minutes
+        # might be stale from a previous instance. Don't shut down new instances.
+        if instance_age_minutes < timeout do
+          Logger.info(
+            "[AutoShutdown] Instance #{instance_id} shows #{mins} min idle but is only #{instance_age_minutes} min old - keeping alive (stale activity data)"
+          )
 
-        GPU.log_auto_shutdown_triggered(instance_id, mins)
-        stop_instance(instance_id, "idle_timeout")
+          GPU.log(
+            :auto_shutdown,
+            :stale_activity_ignored,
+            "Instance shows idle but is new - ignoring stale activity data",
+            instance_id: instance_id,
+            severity: "info",
+            source: "auto_shutdown",
+            details: %{
+              reported_idle_minutes: mins,
+              instance_age_minutes: instance_age_minutes,
+              timeout: timeout
+            }
+          )
+
+          {:ok, :still_active}
+        else
+          Logger.info(
+            "[AutoShutdown] Instance #{instance_id} idle for #{mins} min (>= #{timeout}), stopping..."
+          )
+
+          GPU.log_auto_shutdown_triggered(instance_id, mins)
+          stop_instance(instance_id, "idle_timeout")
+        end
 
       mins ->
         Logger.debug(

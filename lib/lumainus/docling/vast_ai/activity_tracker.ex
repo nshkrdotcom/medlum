@@ -43,6 +43,16 @@ defmodule Lumainus.Docling.VastAI.ActivityTracker do
   end
 
   @doc """
+  Reset activity tracking. Call this when a new instance is provisioned
+  to clear stale timestamps from previous instances.
+  """
+  def reset do
+    :ets.delete(@table_name, @activity_key)
+    Logger.info("[ActivityTracker] Reset - cleared previous activity timestamp")
+    :ok
+  end
+
+  @doc """
   Record activity if none exists yet. Useful to seed activity on instance start.
   """
   def record_activity_if_missing do

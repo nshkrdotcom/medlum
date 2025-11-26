@@ -25,6 +25,16 @@ defmodule Lumainus.Docling.VastAI.ProvisioningState do
     GenServer.call(__MODULE__, :get_state)
   end
 
+  @doc "Check if provisioning is currently in progress"
+  def is_provisioning? do
+    case GenServer.call(__MODULE__, :is_provisioning) do
+      true -> true
+      _ -> false
+    end
+  catch
+    :exit, _ -> false
+  end
+
   @doc "Start a new provisioning session"
   def start_provisioning(use_https \\ true, opts \\ []) do
     GenServer.call(__MODULE__, {:start_provisioning, use_https, opts})
@@ -100,7 +110,15 @@ defmodule Lumainus.Docling.VastAI.ProvisioningState do
     {:reply, state.session, state}
   end
 
+  def handle_call(:is_provisioning, _from, state) do
+    {:reply, state.provisioning == true, state}
+  end
+
   def handle_call({:start_provisioning, use_https, opts}, _from, _state) do
+    # Reset activity tracker to clear stale timestamps from previous instances
+    # This prevents auto-shutdown from killing new instances due to old activity data
+    ActivityTracker.reset()
+
     # Create database session and get correlation ID
     {correlation_id, session} =
       GPU.start_provisioning(

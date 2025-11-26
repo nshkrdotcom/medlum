@@ -101,7 +101,8 @@ defmodule Lumainus.VastAI do
     export OMP_NUM_THREADS=4
 
     # Start uvicorn in background, logging to file
-    nohup python -m uvicorn app.main:app --host $HOST --port $PORT --no-access-log > /var/log/uvicorn.log 2>&1 &
+    # Use conda python path (the Docker image uses miniconda)
+    nohup /opt/conda/bin/python -m uvicorn app.main:app --host $HOST --port $PORT --no-access-log > /var/log/uvicorn.log 2>&1 &
     UVICORN_PID=$!
     log "Uvicorn started with PID $UVICORN_PID"
 

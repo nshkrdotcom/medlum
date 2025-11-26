@@ -230,13 +230,40 @@ destroy_all_instances() {
     if [ "$confirm" = "DESTROY ALL" ]; then
         run_mix "
           case Lumainus.VastAI.Instances.list() do
-            {:ok, instances} ->
+            {:ok, %{\"instances\" => instances}} ->
+              instances
+              |> List.wrap()
+              |> Enum.each(fn i ->
+                IO.puts(\"Destroying #{i[\"id\"]}...\")
+                Lumainus.VastAI.destroy(i[\"id\"])
+              end)
+              IO.puts(\"Done.\")
+
+            {:ok, instances} when is_list(instances) ->
               Enum.each(instances, fn i ->
                 IO.puts(\"Destroying #{i[\"id\"]}...\")
                 Lumainus.VastAI.destroy(i[\"id\"])
               end)
               IO.puts(\"Done.\")
-            {:error, e} -> IO.puts(\"Error: #{inspect(e)}\")
+
+            {:ok, %{} = other} ->
+              case Map.get(other, \"instances\") do
+                nil ->
+                  IO.puts(\"Error: unexpected response shape #{inspect(other)}\")
+
+                instances ->
+                  instances
+                  |> List.wrap()
+                  |> Enum.each(fn i ->
+                    IO.puts(\"Destroying #{i[\"id\"]}...\")
+                    Lumainus.VastAI.destroy(i[\"id\"])
+                  end)
+
+                  IO.puts(\"Done.\")
+              end
+
+            {:error, e} ->
+              IO.puts(\"Error: #{inspect(e)}\")
           end
         "
     else

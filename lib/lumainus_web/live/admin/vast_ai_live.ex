@@ -538,7 +538,7 @@ defmodule LumainusWeb.Admin.VastAILive do
     {:noreply,
      socket
      |> assign(provisioning: true, provision_status: "Starting HTTPS provisioning...")
-     |> put_flash(:info, "Provisioning started! This will take 25-30 seconds.")}
+     |> put_flash(:info, "Provisioning started! This will take about 5-7 minutes.")}
   end
 
   defp do_provision_with_https(image, filters) do
@@ -1104,7 +1104,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                   {@provision_status || "Initializing..."}
                 </p>
                 <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                  This typically takes 25-30 seconds. Auto-refreshing every 5 seconds.
+                  This typically takes about 5-7 minutes. Auto-refreshing every 5 seconds.
                 </p>
               </div>
             </div>

@@ -536,18 +536,29 @@ defmodule LumainusWeb.ReportsLive do
     # NON-BLOCKING: Get GPU status quickly (checks local state, not HTTP)
     gpu_instance_status = check_gpu_instance_status_fast()
 
+    # Check if there's a configured cloud_url (for static cloud endpoints)
+    cloud_url_configured? = has_configured_cloud_url?()
+
     # NON-BLOCKING: Defer expensive health check to avoid blocking page load
     # Start with "checking" state and update async after mount
+    # Also consider statically configured cloud_url (not just InstanceManager instances)
     {fast_available?, fast_reason} =
-      case gpu_instance_status.status do
-        # Will be updated async
-        :running -> {nil, "Checking..."}
-        :loading -> {false, "GPU instance still loading"}
+      case {gpu_instance_status.status, cloud_url_configured?} do
+        # InstanceManager has a running instance - will check async
+        {:running, _} -> {nil, "Checking..."}
+        {:loading, _} -> {false, "GPU instance still loading"}
+        # No instance in InstanceManager, but cloud_url is configured - check it async
+        {_, true} -> {nil, "Checking cloud service..."}
+        # No instance and no configured URL
         _ -> {false, "No GPU instance"}
       end
 
-    # Schedule async health check if we have a potential endpoint
-    if connected?(socket) and gpu_instance_status.status == :running do
+    # Schedule async health check if we have a potential endpoint:
+    # - InstanceManager has a running instance, OR
+    # - A cloud_url is configured (even without InstanceManager)
+    should_check_health? = gpu_instance_status.status == :running or cloud_url_configured?
+
+    if connected?(socket) and should_check_health? do
       send(self(), :check_fast_backend_health)
     end
 
@@ -1128,6 +1139,17 @@ defmodule LumainusWeb.ReportsLive do
       end
     else
       %{status: :unknown, endpoint: nil, instance_id: nil}
+    end
+  end
+
+  # Check if there's a configured cloud_url (for static cloud endpoints, e.g. via admin settings)
+  # This allows GPU availability even without a dynamically provisioned InstanceManager instance
+  defp has_configured_cloud_url? do
+    case Docling.config()[:cloud_url] do
+      nil -> false
+      "" -> false
+      url when is_binary(url) -> String.trim(url) != ""
+      _ -> false
     end
   end
 
