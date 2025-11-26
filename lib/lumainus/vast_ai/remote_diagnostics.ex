@@ -311,6 +311,155 @@ defmodule Lumainus.VastAI.RemoteDiagnostics do
     end
   end
 
+  @doc """
+  Ensure all services (uvicorn + cloudflared) are running.
+
+  Called after instance start/restart to make sure services are up.
+  The onstart script only runs on first provision, not on restart.
+
+  The tunnel token is read from /etc/cloudflared/tunnel_token, which
+  was saved during initial provisioning.
+
+  Returns {:ok, %{uvicorn: :started|:already_running, cloudflared: :started|:already_running}}
+  """
+  def ensure_services_running(opts \\ []) do
+    with {:ok, info} <- get_instance_info(opts) do
+      Logger.info("[RemoteDiagnostics] Ensuring services running on #{info.ip}...")
+
+      port = info[:port] || 8044
+
+      # Single SSH command that checks and starts both services
+      # Reads saved tunnel token from /etc/cloudflared/tunnel_token
+      cmd = """
+      # Read saved config (written by onstart script)
+      if [ -f /etc/cloudflared/backend_port ]; then
+        BACKEND_PORT=$(cat /etc/cloudflared/backend_port)
+      else
+        BACKEND_PORT=#{port}
+      fi
+
+      # Check/start uvicorn
+      if pgrep -f 'uvicorn app.main:app' > /dev/null; then
+        echo "UVICORN_STATUS=already_running"
+      else
+        echo "UVICORN_STATUS=starting"
+        cd /app/service
+        export PORT=$BACKEND_PORT
+        export HOST=0.0.0.0
+        export CUDA_VISIBLE_DEVICES=0
+        export OMP_NUM_THREADS=4
+        nohup /opt/conda/bin/python -m uvicorn app.main:app --host $HOST --port $PORT --no-access-log > /var/log/uvicorn.log 2>&1 &
+        sleep 3
+        if curl -s http://localhost:$BACKEND_PORT/health | grep -q ok; then
+          echo "UVICORN_STATUS=started"
+        else
+          echo "UVICORN_STATUS=failed"
+        fi
+      fi
+
+      # Check/start cloudflared
+      if pgrep -f 'cloudflared.*tunnel.*run' > /dev/null; then
+        echo "CLOUDFLARED_STATUS=already_running"
+      else
+        echo "CLOUDFLARED_STATUS=starting"
+        # Read saved tunnel token
+        if [ -f /etc/cloudflared/tunnel_token ]; then
+          TUNNEL_TOKEN=$(cat /etc/cloudflared/tunnel_token)
+          mkdir -p /var/log/cloudflared
+          nohup cloudflared tunnel --no-autoupdate run --token "$TUNNEL_TOKEN" > /var/log/cloudflared/cloudflared.log 2>&1 &
+          sleep 5
+          if pgrep -f 'cloudflared.*tunnel.*run' > /dev/null; then
+            echo "CLOUDFLARED_STATUS=started"
+          else
+            echo "CLOUDFLARED_STATUS=failed"
+            echo "CLOUDFLARED_LOG=$(tail -5 /var/log/cloudflared/cloudflared.log 2>/dev/null)"
+          fi
+        else
+          echo "CLOUDFLARED_STATUS=no_token"
+          echo "ERROR: No tunnel token found at /etc/cloudflared/tunnel_token"
+        fi
+      fi
+
+      # Final health check
+      curl -s http://localhost:$BACKEND_PORT/health
+      """
+
+      case ssh_exec(info, cmd, timeout: 60_000) do
+        {:ok, output} ->
+          Logger.info("[RemoteDiagnostics] Ensure services result:\n#{output}")
+
+          uvicorn_status = parse_status(output, "UVICORN_STATUS")
+          cloudflared_status = parse_status(output, "CLOUDFLARED_STATUS")
+          health_ok = String.contains?(output, "\"status\":\"ok\"")
+
+          {:ok,
+           %{
+             uvicorn: uvicorn_status,
+             cloudflared: cloudflared_status,
+             healthy: health_ok,
+             output: output
+           }}
+
+        {:error, reason} ->
+          Logger.error("[RemoteDiagnostics] Failed to ensure services: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Check cloudflared tunnel status.
+  """
+  def check_cloudflared_status(opts_or_info \\ [])
+
+  def check_cloudflared_status(opts) when is_list(opts) do
+    with {:ok, info} <- get_instance_info(opts) do
+      check_cloudflared_status(info)
+    end
+  end
+
+  def check_cloudflared_status(%{} = info) do
+    cmd = """
+    echo "=== Cloudflared Process ==="
+    ps aux | grep -E 'cloudflared' | grep -v grep || echo "Not running"
+    echo ""
+    echo "=== Tunnel Token Present ==="
+    if [ -f /etc/cloudflared/tunnel_token ]; then echo "Yes"; else echo "No"; fi
+    echo ""
+    echo "=== Recent Logs ==="
+    tail -20 /var/log/cloudflared/cloudflared.log 2>/dev/null || echo "No logs"
+    """
+
+    case ssh_exec(info, cmd) do
+      {:ok, output} ->
+        running =
+          String.contains?(output, "cloudflared") && !String.contains?(output, "Not running")
+
+        token_present = String.contains?(output, "Yes")
+
+        {:ok,
+         %{
+           running: running,
+           token_present: token_present,
+           output: output
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_status(output, key) do
+    case Regex.run(~r/#{key}=(\w+)/, output) do
+      [_, "already_running"] -> :already_running
+      [_, "started"] -> :started
+      [_, "starting"] -> :starting
+      [_, "failed"] -> :failed
+      [_, "no_token"] -> :no_token
+      _ -> :unknown
+    end
+  end
+
   # Private functions
 
   defp get_instance_info(opts) do
@@ -427,13 +576,23 @@ defmodule Lumainus.VastAI.RemoteDiagnostics do
 
     Logger.debug("[RemoteDiagnostics] SSH: ssh #{Enum.join(ssh_args, " ")}")
 
-    case System.cmd("ssh", ssh_args, stderr_to_stdout: true, timeout: timeout) do
-      {output, 0} ->
+    # Wrap in Task for timeout support (System.cmd doesn't have timeout option)
+    task =
+      Task.async(fn ->
+        System.cmd("ssh", ssh_args, stderr_to_stdout: true)
+      end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {output, 0}} ->
         {:ok, String.trim(output)}
 
-      {output, exit_code} ->
+      {:ok, {output, exit_code}} ->
         Logger.warning("[RemoteDiagnostics] SSH command failed (exit #{exit_code}): #{output}")
         {:error, {:ssh_failed, exit_code, output}}
+
+      nil ->
+        Logger.warning("[RemoteDiagnostics] SSH command timed out after #{timeout}ms")
+        {:error, {:ssh_timeout, timeout}}
     end
   rescue
     e ->

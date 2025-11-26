@@ -514,16 +514,16 @@ defmodule LumainusWeb.Admin.VastAILive do
   defp provision_with_https(socket, _offer_id, image) do
     # Use shared ProvisioningState for logs (survives page navigation)
     ProvisioningState.start_provisioning(true)
-    ProvisioningState.add_log(:info, "Using HTTPS mode with Caddy + Let's Encrypt")
+    ProvisioningState.add_log(:info, "Using HTTPS mode with Cloudflare Tunnel")
 
-    # Spawn async task for HTTPS provisioning (takes longer due to DNS + cert setup)
+    # Spawn async task for HTTPS provisioning
     Task.start(fn ->
       ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
 
-      # First verify Cloudflare is configured
+      # Verify Cloudflare is configured
       case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
         {_fqdn, nil} ->
-          ProvisioningState.add_log(:error, "CLOUDFLARE_API_TOKEN not set! Cannot setup HTTPS.")
+          ProvisioningState.add_log(:error, "CLOUDFLARE_API_TOKEN not set! Cannot setup tunnel.")
           ProvisioningState.fail(:missing_cloudflare_token)
 
         {fqdn, _token} ->
@@ -538,90 +538,228 @@ defmodule LumainusWeb.Admin.VastAILive do
     {:noreply,
      socket
      |> assign(provisioning: true, provision_status: "Starting HTTPS provisioning...")
-     |> put_flash(:info, "Provisioning started! This will take about 5-7 minutes.")}
+     |> put_flash(:info, "Provisioning started! This will take about 3-5 minutes.")}
   end
 
   defp do_provision_with_https(image, filters) do
-    ProvisioningState.add_log(:info, "Searching for GPU offers...")
-    ProvisioningState.update_status("Searching for GPU offers...")
+    alias Lumainus.Cloudflare.Tunnel
+    alias Lumainus.Docling.VastAI.InstanceManager
+    alias Lumainus.VastAI.Instances
 
-    # Generate the Caddy onstart script that starts uvicorn and sets up HTTPS
-    onstart = VastAI.caddy_onstart_script(Cloudflare.cloud_fqdn(), VastAI.cloud_port())
+    # Step 0: Self-healing - cleanup orphaned instances without tunnel
+    ProvisioningState.add_log(:info, "Checking for orphaned instances...")
+    ProvisioningState.update_status("Checking for orphaned instances...")
 
-    opts = [
-      max_price: filters.max_price,
-      disk_gb: filters.disk_gb,
-      geolocation: filters.geolocation,
-      label: "lumainus-docling",
-      image: image,
-      onstart: onstart
-    ]
+    cleanup_orphaned_instances()
 
-    ProvisioningState.add_log(:info, "Creating Vast.ai instance with startup script...")
-    ProvisioningState.update_status("Creating Vast.ai instance...")
+    # Step 1: Check for existing tunnel or create one
+    ProvisioningState.add_log(:info, "Checking for existing Cloudflare Tunnel...")
+    ProvisioningState.update_status("Checking Cloudflare Tunnel...")
 
-    case VastAI.provision(opts) do
-      {:ok, instance_id} ->
-        ProvisioningState.add_log(:success, "Instance #{instance_id} created!")
-        ProvisioningState.add_log(:info, "Waiting for instance to be ready (up to 5 min)...")
-        ProvisioningState.update_status("Instance #{instance_id} created, waiting for boot...")
+    tunnel_result =
+      case Tunnel.find_by_name("docling-vast") do
+        {:ok, [existing | _]} ->
+          # Reuse existing tunnel
+          ProvisioningState.add_log(
+            :info,
+            "Found existing tunnel: #{existing["name"]} (#{existing["id"]})"
+          )
 
-        case VastAI.wait_for_ready(instance_id, 300_000) do
-          {:ok, instance} ->
-            ProvisioningState.add_log(:success, "Instance is running!")
-            ProvisioningState.update_status("Instance running, setting up DNS...")
+          ProvisioningState.add_log(:info, "Getting tunnel token...")
 
-            case instance["public_ipaddr"] do
-              ip when is_binary(ip) and ip != "" ->
-                ProvisioningState.add_log(:info, "Public IP: #{ip}")
-                ProvisioningState.add_log(:info, "Updating Cloudflare DNS...")
-                ProvisioningState.update_status("Updating Cloudflare DNS for #{ip}...")
+          # Need to get the token for existing tunnel
+          case Tunnel.status(existing["id"]) do
+            {:ok, _status} ->
+              # For existing tunnels, we need to delete and recreate to get token
+              ProvisioningState.add_log(:warning, "Recreating tunnel to get fresh token...")
+              Tunnel.delete(existing["id"])
+              create_new_tunnel()
 
-                case Cloudflare.update_dns_record(ip) do
-                  {:ok, dns_result} ->
-                    ProvisioningState.add_log(
-                      :success,
-                      "DNS updated: #{dns_result.fqdn} -> #{ip}"
-                    )
+            {:error, _} ->
+              create_new_tunnel()
+          end
 
-                    endpoint = "https://#{dns_result.fqdn}"
-                    ProvisioningState.add_log(:info, "HTTPS endpoint: #{endpoint}")
+        {:ok, []} ->
+          create_new_tunnel()
 
-                    ProvisioningState.add_log(
-                      :info,
-                      "Note: SSL cert will be obtained by Caddy on first request (may take 1-2 min)"
-                    )
+        {:error, reason} ->
+          ProvisioningState.add_log(:error, "Failed to check tunnels: #{inspect(reason)}")
+          {:error, reason}
+      end
 
-                    # Auto-set as cloud backend
-                    DoclingSettings.update_cloud_url(endpoint)
-                    ProvisioningState.complete(instance_id, endpoint)
+    case tunnel_result do
+      {:ok, tunnel} ->
+        ProvisioningState.add_log(:success, "Tunnel ready: #{tunnel.tunnel_id}")
 
-                  {:error, dns_error} ->
-                    ProvisioningState.add_log(:error, "DNS update failed: #{inspect(dns_error)}")
-                    # Still return success but with HTTP URL
-                    endpoint = "http://#{ip}:#{VastAI.cloud_port()}"
-                    ProvisioningState.add_log(:warning, "Falling back to HTTP: #{endpoint}")
-                    DoclingSettings.update_cloud_url(endpoint)
-                    ProvisioningState.complete(instance_id, endpoint)
-                end
-
-              _ ->
-                ProvisioningState.add_log(:error, "Instance has no public IP!")
-                ProvisioningState.fail(:no_public_ip)
-            end
-
-          {:error, wait_error} ->
-            ProvisioningState.add_log(:error, "Instance failed to start: #{inspect(wait_error)}")
-            ProvisioningState.fail(wait_error)
-        end
-
-      {:error, provision_error} ->
         ProvisioningState.add_log(
-          :error,
-          "Failed to create instance: #{inspect(provision_error)}"
+          :info,
+          "DNS: #{tunnel.fqdn} → #{tunnel.tunnel_id}.cfargotunnel.com"
         )
 
-        ProvisioningState.fail(provision_error)
+        # Step 2: Create Vast.ai instance with cloudflared onstart script
+        ProvisioningState.add_log(:info, "Searching for GPU offers...")
+        ProvisioningState.update_status("Searching for GPU offers...")
+
+        onstart = VastAI.cloudflared_onstart_script(tunnel.tunnel_token, tunnel.service_port)
+
+        opts = [
+          max_price: filters.max_price,
+          disk_gb: filters.disk_gb,
+          geolocation: filters.geolocation,
+          label: "lumainus-docling",
+          image: image,
+          onstart: onstart
+        ]
+
+        ProvisioningState.add_log(
+          :info,
+          "Creating Vast.ai instance with cloudflared startup script..."
+        )
+
+        ProvisioningState.update_status("Creating Vast.ai instance...")
+
+        case VastAI.provision(opts) do
+          {:ok, instance_id} ->
+            ProvisioningState.add_log(:success, "Instance #{instance_id} created!")
+            ProvisioningState.add_log(:info, "Waiting for instance to boot (up to 5 min)...")
+
+            ProvisioningState.update_status(
+              "Instance #{instance_id} created, waiting for boot..."
+            )
+
+            case VastAI.wait_for_ready(instance_id, 300_000) do
+              {:ok, instance} ->
+                ProvisioningState.add_log(:success, "Instance is running!")
+                ip = instance["public_ipaddr"] || "unknown"
+                ProvisioningState.add_log(:info, "Instance IP: #{ip} (not exposed, using tunnel)")
+
+                # Step 3: Register with InstanceManager (includes tunnel_id for cleanup)
+                endpoint = "https://#{tunnel.fqdn}"
+
+                InstanceManager.set_endpoint(instance_id, endpoint, ip,
+                  tunnel_id: tunnel.tunnel_id
+                )
+
+                ProvisioningState.add_log(:success, "HTTPS endpoint ready: #{endpoint}")
+
+                ProvisioningState.add_log(
+                  :info,
+                  "Note: cloudflared connects outbound, may take 30-60s to establish"
+                )
+
+                # Auto-set as cloud backend
+                DoclingSettings.update_cloud_url(endpoint)
+                ProvisioningState.complete(instance_id, endpoint)
+
+              {:error, wait_error} ->
+                ProvisioningState.add_log(
+                  :error,
+                  "Instance failed to start: #{inspect(wait_error)}"
+                )
+
+                # Cleanup tunnel on failure
+                ProvisioningState.add_log(:info, "Cleaning up tunnel...")
+                Tunnel.cleanup_for_vast_ai(tunnel.tunnel_id)
+                ProvisioningState.fail(wait_error)
+            end
+
+          {:error, provision_error} ->
+            ProvisioningState.add_log(
+              :error,
+              "Failed to create instance: #{inspect(provision_error)}"
+            )
+
+            # Cleanup tunnel on failure
+            ProvisioningState.add_log(:info, "Cleaning up tunnel...")
+            Tunnel.cleanup_for_vast_ai(tunnel.tunnel_id)
+            ProvisioningState.fail(provision_error)
+        end
+
+      {:error, tunnel_error} ->
+        ProvisioningState.add_log(:error, "Failed to provision tunnel: #{inspect(tunnel_error)}")
+        ProvisioningState.fail(tunnel_error)
+    end
+  end
+
+  defp create_new_tunnel do
+    alias Lumainus.Cloudflare.Tunnel
+
+    ProvisioningState.add_log(:info, "Creating new Cloudflare Tunnel...")
+    ProvisioningState.update_status("Creating Cloudflare Tunnel...")
+
+    instance_id = "#{System.system_time(:second)}"
+
+    case Tunnel.provision_for_vast_ai(instance_id) do
+      {:ok, tunnel} ->
+        ProvisioningState.add_log(:success, "Tunnel created: #{tunnel.tunnel_name}")
+        {:ok, tunnel}
+
+      {:error, reason} ->
+        ProvisioningState.add_log(:error, "Tunnel creation failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  # Self-healing: destroy any Vast.ai instances that don't have a tunnel association
+  # These are orphaned from old Caddy-based provisioning and will conflict with tunnel-based setup
+  defp cleanup_orphaned_instances do
+    alias Lumainus.VastAI.Instances
+    alias Lumainus.Docling.VastAI.InstanceManager
+
+    # Check if InstanceManager has a tunnel_id (meaning current instance is tunnel-enabled)
+    current_tunnel_id = InstanceManager.current_tunnel_id()
+
+    case Instances.list() do
+      {:ok, %{"instances" => instances}} when is_list(instances) and length(instances) > 0 ->
+        if is_nil(current_tunnel_id) do
+          # No tunnel associated - these are orphaned instances
+          ProvisioningState.add_log(
+            :warning,
+            "Found #{length(instances)} orphaned instance(s) without tunnel"
+          )
+
+          for instance <- instances do
+            instance_id = instance["id"]
+            status = instance["actual_status"]
+
+            ProvisioningState.add_log(
+              :info,
+              "Destroying orphaned instance #{instance_id} (status: #{status})..."
+            )
+
+            case Instances.destroy(instance_id) do
+              {:ok, _} ->
+                ProvisioningState.add_log(:success, "Destroyed orphaned instance #{instance_id}")
+
+              {:error, reason} ->
+                ProvisioningState.add_log(
+                  :warning,
+                  "Failed to destroy #{instance_id}: #{inspect(reason)}"
+                )
+            end
+          end
+
+          # Clear InstanceManager state
+          InstanceManager.clear_state()
+          ProvisioningState.add_log(:info, "Cleared InstanceManager state")
+
+          # Give Vast.ai a moment to process
+          Process.sleep(2_000)
+        else
+          ProvisioningState.add_log(
+            :info,
+            "Instance has tunnel #{current_tunnel_id}, not orphaned"
+          )
+        end
+
+      {:ok, %{"instances" => []}} ->
+        ProvisioningState.add_log(:info, "No existing instances found")
+
+      {:ok, _} ->
+        ProvisioningState.add_log(:info, "No instances to cleanup")
+
+      {:error, reason} ->
+        ProvisioningState.add_log(:warning, "Could not check instances: #{inspect(reason)}")
     end
   end
 
@@ -1104,7 +1242,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                   {@provision_status || "Initializing..."}
                 </p>
                 <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                  This typically takes about 5-7 minutes. Auto-refreshing every 5 seconds.
+                  This typically takes about 3-5 minutes. Auto-refreshing every 5 seconds.
                 </p>
               </div>
             </div>
@@ -1119,7 +1257,7 @@ defmodule LumainusWeb.Admin.VastAILive do
           <div class="mt-4 bg-blue-100 dark:bg-blue-800/50 rounded p-3">
             <p class="text-xs text-blue-800 dark:text-blue-200 font-mono">
               <%= if @use_https do %>
-                Steps: Create instance → Wait for boot → Update DNS → Install Caddy → Get SSL cert
+                Steps: Create Tunnel → Create instance → Wait for boot → cloudflared connects → Ready!
               <% else %>
                 Steps: Create instance → Wait for boot → Ready!
               <% end %>

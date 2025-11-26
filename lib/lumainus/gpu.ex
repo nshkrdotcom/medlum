@@ -469,7 +469,7 @@ defmodule Lumainus.GPU do
   def fail_provisioning(correlation_id, session, reason, opts \\ []) do
     # Update session to failed
     if session do
-      update_session_status(session, "failed", reason: to_string(reason))
+      update_session_status(session, "failed", reason: inspect(reason))
     end
 
     # Log failure

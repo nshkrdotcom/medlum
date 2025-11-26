@@ -1,12 +1,24 @@
 defmodule Lumainus.VastAI do
   @moduledoc """
   High-level Vast.ai operations (search, provision, destroy, status).
+
+  ## Cloudflare Tunnel Integration
+
+  Instead of exposing ports and using Let's Encrypt, we now use Cloudflare Tunnels:
+
+  1. `provision_with_tunnel/1` creates a Cloudflare Tunnel via API
+  2. The tunnel token is passed to the Vast.ai onstart script
+  3. `cloudflared` runs inside the container, creating an outbound connection
+  4. Traffic flows: Internet → Cloudflare → Tunnel → uvicorn:8044
+
+  This works with Vast.ai's SSH-mode containers which don't expose HTTP ports.
   """
 
   require Logger
 
   alias Lumainus.VastAI.{Instances, Offers}
   alias Lumainus.Cloudflare
+  alias Lumainus.Cloudflare.Tunnel
 
   # Custom GPU image with docling pre-installed
   # See docling_service/DEPLOYMENT.md for build instructions
@@ -29,69 +41,144 @@ defmodule Lumainus.VastAI do
   end
 
   @doc """
-  Provision an instance with automatic HTTPS setup via Caddy + Let's Encrypt.
+  Provision an instance with automatic HTTPS setup via Cloudflare Tunnel.
 
   This will:
-  1. Provision the instance with Caddy onstart script
-  2. Wait for the instance to be ready
-  3. Update Cloudflare DNS to point to the instance IP
-  4. Return the HTTPS endpoint
+  1. Create a Cloudflare Tunnel via API
+  2. Configure tunnel ingress and DNS CNAME
+  3. Provision the Vast.ai instance with cloudflared onstart script
+  4. Wait for the instance to be ready
+  5. Return the HTTPS endpoint
+
+  ## Why Cloudflare Tunnel?
+
+  Vast.ai SSH-mode containers don't expose HTTP ports (80, 443, 8044).
+  Cloudflare Tunnel creates an *outbound* connection from the container,
+  so no port exposure is needed. Cloudflare handles HTTPS termination.
 
   ## Options
   Same as `provision/1` plus:
     - `:subdomain` - Subdomain for HTTPS (default: "docling")
-    - `:setup_https` - Whether to set up HTTPS (default: true)
   """
   def provision_with_https(opts \\ []) do
+    # Delegate to the new tunnel-based provisioning
+    provision_with_tunnel(opts)
+  end
+
+  @doc """
+  Provision an instance with Cloudflare Tunnel for secure connectivity.
+
+  ## Options
+    - `:subdomain` - Subdomain for HTTPS (default: "docling")
+    - `:max_price` - Maximum hourly price (default: 0.18)
+    - `:disk_gb` - Disk size in GB (default: 16)
+    - `:label` - Instance label (default: "docling-dev")
+  """
+  def provision_with_tunnel(opts \\ []) do
     subdomain = Keyword.get(opts, :subdomain, @default_subdomain)
     domain = Keyword.get(opts, :domain, @default_domain)
     fqdn = "#{subdomain}.#{domain}"
 
-    # Generate onstart script with Caddy configuration
-    onstart = caddy_onstart_script(fqdn, @cloud_port)
+    Logger.info("[VastAI] Starting tunnel-based provisioning for #{fqdn}")
 
-    # Provision with the Caddy onstart script
-    opts = Keyword.put(opts, :onstart, onstart)
-
-    with {:ok, instance_id} <- provision(opts),
-         {:ok, instance} <- wait_for_ready(instance_id, 300_000),
-         {:ok, ip} <- extract_ip(instance),
-         {:ok, _dns} <- update_dns(ip, subdomain: subdomain) do
+    # Step 1: Create Cloudflare Tunnel and configure routing
+    # We create the tunnel BEFORE the instance so we have the token
+    with {:ok, tunnel} <- create_tunnel_for_instance(opts),
+         # Step 2: Generate onstart script with tunnel token
+         onstart = cloudflared_onstart_script(tunnel.tunnel_token, @cloud_port),
+         # Step 3: Provision the Vast.ai instance
+         opts = Keyword.put(opts, :onstart, onstart),
+         {:ok, instance_id} <- provision(opts),
+         # Step 4: Wait for instance to be ready
+         {:ok, _instance} <- wait_for_ready(instance_id, 300_000) do
       endpoint = "https://#{fqdn}"
-      Logger.info("[VastAI] HTTPS instance ready at #{endpoint}")
-      {:ok, instance_id, endpoint}
+      Logger.info("[VastAI] Tunnel-based instance ready at #{endpoint}")
+      Logger.info("[VastAI] Tunnel ID: #{tunnel.tunnel_id}")
+
+      {:ok, instance_id, endpoint, tunnel.tunnel_id}
+    else
+      {:error, reason} = error ->
+        Logger.error("[VastAI] Tunnel provisioning failed: #{inspect(reason)}")
+        error
     end
   end
 
-  defp extract_ip(%{"public_ipaddr" => ip}) when is_binary(ip) and ip != "", do: {:ok, ip}
-  defp extract_ip(_), do: {:error, :no_public_ip}
+  @doc """
+  Destroy an instance and clean up its Cloudflare Tunnel.
 
-  defp update_dns(ip, opts) do
-    Logger.info("[VastAI] Updating DNS to point to #{ip}")
-    Cloudflare.update_dns_record(ip, opts)
+  ## Options
+    - `:tunnel_id` - The Cloudflare Tunnel ID to delete (optional)
+  """
+  def destroy_with_tunnel(instance_id, opts \\ []) do
+    tunnel_id = Keyword.get(opts, :tunnel_id)
+
+    # Destroy the Vast.ai instance first
+    result = destroy(instance_id)
+
+    # Clean up the tunnel if provided
+    if tunnel_id do
+      Logger.info("[VastAI] Cleaning up tunnel #{tunnel_id}")
+
+      case Tunnel.cleanup_for_vast_ai(tunnel_id, opts) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("[VastAI] Failed to cleanup tunnel: #{inspect(reason)}")
+      end
+    end
+
+    result
+  end
+
+  # Create Cloudflare Tunnel for a new instance
+  defp create_tunnel_for_instance(opts) do
+    # Use a timestamp-based name since we don't have instance ID yet
+    timestamp = System.system_time(:second)
+    label = Keyword.get(opts, :label, "docling-dev")
+
+    Tunnel.provision_for_vast_ai("#{label}-#{timestamp}", opts)
   end
 
   @doc """
-  Generate Caddy onstart script for automatic HTTPS.
+  Generate cloudflared onstart script for Cloudflare Tunnel connectivity.
+
+  Unlike Caddy (which needs ports 80/443 exposed for Let's Encrypt),
+  cloudflared creates an OUTBOUND connection to Cloudflare, so no
+  port exposure is needed on the Vast.ai container.
+
+  ## Parameters
+    - `tunnel_token` - The Cloudflare Tunnel connector token
+    - `backend_port` - The port uvicorn listens on (default: 8044)
   """
-  def caddy_onstart_script(domain, backend_port) do
+  def cloudflared_onstart_script(tunnel_token, backend_port) do
     """
     #!/bin/bash
-    # Auto-generated startup script for docling service with Caddy HTTPS
+    # Auto-generated startup script for docling service with Cloudflare Tunnel
     set -e
-    DOMAIN="#{domain}"
+    TUNNEL_TOKEN="#{tunnel_token}"
     BACKEND_PORT="#{backend_port}"
     LOG="/var/log/startup.log"
 
     log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
 
-    log "=== Starting docling service setup ==="
-    log "Domain: $DOMAIN, Backend port: $BACKEND_PORT"
+    log "=== Starting docling service setup (Cloudflare Tunnel mode) ==="
+    log "Backend port: $BACKEND_PORT"
+
+    # ============================================
+    # STEP 0: Save config for restart scenarios
+    # ============================================
+    # The onstart script only runs on first provision, not on stop/start.
+    # Save the token and port so ensure_services_running can restart services.
+    mkdir -p /etc/cloudflared
+    echo "$TUNNEL_TOKEN" > /etc/cloudflared/tunnel_token
+    echo "$BACKEND_PORT" > /etc/cloudflared/backend_port
+    chmod 600 /etc/cloudflared/tunnel_token
+    log "Saved tunnel config to /etc/cloudflared/"
 
     # ============================================
     # STEP 1: Start the docling uvicorn service
     # ============================================
-    # With runtype=ssh, Docker CMD doesn't run, so we must start it manually
     log "Starting uvicorn service..."
 
     cd /app/service
@@ -101,7 +188,6 @@ defmodule Lumainus.VastAI do
     export OMP_NUM_THREADS=4
 
     # Start uvicorn in background, logging to file
-    # Use conda python path (the Docker image uses miniconda)
     nohup /opt/conda/bin/python -m uvicorn app.main:app --host $HOST --port $PORT --no-access-log > /var/log/uvicorn.log 2>&1 &
     UVICORN_PID=$!
     log "Uvicorn started with PID $UVICORN_PID"
@@ -120,34 +206,75 @@ defmodule Lumainus.VastAI do
     done
 
     # ============================================
-    # STEP 3: Install and configure Caddy
+    # STEP 3: Install cloudflared
     # ============================================
-    log "Installing Caddy..."
-    apt-get update -y
-    apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-    apt-get update -y
-    apt-get install -y caddy
+    log "Installing cloudflared..."
 
-    # Create Caddyfile (no quotes on CADDYEOF to allow variable expansion)
-    mkdir -p /var/log/caddy
-    cat > /etc/caddy/Caddyfile <<-CADDYEOF
-    $DOMAIN {
-        reverse_proxy localhost:$BACKEND_PORT
-        log {
-            output file /var/log/caddy/access.log
-            format json
-        }
-    }
-    CADDYEOF
+    # Download and install cloudflared
+    if ! command -v cloudflared &> /dev/null; then
+      curl -L --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+      dpkg -i /tmp/cloudflared.deb || apt-get install -f -y
+      rm /tmp/cloudflared.deb
+    fi
 
-    # Start Caddy
-    systemctl enable caddy
-    systemctl restart caddy
+    log "cloudflared version: $(cloudflared --version)"
+
+    # ============================================
+    # STEP 4: Start cloudflared tunnel
+    # ============================================
+    log "Starting Cloudflare Tunnel..."
+    mkdir -p /var/log/cloudflared
+
+    # Run cloudflared with the tunnel token
+    # The token contains all config (tunnel ID, account, ingress rules)
+    nohup cloudflared tunnel --no-autoupdate run --token "$TUNNEL_TOKEN" > /var/log/cloudflared/cloudflared.log 2>&1 &
+    CLOUDFLARED_PID=$!
+    log "cloudflared started with PID $CLOUDFLARED_PID"
+
+    # Wait for tunnel to establish connection
+    log "Waiting for tunnel connection..."
+    for i in {1..30}; do
+      if grep -q "Connection.*registered" /var/log/cloudflared/cloudflared.log 2>/dev/null; then
+        log "Tunnel connected!"
+        break
+      fi
+      if grep -q "error" /var/log/cloudflared/cloudflared.log 2>/dev/null; then
+        log "WARNING: Tunnel may have errors, check /var/log/cloudflared/cloudflared.log"
+      fi
+      log "Waiting for tunnel... ($i/30)"
+      sleep 2
+    done
+
+    # Save PIDs for service management
+    echo "$UVICORN_PID" > /var/run/uvicorn.pid
+    echo "$CLOUDFLARED_PID" > /var/run/cloudflared.pid
+
     log "=== Setup complete ==="
     log "Docling service: http://localhost:$BACKEND_PORT"
-    log "HTTPS endpoint: https://$DOMAIN"
+    log "Cloudflare Tunnel: Active (traffic routed via Cloudflare)"
+    log "Check tunnel status: cat /var/log/cloudflared/cloudflared.log"
+    """
+  end
+
+  @doc """
+  Generate Caddy onstart script for automatic HTTPS.
+
+  DEPRECATED: Use cloudflared_onstart_script/2 instead.
+  Caddy requires ports 80/443 to be exposed for Let's Encrypt ACME challenges,
+  which doesn't work with Vast.ai SSH-mode containers.
+  """
+  def caddy_onstart_script(_domain, _backend_port) do
+    Logger.warning(
+      "[VastAI] caddy_onstart_script is deprecated - use cloudflared_onstart_script instead"
+    )
+
+    """
+    #!/bin/bash
+    # DEPRECATED: This script requires ports 80/443 which aren't exposed in Vast.ai SSH mode
+    # Use cloudflared_onstart_script instead
+    echo "ERROR: Caddy mode is deprecated. Vast.ai SSH containers don't expose ports 80/443."
+    echo "Please use Cloudflare Tunnel mode instead."
+    exit 1
     """
   end
 
