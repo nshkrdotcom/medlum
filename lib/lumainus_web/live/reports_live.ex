@@ -30,8 +30,12 @@ defmodule LumainusWeb.ReportsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    mount_start = System.monotonic_time(:millisecond)
     scope = socket.assigns.current_scope
+
+    t0 = System.monotonic_time(:millisecond)
     Reports.bootstrap_workspace!(scope)
+    t1 = System.monotonic_time(:millisecond)
 
     socket =
       socket
@@ -44,9 +48,15 @@ defmodule LumainusWeb.ReportsLive do
       )
       |> load_workspace()
 
+    t2 = System.monotonic_time(:millisecond)
+
     socket =
       if connected?(socket) do
+        # Subscribe to record set updates
         Documents.subscribe_to_record_set(socket.assigns.record_set.id)
+
+        # Subscribe to GPU instance status changes from InstanceManager
+        InstanceManager.subscribe()
 
         assign(
           socket,
@@ -56,6 +66,13 @@ defmodule LumainusWeb.ReportsLive do
       else
         socket
       end
+
+    mount_end = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[ReportsLive.mount] TIMING total=#{mount_end - mount_start}ms " <>
+        "bootstrap=#{t1 - t0}ms load_workspace=#{t2 - t1}ms subscriptions=#{mount_end - t2}ms"
+    )
 
     {:ok, socket}
   end
@@ -515,6 +532,8 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp load_workspace(socket, opts \\ []) do
+    timings = %{start: System.monotonic_time(:millisecond)}
+
     scope = socket.assigns.current_scope
     has_patient_override = Keyword.has_key?(opts, :patient_id)
 
@@ -528,39 +547,49 @@ defmodule LumainusWeb.ReportsLive do
     patient_id =
       Keyword.get(opts, :patient_id) || (socket.assigns[:patient] && socket.assigns.patient.id)
 
+    t0 = System.monotonic_time(:millisecond)
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
+    t1 = System.monotonic_time(:millisecond)
+
     documents = format_documents(workspace.documents)
+    t2 = System.monotonic_time(:millisecond)
+
     sections = format_sections(workspace.sections)
+    t3 = System.monotonic_time(:millisecond)
+
     docling_health = Docling.latest_health_check()
+    t4 = System.monotonic_time(:millisecond)
 
-    # NON-BLOCKING: Get GPU status quickly (checks local state, not HTTP)
+    # INSTANT: Get GPU status from InstanceManager state machine (no HTTP)
+    # InstanceManager maintains health state via periodic background checks
     gpu_instance_status = check_gpu_instance_status_fast()
+    t5 = System.monotonic_time(:millisecond)
 
-    # Check if there's a configured cloud_url (for static cloud endpoints)
-    cloud_url_configured? = has_configured_cloud_url?()
-
-    # NON-BLOCKING: Defer expensive health check to avoid blocking page load
-    # Start with "checking" state and update async after mount
-    # Also consider statically configured cloud_url (not just InstanceManager instances)
+    # Derive fast_available? directly from InstanceManager state
+    # No "Checking..." delays - trust the state machine
     {fast_available?, fast_reason} =
-      case {gpu_instance_status.status, cloud_url_configured?} do
-        # InstanceManager has a running instance - will check async
-        {:running, _} -> {nil, "Checking..."}
-        {:loading, _} -> {false, "GPU instance still loading"}
-        # No instance in InstanceManager, but cloud_url is configured - check it async
-        {_, true} -> {nil, "Checking cloud service..."}
-        # No instance and no configured URL
-        _ -> {false, "No GPU instance"}
+      case gpu_instance_status do
+        %{status: :running, healthy: false, health_check_error: error} ->
+          # Instance running but health check failed
+          {false, error || "GPU service unhealthy"}
+
+        %{status: :running, healthy: healthy} when healthy != false ->
+          # Instance running and either healthy (true) or not yet checked (nil)
+          # Trust it's available - background health check will update if not
+          {true, nil}
+
+        %{status: :loading} ->
+          {false, "GPU instance still loading"}
+
+        %{status: :stopped} ->
+          {false, "GPU instance stopped"}
+
+        _ ->
+          {false, "No GPU instance"}
       end
 
-    # Schedule async health check if we have a potential endpoint:
-    # - InstanceManager has a running instance, OR
-    # - A cloud_url is configured (even without InstanceManager)
-    should_check_health? = gpu_instance_status.status == :running or cloud_url_configured?
-
-    if connected?(socket) and should_check_health? do
-      send(self(), :check_fast_backend_health)
-    end
+    # NO async health check on page load - InstanceManager handles this in background
+    # Subscribe to PubSub for status updates instead (done in mount)
 
     # Doctors always use local backend (no GPU cost controls)
     can_manage_gpu? = scope.user.role in ["admin", "system_administrator"]
@@ -583,10 +612,33 @@ defmodule LumainusWeb.ReportsLive do
       |> Enum.map(& &1.section.id)
       |> MapSet.new()
 
+    t6 = System.monotonic_time(:millisecond)
     record_sets = RecordSets.list_for_patient(workspace.patient)
+    t7 = System.monotonic_time(:millisecond)
+
     record_set_latest_runs = Reports.latest_runs_for_record_sets(scope, record_sets)
+    t8 = System.monotonic_time(:millisecond)
+
     recent_runs = Reports.list_runs_for_record_set(scope, workspace.record_set, limit: 5)
+    t9 = System.monotonic_time(:millisecond)
+
     patients = Reports.list_patients_for_scope(scope)
+    t10 = System.monotonic_time(:millisecond)
+
+    # Log all timings
+    Logger.info(
+      "[load_workspace] TIMING " <>
+        "workspace=#{t1 - t0}ms " <>
+        "format_docs=#{t2 - t1}ms " <>
+        "format_sections=#{t3 - t2}ms " <>
+        "docling_health=#{t4 - t3}ms " <>
+        "gpu_status=#{t5 - t4}ms " <>
+        "record_sets=#{t7 - t6}ms " <>
+        "latest_runs=#{t8 - t7}ms " <>
+        "recent_runs=#{t9 - t8}ms " <>
+        "patients=#{t10 - t9}ms " <>
+        "total=#{t10 - timings.start}ms"
+    )
 
     socket =
       socket
@@ -653,17 +705,62 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
-  # Async health check to avoid blocking page load
+  # Handle GPU status changes from InstanceManager PubSub
+  # This is the PRIMARY way to get status updates - no HTTP polling needed
+  def handle_info({:gpu_status_changed, status_map}, socket) do
+    Logger.debug(
+      "[ReportsLive] GPU status changed: status=#{status_map.status} healthy=#{status_map.healthy}"
+    )
+
+    # Derive fast_available? from the new status
+    {fast_available?, fast_reason} =
+      case status_map do
+        %{status: :running, healthy: false, health_check_error: error} ->
+          {false, error || "GPU service unhealthy"}
+
+        %{status: :running, healthy: healthy} when healthy != false ->
+          {true, nil}
+
+        %{status: :loading} ->
+          {false, "GPU instance still loading"}
+
+        %{status: :stopped} ->
+          {false, "GPU instance stopped"}
+
+        _ ->
+          {false, "No GPU instance"}
+      end
+
+    # Normalize status for UI
+    normalized_status =
+      case status_map.status do
+        :running -> :running
+        :stopped -> :stopped
+        :loading -> :loading
+        :none -> :no_instance
+        _ -> :unknown
+      end
+
+    gpu_instance_status = %{
+      status: normalized_status,
+      endpoint: status_map.endpoint,
+      instance_id: status_map.instance_id,
+      healthy: status_map.healthy,
+      health_check_error: status_map.health_check_error
+    }
+
+    {:noreply,
+     socket
+     |> assign(:gpu_instance_status, gpu_instance_status)
+     |> assign(:fast_available?, fast_available?)
+     |> assign(:fast_unavailable_reason, format_backend_reason(fast_reason))}
+  end
+
+  # DEPRECATED: Keep for backwards compatibility but no longer triggered from load_workspace
+  # InstanceManager now handles health checks in background
   def handle_info(:check_fast_backend_health, socket) do
-    # Capture LiveView pid before starting task
-    lv_pid = self()
-
-    # Run health check in background with short timeout
-    Task.start(fn ->
-      result = fast_backend_health_with_timeout(5_000)
-      send(lv_pid, {:fast_backend_health_result, result})
-    end)
-
+    # No-op - health checks are now handled by InstanceManager
+    Logger.debug("[ReportsLive] Ignoring legacy :check_fast_backend_health message")
     {:noreply, socket}
   end
 
@@ -882,13 +979,25 @@ defmodule LumainusWeb.ReportsLive do
   defp entry_processed(socket, _other), do: {:noreply, socket}
 
   defp handle_consumed_entry(%{binary: binary, meta: meta}, socket) do
-    Logger.debug("ReportsLive received upload #{meta.filename} (#{meta.byte_size} bytes)")
+    lv_pid = self()
+    lv_id = socket.id
+
+    Logger.info(
+      "[ReportsLive] handle_consumed_entry filename=#{meta.filename} " <>
+        "byte_size=#{meta.byte_size} lv_pid=#{inspect(lv_pid)} lv_id=#{lv_id}"
+    )
 
     case persist_upload(meta, binary, socket) do
       {:ok, updated_socket} ->
         {:noreply,
          updated_socket
          |> put_flash(:info, "#{meta.filename} queued for ingestion.")
+         |> load_workspace()}
+
+      {:error, :already_queued, updated_socket} ->
+        {:noreply,
+         updated_socket
+         |> put_flash(:warning, "#{meta.filename} is already being processed.")
          |> load_workspace()}
 
       {:error, updated_socket} ->
@@ -901,11 +1010,38 @@ defmodule LumainusWeb.ReportsLive do
     template = socket.assigns.template
     patient = socket.assigns.patient
     record_set = socket.assigns.record_set
+    backend = socket.assigns.docling_backend
+    lv_pid = self()
 
     case Documents.create_upload(scope, patient, record_set, meta, binary) do
       {:ok, upload} ->
-        Documents.queue_ingestion(upload, template, backend: socket.assigns.docling_backend)
-        {:ok, socket}
+        Logger.info(
+          "[ReportsLive] Queuing ingestion upload=#{upload.id} filename=#{meta.filename} " <>
+            "backend=#{backend} lv_pid=#{inspect(lv_pid)} record_set_id=#{record_set.id}"
+        )
+
+        case Documents.queue_ingestion(upload, template, backend: backend) do
+          {:ok, _job} ->
+            {:ok, socket}
+
+          {:error, :already_queued} ->
+            Logger.warning(
+              "[ReportsLive] DUPLICATE BLOCKED upload=#{upload.id} filename=#{meta.filename} " <>
+                "lv_pid=#{inspect(lv_pid)}"
+            )
+
+            {:error, :already_queued, socket}
+
+          {:error, reason} ->
+            Logger.error(
+              "[ReportsLive] queue_ingestion failed upload=#{upload.id} " <>
+                "filename=#{meta.filename} reason=#{inspect(reason)}"
+            )
+
+            {:error,
+             socket
+             |> put_flash(:error, "Failed to queue #{meta.filename}: #{inspect(reason)}")}
+        end
 
       {:error, changeset} ->
         Logger.error("Failed to persist upload #{meta.filename}: #{humanize_errors(changeset)}")
@@ -1080,68 +1216,13 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
-  # Health check with explicit timeout for async calls
-  defp fast_backend_health_with_timeout(timeout_ms) do
-    config = Docling.config()
-    cloud_url = Keyword.get(config, :cloud_url)
-    remote_url = Keyword.get(config, :remote_url)
-
-    # Debug logging for health check
-    Logger.debug(
-      "[ReportsLive] Health check: cloud_url=#{inspect(cloud_url)}, remote_url=#{inspect(remote_url)}"
-    )
-
-    cond do
-      is_nil(cloud_url) and is_nil(remote_url) ->
-        Logger.warning("[ReportsLive] Health check failed: Cloud URL not configured")
-        {false, "Cloud URL not configured"}
-
-      cloud_url == "" and (is_nil(remote_url) or remote_url == "") ->
-        Logger.warning("[ReportsLive] Health check failed: Cloud URL is empty")
-        {false, "Cloud URL not configured"}
-
-      true ->
-        try do
-          url = cloud_url || remote_url
-          Logger.debug("[ReportsLive] Running health check against #{url}")
-
-          # Use Task with timeout to avoid hanging forever
-          task =
-            Task.async(fn ->
-              case Docling.health(backend: :vast_ai, timeout: timeout_ms) do
-                {:ok, _} ->
-                  Logger.info("[ReportsLive] Health check passed for #{url}")
-                  {true, nil}
-
-                {:error, reason} ->
-                  Logger.warning("[ReportsLive] Health check failed: #{inspect(reason)}")
-                  {false, inspect(reason)}
-              end
-            end)
-
-          case Task.yield(task, timeout_ms) || Task.shutdown(task) do
-            {:ok, result} ->
-              result
-
-            nil ->
-              Logger.warning("[ReportsLive] Health check timed out after #{timeout_ms}ms")
-              {false, "Health check timed out"}
-          end
-        rescue
-          error ->
-            Logger.error("[ReportsLive] Health check exception: #{inspect(error)}")
-            {false, inspect(error)}
-        end
-    end
-  end
-
   # Fast version that only checks local state - NO HTTP calls
   # Used during mount to avoid blocking page load
-  # Returns map with: status (:running, :stopped, :loading, :none, :unknown), endpoint, instance_id
+  # Returns map with: status, endpoint, instance_id, healthy, health_check_error
   defp check_gpu_instance_status_fast do
     if Process.whereis(InstanceManager) do
       try do
-        # Use the new status() function that returns full state
+        # Use the status() function that returns full state including health
         status_map = InstanceManager.status()
 
         # Normalize status values for backward compatibility
@@ -1157,26 +1238,31 @@ defmodule LumainusWeb.ReportsLive do
         %{
           status: normalized_status,
           endpoint: status_map.endpoint,
-          instance_id: status_map.instance_id
+          instance_id: status_map.instance_id,
+          healthy: status_map[:healthy],
+          health_check_error: status_map[:health_check_error]
         }
       rescue
-        _ -> %{status: :unknown, endpoint: nil, instance_id: nil}
+        _ ->
+          %{
+            status: :unknown,
+            endpoint: nil,
+            instance_id: nil,
+            healthy: nil,
+            health_check_error: nil
+          }
       catch
-        :exit, _ -> %{status: :unknown, endpoint: nil, instance_id: nil}
+        :exit, _ ->
+          %{
+            status: :unknown,
+            endpoint: nil,
+            instance_id: nil,
+            healthy: nil,
+            health_check_error: nil
+          }
       end
     else
-      %{status: :unknown, endpoint: nil, instance_id: nil}
-    end
-  end
-
-  # Check if there's a configured cloud_url (for static cloud endpoints, e.g. via admin settings)
-  # This allows GPU availability even without a dynamically provisioned InstanceManager instance
-  defp has_configured_cloud_url? do
-    case Docling.config()[:cloud_url] do
-      nil -> false
-      "" -> false
-      url when is_binary(url) -> String.trim(url) != ""
-      _ -> false
+      %{status: :unknown, endpoint: nil, instance_id: nil, healthy: nil, health_check_error: nil}
     end
   end
 
@@ -2860,28 +2946,17 @@ defmodule LumainusWeb.ReportsLive do
                 <%= cond do %>
                   <% @fast_available? == nil -> %>
                     <%!-- Still checking - show subtle indicator --%>
-                    <span class="text-slate-500 text-sm">Checking GPU availability...</span>
+                    <span class="text-slate-400 text-xs">Checking...</span>
                   <% @fast_available? == false -> %>
-                    <%!-- Explicitly unavailable --%>
-                    <span class={
-                      if @fast_unavailable_reason &&
-                           String.contains?(@fast_unavailable_reason || "", "Service starting"),
-                         do: "text-sky-600",
-                         else: "text-amber-600"
-                    }>
-                      <%= cond do %>
-                        <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "Service starting") -> %>
-                          {@fast_unavailable_reason}
-                        <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "loading") -> %>
-                          {@fast_unavailable_reason}
-                        <% true -> %>
-                          GPU service unavailable
-                          <%= if @fast_unavailable_reason && @fast_unavailable_reason != "" do %>
-                            — {@fast_unavailable_reason}
-                          <% end %>
-                          — falling back to Standard.
-                      <% end %>
-                    </span>
+                    <%!-- Unavailable - keep it simple, disabled button is self-explanatory --%>
+                    <%= cond do %>
+                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason || "", "starting") -> %>
+                        <span class="text-sky-600 text-xs">Starting up...</span>
+                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason || "", "loading") -> %>
+                        <span class="text-sky-600 text-xs">Loading...</span>
+                      <% true -> %>
+                        <%!-- Don't show anything - grayed out button is enough --%>
+                    <% end %>
                   <% true -> %>
                     <%!-- Available (true) - show nothing --%>
                 <% end %>

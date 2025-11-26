@@ -29,13 +29,31 @@ defmodule Lumainus.Documents.DoclingIngestionWorker do
       Documents.link_oban_job(job, oban_id)
     end
 
+    upload = job.upload
+    filename = (upload && upload.filename) || "unknown"
+    upload_id = (upload && upload.id) || "unknown"
+    job_backend = job.backend || "unknown"
+    metadata_backend = get_in(job.metadata || %{}, ["backend"]) || "unknown"
+    requested_backend = get_in(job.metadata || %{}, ["requested_backend"])
+
+    Logger.info(
+      "[DoclingIngestionWorker] STARTING job_id=#{job_id} oban_id=#{oban_id} " <>
+        "upload_id=#{upload_id} filename=#{filename} attempt=#{attempt}/#{job.max_attempts} " <>
+        "job_backend=#{job_backend} metadata_backend=#{metadata_backend} " <>
+        "requested_backend=#{inspect(requested_backend)} state=#{job.state} stage=#{job.stage}"
+    )
+
     # Check circuit breaker conditions
     case check_circuit_breaker(job, attempt) do
       :ok ->
         process_with_timeout(job, attempt)
 
       {:cancel, reason} = result ->
-        Logger.warning("Ingestion job #{job_id} cancelled: #{inspect(reason)}")
+        Logger.warning(
+          "[DoclingIngestionWorker] CANCELLED job_id=#{job_id} upload_id=#{upload_id} " <>
+            "filename=#{filename} reason=#{inspect(reason)}"
+        )
+
         result
     end
   end
@@ -66,8 +84,15 @@ defmodule Lumainus.Documents.DoclingIngestionWorker do
 
   defp process_with_timeout(job, attempt) do
     timeout_ms = IngestionConfig.conversion_timeout_ms()
+    upload = job.upload
+    filename = (upload && upload.filename) || "unknown"
+    upload_id = (upload && upload.id) || "unknown"
 
-    Logger.info("Starting ingestion job #{job.id}, attempt #{attempt}/#{job.max_attempts}")
+    Logger.info(
+      "[DoclingIngestionWorker] PROCESSING job_id=#{job.id} upload_id=#{upload_id} " <>
+        "filename=#{filename} attempt=#{attempt}/#{job.max_attempts} " <>
+        "timeout_ms=#{timeout_ms} backend=#{job.backend}"
+    )
 
     # Mark job as processing and update attempt info
     {:ok, job} = Documents.mark_job_processing(job, attempt)
@@ -77,7 +102,11 @@ defmodule Lumainus.Documents.DoclingIngestionWorker do
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, :ok} ->
-        Logger.info("Ingestion job #{job.id} completed successfully")
+        Logger.info(
+          "[DoclingIngestionWorker] COMPLETED job_id=#{job.id} upload_id=#{upload_id} " <>
+            "filename=#{filename} backend=#{job.backend}"
+        )
+
         :ok
 
       {:ok, {:error, reason}} ->

@@ -2,6 +2,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   use LumainusWeb, :live_view
   require Logger
 
+  alias Decimal
   alias Lumainus.VastAI
   alias Lumainus.VastAI.{Instances, Offers}
   alias Lumainus.Docling.Settings, as: DoclingSettings
@@ -353,7 +354,7 @@ defmodule LumainusWeb.Admin.VastAILive do
 
         {fqdn, _token} ->
           ProvisioningState.add_log(:success, "Cloudflare configured for #{fqdn}")
-          do_provision_with_https(image, filters)
+          do_provision_with_https(image, filters, nil)
       end
     end)
 
@@ -411,7 +412,7 @@ defmodule LumainusWeb.Admin.VastAILive do
           |> add_log(:info, "Starting provisioning for offer #{offer_id}...")
 
         image = socket.assigns.selected_image
-        provision_with_https(socket, offer_id, image)
+        provision_with_https(socket, offer, image)
       else
         {:noreply, put_flash(socket, :error, "Offer not found")}
       end
@@ -526,7 +527,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   # Private: Provisioning
   # =============================================================================
 
-  defp provision_with_https(socket, _offer_id, image) do
+  defp provision_with_https(socket, offer, image) do
     # Use shared ProvisioningState for logs (survives page navigation)
     ProvisioningState.start_provisioning(true)
     ProvisioningState.add_log(:info, "Using Cloudflare Tunnel mode")
@@ -543,7 +544,7 @@ defmodule LumainusWeb.Admin.VastAILive do
 
         {fqdn, _token} ->
           ProvisioningState.add_log(:success, "Cloudflare configured for #{fqdn}")
-          do_provision_with_https(image, socket.assigns.filters)
+          do_provision_with_https(image, socket.assigns.filters, offer)
       end
     end)
 
@@ -556,7 +557,7 @@ defmodule LumainusWeb.Admin.VastAILive do
      |> put_flash(:info, "Provisioning started! This will take about 3-5 minutes.")}
   end
 
-  defp do_provision_with_https(image, filters) do
+  defp do_provision_with_https(image, filters, selected_offer) do
     alias Lumainus.Cloudflare.Tunnel
     alias Lumainus.Docling.VastAI.InstanceManager
     alias Lumainus.VastAI.Instances
@@ -612,8 +613,23 @@ defmodule LumainusWeb.Admin.VastAILive do
         )
 
         # Step 2: Create Vast.ai instance with cloudflared onstart script
-        ProvisioningState.add_log(:info, "Searching for GPU offers...")
-        ProvisioningState.update_status("Searching for GPU offers...")
+        case selected_offer do
+          %{"id" => id, "dph_total" => price} ->
+            ProvisioningState.add_log(
+              :info,
+              "Using selected offer #{id} ($#{Float.round(price || 0, 3)}/hr)..."
+            )
+
+            ProvisioningState.update_status("Creating instance from selected offer...")
+
+          %{"id" => id} ->
+            ProvisioningState.add_log(:info, "Using selected offer #{id}...")
+            ProvisioningState.update_status("Creating instance from selected offer...")
+
+          _ ->
+            ProvisioningState.add_log(:info, "Searching for GPU offers...")
+            ProvisioningState.update_status("Searching for GPU offers...")
+        end
 
         onstart = VastAI.cloudflared_onstart_script(tunnel.tunnel_token, tunnel.service_port)
 
@@ -623,7 +639,10 @@ defmodule LumainusWeb.Admin.VastAILive do
           geolocation: filters.geolocation,
           label: "lumainus-docling",
           image: image,
-          onstart: onstart
+          onstart: onstart,
+          gpu_name: filters.gpu_name,
+          num_gpus: filters.num_gpus,
+          offer_id: selected_offer && selected_offer["id"]
         ]
 
         ProvisioningState.add_log(
@@ -1043,6 +1062,65 @@ defmodule LumainusWeb.Admin.VastAILive do
     dt
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
+  end
+
+  defp format_location(nil), do: "Unknown"
+
+  defp format_location(loc) when is_binary(loc) do
+    loc
+    |> String.trim()
+    |> String.trim_leading(",")
+    |> String.trim()
+    |> case do
+      "" -> "Unknown"
+      value -> value
+    end
+  end
+
+  defp format_location(list) when is_list(list) do
+    list
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.map(&String.trim/1)
+    |> Enum.join(", ")
+    |> case do
+      "" -> "Unknown"
+      value -> value
+    end
+  end
+
+  defp format_location(other), do: to_string(other)
+
+  defp normalize_price(nil), do: nil
+  defp normalize_price(val) when is_integer(val), do: val * 1.0
+  defp normalize_price(val) when is_float(val), do: val
+
+  defp normalize_price(val) when is_binary(val) do
+    case Float.parse(val) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp normalize_price(%Decimal{} = dec), do: Decimal.to_float(dec)
+  defp normalize_price(_), do: nil
+
+  defp format_price(price) do
+    case normalize_price(price) do
+      nil -> "—"
+      num -> "$" <> :erlang.float_to_binary(num, decimals: 3)
+    end
+  end
+
+  defp offer_gpu_price(offer) do
+    offer["dph_total_gpu"] ||
+      offer["dph_gpu"] ||
+      offer["gpu_total_cost"]
+  end
+
+  defp offer_disk_price(offer) do
+    offer["dph_total_disk"] ||
+      offer["dph_disk"] ||
+      offer["storage_dph"]
   end
 
   defp parse_int(nil, default), do: default
@@ -1493,6 +1571,7 @@ defmodule LumainusWeb.Admin.VastAILive do
         <% else %>
           <div class="space-y-4">
             <%= for instance <- @instances do %>
+              <% status = instance["actual_status"] || "" %>
               <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
@@ -1500,8 +1579,8 @@ defmodule LumainusWeb.Admin.VastAILive do
                       <span class="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
                         #{instance["id"]}
                       </span>
-                      <span class={status_badge_class(instance["actual_status"])}>
-                        {instance["actual_status"] || "unknown"}
+                      <span class={status_badge_class(status)}>
+                        {status || "unknown"}
                       </span>
                       <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
                         {instance["gpu_name"]}
@@ -1511,11 +1590,11 @@ defmodule LumainusWeb.Admin.VastAILive do
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 dark:text-gray-300">
                       <div>
                         <span class="font-medium">Location:</span>
-                        {instance["geolocation"]}
+                        {format_location(instance["geolocation"])}
                       </div>
                       <div>
                         <span class="font-medium">Cost:</span>
-                        ${Float.round((instance["dph_total"] || 0) * 1.0, 3)}/hr
+                        {format_price(instance["dph_total"])}
                       </div>
                       <div>
                         <span class="font-medium">GPU RAM:</span>
@@ -1542,7 +1621,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                       </div>
                     <% end %>
 
-                    <%= if instance["public_ipaddr"] && instance["actual_status"] == "running" do %>
+                    <%= if instance["public_ipaddr"] && status == "running" do %>
                       <div class="mt-2 space-y-2">
                         <div class="flex items-center gap-2">
                           <span class="text-xs text-gray-500 dark:text-gray-400">Direct health:</span>
@@ -1633,7 +1712,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                     <% end %>
 
                     <div class="flex gap-2">
-                      <%= if instance["actual_status"] == "running" do %>
+                      <%= if status == "running" do %>
                         <button
                           type="button"
                           phx-click="stop"
@@ -1654,31 +1733,36 @@ defmodule LumainusWeb.Admin.VastAILive do
                           <% end %>
                         </button>
                       <% else %>
-                        <button
-                          type="button"
-                          phx-click="start"
-                          phx-value-id={instance["id"]}
-                          class={[
-                            "px-3 py-1 text-sm font-medium rounded",
-                            instance["actual_status"] == "running" &&
-                              "text-gray-400 bg-gray-100 cursor-not-allowed",
-                            @starting_instance_id == instance["id"] &&
-                              "text-gray-500 bg-gray-100 cursor-wait",
-                            instance["actual_status"] != "running" &&
-                              @starting_instance_id != instance["id"] &&
-                              "text-green-700 bg-green-100 hover:bg-green-200"
-                          ]}
-                          disabled={
-                            instance["actual_status"] == "running" ||
-                              @starting_instance_id == instance["id"]
-                          }
-                        >
-                          <%= if @starting_instance_id == instance["id"] do %>
-                            Starting...
-                          <% else %>
-                            Start
-                          <% end %>
-                        </button>
+                        <%= if status in ["loading", "provisioning", "pending", "initializing", ""] do %>
+                          <span class="px-3 py-1 text-sm font-medium rounded text-amber-700 bg-amber-100 inline-flex items-center gap-2">
+                            <span class="h-3 w-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
+                            </span>
+                            Provisioning...
+                          </span>
+                        <% else %>
+                          <button
+                            type="button"
+                            phx-click="start"
+                            phx-value-id={instance["id"]}
+                            class={[
+                              "px-3 py-1 text-sm font-medium rounded",
+                              status == "running" &&
+                                "text-gray-400 bg-gray-100 cursor-not-allowed",
+                              @starting_instance_id == instance["id"] &&
+                                "text-gray-500 bg-gray-100 cursor-wait",
+                              status != "running" &&
+                                @starting_instance_id != instance["id"] &&
+                                "text-green-700 bg-green-100 hover:bg-green-200"
+                            ]}
+                            disabled={status == "running" || @starting_instance_id == instance["id"]}
+                          >
+                            <%= if @starting_instance_id == instance["id"] do %>
+                              Starting...
+                            <% else %>
+                              Start
+                            <% end %>
+                          </button>
+                        <% end %>
                       <% end %>
                       <button
                         type="button"
@@ -1819,10 +1903,14 @@ defmodule LumainusWeb.Admin.VastAILive do
               </label>
               <select
                 name="gpu_name"
-                class="w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
+                class="w-full rounded-lg border-2 border-sky-200 dark:border-sky-700 bg-sky-50/80 dark:bg-sky-900/40 text-gray-900 dark:text-gray-100 text-sm font-medium shadow-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400"
               >
                 <option value="RTX 3090" selected={@filters.gpu_name == "RTX 3090"}>RTX 3090</option>
                 <option value="RTX 4090" selected={@filters.gpu_name == "RTX 4090"}>RTX 4090</option>
+                <option value="L40S" selected={@filters.gpu_name == "L40S"}>L40S</option>
+                <option value="RTX A5000" selected={@filters.gpu_name == "RTX A5000"}>
+                  RTX A5000
+                </option>
                 <option value="A100" selected={@filters.gpu_name == "A100"}>A100</option>
                 <option value="H100" selected={@filters.gpu_name == "H100"}>H100</option>
               </select>
@@ -1937,18 +2025,38 @@ defmodule LumainusWeb.Admin.VastAILive do
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Docker Image
               </label>
-              <select
-                name="image"
-                phx-change="select_image"
-                class="w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
-              >
-                <option value={docling_image()} selected={@selected_image == docling_image()}>
-                  Docling GPU (pre-built, ~3-5 min boot)
-                </option>
-                <option value={pytorch_image()} selected={@selected_image == pytorch_image()}>
-                  PyTorch Base (needs manual setup)
-                </option>
-              </select>
+              <div class="relative">
+                <div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sky-500">
+                  <svg
+                    class="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke-width="1.5"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M4.5 6.75h15m-15 4.5h15m-15 4.5h15"
+                    />
+                  </svg>
+                </div>
+                <select
+                  name="image"
+                  phx-change="select_image"
+                  class="w-full rounded-lg border-2 border-sky-200 dark:border-sky-700 bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-sky-900/50 dark:to-indigo-900/40 text-gray-900 dark:text-gray-100 text-sm font-medium shadow-sm pl-9 pr-3 py-2 focus:ring-2 focus:ring-sky-400 focus:border-sky-400"
+                >
+                  <option value={docling_image()} selected={@selected_image == docling_image()}>
+                    Docling GPU (pre-built, ~3-5 min boot)
+                  </option>
+                  <option value={pytorch_image()} selected={@selected_image == pytorch_image()}>
+                    PyTorch Base (needs manual setup)
+                  </option>
+                </select>
+              </div>
+              <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                Choose the container image used for provisioning.
+              </p>
             </div>
           </div>
         </.form>
@@ -1977,7 +2085,13 @@ defmodule LumainusWeb.Admin.VastAILive do
                       Location
                     </th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
-                      $/hr
+                      Total $/hr
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                      GPU $/hr
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                      Disk $/hr
                     </th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
                       VRAM
@@ -2009,10 +2123,16 @@ defmodule LumainusWeb.Admin.VastAILive do
                         {offer["gpu_name"]}
                       </td>
                       <td class="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
-                        {offer["geolocation"]}
+                        {format_location(offer["geolocation"])}
                       </td>
                       <td class="px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100">
-                        ${Float.round((offer["dph_total"] || 0) * 1.0, 3)}
+                        {format_price(offer["dph_total"])}
+                      </td>
+                      <td class="px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100">
+                        {format_price(offer_gpu_price(offer))}
+                      </td>
+                      <td class="px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100">
+                        {format_price(offer_disk_price(offer))}
                       </td>
                       <td class="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
                         {div(offer["gpu_ram"] || 0, 1024)} GB

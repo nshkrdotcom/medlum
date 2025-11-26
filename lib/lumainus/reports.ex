@@ -306,11 +306,23 @@ defmodule Lumainus.Reports do
   defp latest_section_runs_map([], _record_set_id), do: %{}
 
   defp latest_section_runs_map(section_ids, record_set_id) do
+    ids =
+      try do
+        Enum.to_list(section_ids)
+      rescue
+        _ ->
+          Logger.error(
+            "[Reports] latest_section_runs_map received non-enumerable section_ids: #{inspect(section_ids)}"
+          )
+
+          []
+      end
+
     ReportSectionRun
     |> join(:inner, [sr], r in ReportRun, on: r.id == sr.report_run_id)
     |> where(
       [sr, r],
-      sr.section_template_id in ^section_ids and r.record_set_id == ^record_set_id
+      sr.section_template_id in ^ids and r.record_set_id == ^record_set_id
     )
     |> order_by([sr], desc: sr.inserted_at)
     |> preload([sr, _r], [:llm_invocation, citations: [:document]])

@@ -284,6 +284,10 @@ defmodule Lumainus.VastAI do
     label = Keyword.get(opts, :label, "docling-dev")
     onstart = Keyword.get(opts, :onstart)
     image = Keyword.get(opts, :image, @default_image)
+    offer_id = Keyword.get(opts, :offer_id)
+    gpu_name = Keyword.get(opts, :gpu_name, "RTX 3090")
+    num_gpus = Keyword.get(opts, :num_gpus, 1)
+    geolocation = Keyword.get(opts, :geolocation, ["US", "CA"])
 
     # For private registries (ghcr.io private packages)
     # Set GHCR_TOKEN env var or config :lumainus, :ghcr_token
@@ -291,11 +295,11 @@ defmodule Lumainus.VastAI do
 
     filters =
       Offers.build_filters(
-        gpu_name: "RTX 3090",
-        num_gpus: 1,
+        gpu_name: gpu_name,
+        num_gpus: num_gpus,
         verified: true,
         rentable: true,
-        geolocation: Keyword.get(opts, :geolocation, ["US", "CA"]),
+        geolocation: geolocation,
         dph_total: {:lte, max_price}
       )
 
@@ -312,13 +316,21 @@ defmodule Lumainus.VastAI do
       }
       |> maybe_add_docker_login(docker_login)
 
-    with {:ok, offer} <- Offers.cheapest(filters: filters),
-         true <- offer["dph_total"] <= max_price || {:error, :price_too_high},
+    with {:ok, offer} <- choose_offer(offer_id, filters, max_price),
          {:ok, resp} <- Instances.create(offer["id"], create_params),
          %{"new_contract" => instance_id} <- resp do
       {:ok, instance_id}
     end
   end
+
+  defp choose_offer(nil, filters, max_price) do
+    with {:ok, offer} <- Offers.cheapest(filters: filters),
+         true <- offer["dph_total"] <= max_price || {:error, :price_too_high} do
+      {:ok, offer}
+    end
+  end
+
+  defp choose_offer(offer_id, _filters, _max_price), do: {:ok, %{"id" => offer_id}}
 
   defp maybe_add_docker_login(params, nil), do: params
 

@@ -440,8 +440,16 @@ defmodule Lumainus.Documents.IngestionProcessor do
     event_type = Map.get(status, "type")
     stage_name = Map.get(status, "stage")
     stage_seq = Map.get(status, "stage_seq")
-    pages_done = Map.get(status, "pages_done") || 0
-    pages_total = Map.get(status, "pages_total") || 1
+    last_pages_done = state[:last_pages_emitted] || 0
+
+    pages_done =
+      case Map.get(status, "pages_done") do
+        value when is_integer(value) -> max(value, last_pages_done)
+        value when is_float(value) -> max(trunc(value), last_pages_done)
+        _ -> last_pages_done
+      end
+
+    pages_total = Map.get(status, "pages_total") || state[:last_pages_total] || 0
     event_ts = Map.get(status, "timestamp")
     worker_id = Map.get(status, "worker_id")
     device = Map.get(status, "device")
@@ -513,7 +521,8 @@ defmodule Lumainus.Documents.IngestionProcessor do
         updated_state
         | last_emitted_progress: overall,
           last_emitted_at: System.monotonic_time(:millisecond),
-          last_pages_emitted: pages_done
+          last_pages_emitted: pages_done,
+          last_pages_total: pages_total
       })
     else
       Process.put(state_key, updated_state)

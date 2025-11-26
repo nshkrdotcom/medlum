@@ -113,6 +113,7 @@ defmodule Lumainus.Documents.ProgressTracker do
       last_emitted_progress: 5,
       last_emitted_at: now_ms(),
       last_pages_emitted: 0,
+      last_pages_total: nil,
       current_stage: 2
     }
   end

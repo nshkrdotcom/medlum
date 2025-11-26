@@ -34,12 +34,26 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     {:vast_ai, "Cloud (Vast.ai)", "8044", true}
   ]
 
+  alias Lumainus.Docling.VastAI.InstanceManager
+
   @impl true
   def mount(_params, _session, socket) do
+    # Subscribe to GPU status changes for live updates
+    if connected?(socket) do
+      InstanceManager.subscribe()
+    end
+
     {:ok,
      socket
      |> assign_settings()
      |> assign_all_health()}
+  end
+
+  # Handle GPU status changes from InstanceManager
+  @impl true
+  def handle_info({:gpu_status_changed, _status_map}, socket) do
+    # Re-derive health from current state (instant, no HTTP)
+    {:noreply, assign_all_health(socket)}
   end
 
   @impl true
@@ -79,11 +93,60 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     assign(socket, health: health_map)
   end
 
+  # For vast_ai, use InstanceManager state instead of HTTP health check
+  # The state machine handles periodic health checks in the background
   defp check_backend_health(:vast_ai) do
-    case Docling.config()[:cloud_url] do
-      nil -> %{status: "unconfigured", details: %{error: "Cloud URL not set"}}
-      "" -> %{status: "unconfigured", details: %{error: "Cloud URL not set"}}
-      _url -> do_health_check(:vast_ai)
+    alias Lumainus.Docling.VastAI.InstanceManager
+
+    if Process.whereis(InstanceManager) do
+      status = InstanceManager.status()
+
+      case status do
+        %{status: :running, healthy: true, endpoint: endpoint} ->
+          %{status: "healthy", details: %{endpoint: endpoint, source: "state_machine"}}
+
+        %{status: :running, healthy: false, health_check_error: error} ->
+          %{
+            status: "unreachable",
+            details: %{error: error || "Health check failed", endpoint: status.endpoint}
+          }
+
+        %{status: :running, healthy: nil, endpoint: endpoint} ->
+          # Not yet checked - show as checking
+          %{
+            status: "checking",
+            details: %{endpoint: endpoint, message: "Health check pending..."}
+          }
+
+        %{status: :loading} ->
+          %{status: "loading", details: %{message: "Instance starting up..."}}
+
+        %{status: :stopped, instance_id: id} when not is_nil(id) ->
+          %{status: "stopped", details: %{instance_id: id, message: "Instance stopped"}}
+
+        %{status: :none} ->
+          case Docling.config()[:cloud_url] do
+            nil ->
+              %{
+                status: "unconfigured",
+                details: %{error: "No instance and no cloud URL configured"}
+              }
+
+            "" ->
+              %{
+                status: "unconfigured",
+                details: %{error: "No instance and no cloud URL configured"}
+              }
+
+            _url ->
+              %{status: "no_instance", details: %{message: "No active instance"}}
+          end
+
+        _ ->
+          %{status: "unknown", details: %{}}
+      end
+    else
+      %{status: "error", details: %{error: "InstanceManager not running"}}
     end
   end
 

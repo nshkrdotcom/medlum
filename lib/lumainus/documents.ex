@@ -250,6 +250,25 @@ defmodule Lumainus.Documents do
   end
 
   def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
+    requested_backend = Keyword.get(opts, :backend)
+
+    # Guard: Check for existing active ingestion job for this upload
+    case find_active_ingestion_job(upload.id) do
+      nil ->
+        do_queue_ingestion(upload, template, opts, requested_backend)
+
+      existing_job ->
+        Logger.warning(
+          "[queue_ingestion] BLOCKED duplicate ingestion: upload_id=#{upload.id} " <>
+            "filename=#{upload.filename} existing_job_id=#{existing_job.id} " <>
+            "existing_state=#{existing_job.state} existing_stage=#{existing_job.stage}"
+        )
+
+        {:error, :already_queued}
+    end
+  end
+
+  defp do_queue_ingestion(upload, template, opts, requested_backend) do
     {backend, backend_reason} = resolve_docling_backend(opts)
     backend_string = Atom.to_string(backend)
     max_attempts = IngestionConfig.max_retries()
@@ -292,16 +311,25 @@ defmodule Lumainus.Documents do
         }
       )
 
-    Logger.info("Queueing ingestion for upload #{upload.id} (deadline: #{deadline})")
-
     case worker.new(%{"ingestion_job_id" => job.id}) |> Oban.insert() do
       {:ok, oban_job} ->
         # Link Oban job ID for cancellation support
         {:ok, job} = link_oban_job(job, oban_job.id)
+
+        Logger.info(
+          "[queue_ingestion] SUCCESS upload_id=#{upload.id} filename=#{upload.filename} " <>
+            "job_id=#{job.id} oban_job_id=#{oban_job.id} backend=#{backend_string} " <>
+            "requested_backend=#{inspect(requested_backend)} " <>
+            "backend_reason=#{inspect(backend_reason)} deadline=#{deadline}"
+        )
+
         {:ok, job}
 
       {:error, reason} ->
-        Logger.error("Failed to enqueue ingestion for upload #{upload.id}: #{inspect(reason)}")
+        Logger.error(
+          "[queue_ingestion] FAILED upload_id=#{upload.id} filename=#{upload.filename} " <>
+            "job_id=#{job.id} error=#{inspect(reason)}"
+        )
 
         Repo.update!(
           Changeset.change(job, %{status: "failed", error: %{message: inspect(reason)}})
@@ -317,6 +345,20 @@ defmodule Lumainus.Documents do
 
         {:error, reason}
     end
+  end
+
+  @doc """
+  Finds an active (queued or running) ingestion job for the given upload.
+  Returns nil if no active job exists.
+  """
+  def find_active_ingestion_job(upload_id) when is_binary(upload_id) do
+    IngestionJob
+    |> where([j], j.upload_id == ^upload_id)
+    |> where([j], j.state in ["queued", "running"])
+    |> where([j], is_nil(j.cancelled_at))
+    |> order_by([j], desc: j.inserted_at)
+    |> limit(1)
+    |> Repo.one()
   end
 
   def retry_ingestion(upload_id, opts \\ [])
@@ -749,29 +791,90 @@ defmodule Lumainus.Documents do
   end
 
   defp resolve_docling_backend(opts) do
+    raw_requested = Keyword.get(opts, :backend)
+    default_backend = Docling.user_backend_default()
+
     requested =
-      opts
-      |> Keyword.get(:backend, Docling.user_backend_default())
+      (raw_requested || default_backend)
       |> Docling.normalize_user_backend()
 
-    health_fun = Keyword.get(opts, :docling_health_fun, &Docling.health/1)
+    # Use InstanceManager state instead of HTTP health check
+    # This is INSTANT - no HTTP calls, no delays
+    # InstanceManager maintains health state via periodic background checks
+    alias Lumainus.Docling.VastAI.InstanceManager
 
     case requested do
       :cloud ->
-        case health_fun.(backend: :vast_ai) do
-          {:ok, _} ->
+        # Check InstanceManager state - instant, no HTTP
+        gpu_status = get_gpu_status_for_backend()
+
+        case gpu_status do
+          {:available, status_info} ->
+            Logger.info(
+              "[resolve_docling_backend] requested=#{inspect(raw_requested)} " <>
+                "normalized=:cloud default=#{default_backend} " <>
+                "gpu_status=AVAILABLE final_backend=:cloud " <>
+                "instance_status=#{inspect(status_info)}"
+            )
+
             {:cloud, nil}
 
-          {:error, reason} ->
+          {:unavailable, reason} ->
             Logger.warning(
-              "Cloud Docling backend unavailable, falling back to local: #{inspect(reason)}"
+              "[resolve_docling_backend] FALLBACK requested=#{inspect(raw_requested)} " <>
+                "normalized=:cloud default=#{default_backend} " <>
+                "gpu_status=UNAVAILABLE reason=#{inspect(reason)} final_backend=:local"
             )
 
             {:local, reason}
         end
 
       other ->
+        Logger.info(
+          "[resolve_docling_backend] requested=#{inspect(raw_requested)} " <>
+            "normalized=#{other} default=#{default_backend} " <>
+            "gpu_check=SKIPPED final_backend=#{other}"
+        )
+
         {other, nil}
+    end
+  end
+
+  # Check GPU availability from InstanceManager state - NO HTTP calls
+  defp get_gpu_status_for_backend do
+    alias Lumainus.Docling.VastAI.InstanceManager
+
+    if Process.whereis(InstanceManager) do
+      try do
+        status = InstanceManager.status()
+
+        case status do
+          %{status: :running, healthy: false, health_check_error: error} ->
+            {:unavailable, error || "GPU service unhealthy"}
+
+          %{status: :running, healthy: healthy} when healthy != false ->
+            # Running and either healthy (true) or not yet checked (nil)
+            {:available, %{status: :running, healthy: healthy}}
+
+          %{status: :loading} ->
+            {:unavailable, "GPU instance still loading"}
+
+          %{status: :stopped} ->
+            {:unavailable, "GPU instance stopped"}
+
+          %{status: :none} ->
+            {:unavailable, "No GPU instance"}
+
+          _ ->
+            {:unavailable, "GPU status unknown"}
+        end
+      rescue
+        e -> {:unavailable, "InstanceManager error: #{Exception.message(e)}"}
+      catch
+        :exit, _ -> {:unavailable, "InstanceManager not responding"}
+      end
+    else
+      {:unavailable, "InstanceManager not running"}
     end
   end
 

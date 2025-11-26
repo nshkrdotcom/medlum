@@ -555,7 +555,8 @@ defmodule Lumainus.VastAI.RemoteDiagnostics do
 
   defp ssh_exec(info, cmd, opts \\ []) do
     timeout = opts[:timeout] || @ssh_timeout
-    ssh_host = info[:ssh_host] || "ssh#{div(info.ssh_port, 1000)}.vast.ai"
+    # Prefer direct IP when provided; fall back to ssh{idx}.vast.ai hostnames
+    ssh_host = info[:ip] || info[:ssh_host] || "ssh#{div(info.ssh_port, 1000)}.vast.ai"
     ssh_port = info.ssh_port
 
     # Build SSH command

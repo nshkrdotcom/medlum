@@ -53,9 +53,12 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   alias Lumainus.Docling.Settings, as: DoclingSettings
   alias Lumainus.Docling.VastAI.StartTracker
   alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Phoenix.PubSub
   @compile {:no_warn_undefined, Lumainus.VastAI}
 
   @idle_check_interval_ms 60_000
+  @health_check_interval_ms 30_000
+  @pubsub_topic "gpu_instance_status"
 
   # Instance status values
   @status_none :none
@@ -80,10 +83,52 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   - :instance_id - The Vast.ai instance ID (or nil)
   - :endpoint - The service endpoint URL (or nil)
   - :last_activity - Timestamp of last activity (or nil)
+  - :healthy - Whether the last health check passed (or nil if not checked)
   """
   def status(server \\ __MODULE__) do
     GenServer.call(server, :status)
   end
+
+  @doc """
+  Check if GPU is available for use. This is instant - no HTTP calls.
+
+  Returns true if:
+  - Instance status is :running AND
+  - Last health check passed (or health not yet checked)
+
+  This is the PRIMARY way to check GPU availability - do NOT use HTTP health checks
+  in hot paths like page loads or ingestion queueing.
+  """
+  def gpu_available?(server \\ __MODULE__) do
+    case status(server) do
+      %{status: :running, healthy: healthy} when healthy != false -> true
+      _ -> false
+    end
+  end
+
+  @doc """
+  Subscribe to GPU instance status changes via PubSub.
+
+  Subscribers receive messages:
+  - {:gpu_status_changed, status_map} when status changes
+
+  The status_map contains the same fields as status/0.
+  """
+  def subscribe do
+    PubSub.subscribe(LumainusWeb.PubSub, @pubsub_topic)
+  end
+
+  @doc """
+  Unsubscribe from GPU instance status changes.
+  """
+  def unsubscribe do
+    PubSub.unsubscribe(LumainusWeb.PubSub, @pubsub_topic)
+  end
+
+  @doc """
+  Get the PubSub topic for GPU status changes.
+  """
+  def pubsub_topic, do: @pubsub_topic
 
   @doc """
   Start a stopped instance.
@@ -258,7 +303,11 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
        tunnel_id: nil,
        status: @status_none,
        last_activity: nil,
-       provisioning: false
+       provisioning: false,
+       # Health check state
+       healthy: nil,
+       last_health_check: nil,
+       health_check_error: nil
      }}
   end
 
@@ -270,7 +319,10 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       instance_id: state.instance_id,
       endpoint: state.endpoint,
       tunnel_id: state.tunnel_id,
-      last_activity: state.last_activity
+      last_activity: state.last_activity,
+      healthy: state.healthy,
+      last_health_check: state.last_health_check,
+      health_check_error: state.health_check_error
     }
 
     {:reply, status_map, state}
@@ -311,11 +363,13 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             ActivityTracker.record_activity_if_missing()
             StartTracker.record_first_seen(id)
 
-            state = %{
+            new_state = %{
               state
               | status: @status_running,
                 endpoint: endpoint,
-                last_activity: System.monotonic_time(:millisecond)
+                last_activity: System.monotonic_time(:millisecond),
+                healthy: nil,
+                health_check_error: nil
             }
 
             # Update session status
@@ -325,7 +379,9 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             end
 
             schedule_idle_check()
-            {:reply, {:ok, endpoint}, state}
+            schedule_health_check()
+            broadcast_status_change(new_state)
+            {:reply, {:ok, endpoint}, new_state}
 
           {:error, reason} ->
             {:reply, {:error, {:start_failed, reason}}, state}
@@ -370,8 +426,9 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
           session -> GPU.update_session_status(session, "stopped")
         end
 
-        state = %{state | status: @status_stopped, endpoint: nil}
-        {:reply, :ok, state}
+        new_state = %{state | status: @status_stopped, endpoint: nil, healthy: nil}
+        broadcast_status_change(new_state)
+        {:reply, :ok, new_state}
 
       {:error, reason} ->
         Logger.error("[InstanceManager] Failed to stop instance #{id}: #{inspect(reason)}")
@@ -500,15 +557,19 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       end
     end
 
-    {:reply, :ok,
-     %{
-       state
-       | instance_id: nil,
-         endpoint: nil,
-         tunnel_id: nil,
-         status: @status_none,
-         last_activity: nil
-     }}
+    new_state = %{
+      state
+      | instance_id: nil,
+        endpoint: nil,
+        tunnel_id: nil,
+        status: @status_none,
+        last_activity: nil,
+        healthy: nil,
+        health_check_error: nil
+    }
+
+    broadcast_status_change(new_state)
+    {:reply, :ok, new_state}
   end
 
   def handle_call({:set_endpoint, instance_id, endpoint, ip, tunnel_id}, _from, state) do
@@ -545,17 +606,21 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       source: "instance_manager"
     )
 
-    state = %{
+    new_state = %{
       state
       | instance_id: instance_id,
         endpoint: endpoint,
         tunnel_id: tunnel_id,
         status: @status_running,
-        last_activity: System.monotonic_time(:millisecond)
+        last_activity: System.monotonic_time(:millisecond),
+        healthy: nil,
+        health_check_error: nil
     }
 
     schedule_idle_check()
-    {:reply, :ok, state}
+    schedule_health_check()
+    broadcast_status_change(new_state)
+    {:reply, :ok, new_state}
   end
 
   # Backward compatibility: handle old 4-arg version without tunnel_id
@@ -752,7 +817,9 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     case check_vast_ai_for_instances() do
       {:ok, :none} ->
         Logger.info("[InstanceManager] No instances found on Vast.ai")
-        {:noreply, %{state | status: @status_none}}
+        new_state = %{state | status: @status_none}
+        broadcast_status_change(new_state)
+        {:noreply, new_state}
 
       {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
         # Check if we should recover or cleanup orphan
@@ -783,11 +850,15 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             }
 
             schedule_idle_check()
+            schedule_health_check()
+            broadcast_status_change(new_state)
             {:noreply, new_state}
 
           {:error, _} ->
             Logger.info("[InstanceManager] Could not adopt running instance; clearing state")
-            {:noreply, %{state | status: @status_none}}
+            new_state = %{state | status: @status_none}
+            broadcast_status_change(new_state)
+            {:noreply, new_state}
         end
 
       {:ok, :stopped, instance_id} ->
@@ -799,17 +870,70 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         )
 
         new_state = %{state | instance_id: instance_id, status: @status_stopped}
+        broadcast_status_change(new_state)
         {:noreply, new_state}
 
       {:ok, :loading, instance_id} ->
         Logger.info("[InstanceManager] Found loading instance #{instance_id} on startup")
         new_state = %{state | instance_id: instance_id, status: @status_loading}
+        broadcast_status_change(new_state)
         {:noreply, new_state}
 
       {:error, reason} ->
         Logger.warning("[InstanceManager] Startup sync failed: #{inspect(reason)}")
         {:noreply, state}
     end
+  end
+
+  # Periodic health check - runs in background, updates state, broadcasts changes
+  def handle_info(:periodic_health_check, state) do
+    if state.status == @status_running and state.endpoint do
+      # Run health check asynchronously to not block GenServer
+      parent = self()
+
+      Task.start(fn ->
+        result = do_health_check(state.endpoint)
+        send(parent, {:health_check_result, result})
+      end)
+    end
+
+    # Always reschedule if we have a running instance
+    if state.status == @status_running do
+      schedule_health_check()
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:health_check_result, result}, state) do
+    now = DateTime.utc_now()
+
+    {healthy, error} =
+      case result do
+        {:ok, _} -> {true, nil}
+        {:error, reason} -> {false, inspect(reason)}
+      end
+
+    old_healthy = state.healthy
+
+    new_state = %{
+      state
+      | healthy: healthy,
+        last_health_check: now,
+        health_check_error: error
+    }
+
+    # Only broadcast if health status changed
+    if old_healthy != healthy do
+      Logger.info(
+        "[InstanceManager] Health status changed: #{inspect(old_healthy)} -> #{healthy}" <>
+          if(error, do: " (#{error})", else: "")
+      )
+
+      broadcast_status_change(new_state)
+    end
+
+    {:noreply, new_state}
   end
 
   # =============================================================================
@@ -1011,6 +1135,46 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   defp schedule_idle_check do
     Process.send_after(self(), :check_idle, @idle_check_interval_ms)
   end
+
+  defp schedule_health_check do
+    Process.send_after(self(), :periodic_health_check, @health_check_interval_ms)
+  end
+
+  # Broadcast status change to all subscribers
+  defp broadcast_status_change(state) do
+    status_map = %{
+      status: state.status,
+      instance_id: state.instance_id,
+      endpoint: state.endpoint,
+      tunnel_id: state.tunnel_id,
+      last_activity: state.last_activity,
+      healthy: state.healthy,
+      last_health_check: state.last_health_check,
+      health_check_error: state.health_check_error
+    }
+
+    PubSub.broadcast(LumainusWeb.PubSub, @pubsub_topic, {:gpu_status_changed, status_map})
+  end
+
+  # Perform HTTP health check against endpoint
+  defp do_health_check(endpoint) when is_binary(endpoint) do
+    url = "#{endpoint}/health"
+
+    case Req.get(url, receive_timeout: 5_000, connect_options: [timeout: 5_000]) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %{status: status}} ->
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e -> {:error, {:exception, Exception.message(e)}}
+  end
+
+  defp do_health_check(_), do: {:error, :no_endpoint}
 
   # Check Vast.ai for any instances (running, stopped, or loading)
   # Returns:

@@ -98,6 +98,29 @@ def _format_sse(event: Dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
 
 
+def _detect_device() -> str:
+    """Detect the best available device (GPU/MPS/CPU)."""
+    try:
+        from docling.utils.accelerator_utils import decide_device
+
+        return decide_device("auto")
+    except Exception:
+        try:
+            import torch
+
+            if torch.backends.cuda.is_built() and torch.cuda.is_available():
+                try:
+                    return f"cuda:{torch.cuda.current_device()}"
+                except Exception:
+                    return "cuda"
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+        except Exception:
+            pass
+
+    return "cpu"
+
+
 @dataclass
 class ConversionJob:
     """In-memory representation of a Docling conversion request."""
@@ -169,7 +192,7 @@ async def _worker_loop(worker_id: int) -> None:
         job.started_at = time.perf_counter()
         job.timeout_at = job.timeout_at or (job.started_at + _conversion_timeout)
         job.worker_id = worker_id
-        job.device = "cpu"
+        job.device = _detect_device()
 
         _push_event(
             job,
@@ -256,9 +279,16 @@ def _page_progress_cb(job: ConversionJob):
     started = job.started_at or _now()
 
     def _cb(page_number: int, pages_total: Optional[int]) -> None:
+        current_pages_done = job.pages_done or 0
+
+        # Do not regress progress if Docling already reported further pages
+        if page_number <= current_pages_done:
+            return
+
         job.pages_done = page_number
-        job.pages_total = pages_total
-        job.progress = _progress_from_pages(page_number, pages_total)
+        job.pages_total = pages_total or job.pages_total
+        new_progress = _progress_from_pages(page_number, job.pages_total)
+        job.progress = max(job.progress or 0, new_progress)
         _push_event(
             job,
             {
