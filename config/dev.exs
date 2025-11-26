@@ -85,7 +85,11 @@ config :phoenix_live_view,
   debug_heex_annotations: true,
   debug_attributes: true,
   # Enable helpful, but potentially expensive runtime checks
-  enable_expensive_runtime_checks: true
+  enable_expensive_runtime_checks: true,
+  # Disable event/param/info logging to avoid crashing telemetry handler when Inspect is unavailable
+  log_handle_event: false,
+  log_handle_params: false,
+  log_handle_info: false
 
 # Configure local mailbox for development (view emails at /dev/mailbox)
 config :lumainus, Lumainus.Mailer, adapter: Swoosh.Adapters.Local

@@ -292,8 +292,16 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         # Wait for instance to be ready
         case wait_for_instance_running(id) do
           {:ok, endpoint, ip} ->
-            # Update DNS to point to the started instance
-            update_dns_for_instance(ip, id)
+            # Update DNS to point to the started instance (skip A-record when tunnel-managed)
+            if state.tunnel_id || tunnel_present?() do
+              tunnel_suffix = if(state.tunnel_id, do: " (#{state.tunnel_id})", else: "")
+
+              Logger.info(
+                "[InstanceManager] Instance #{id} is tunnel-managed#{tunnel_suffix}; skipping A-record DNS update"
+              )
+            else
+              update_dns_for_instance(ip, id)
+            end
 
             # Start services inside container (onstart only runs on first provision)
             ensure_services_after_start(id, ip)
@@ -396,7 +404,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
         # Found running instance - check if we should recover or cleanup
         case maybe_recover_or_cleanup_orphan(instance_id, ip) do
-          {:ok, endpoint} ->
+          {:ok, endpoint, tunnel_id} ->
             # Seed activity/start time on recovery
             ActivityTracker.record_activity_if_missing()
             StartTracker.record_first_seen(instance_id)
@@ -404,6 +412,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             GPU.log(:lifecycle, :instance_recovered, "Recovered existing Vast.ai instance",
               instance_id: instance_id,
               endpoint: endpoint,
+              tunnel_id: tunnel_id,
               source: "instance_manager"
             )
 
@@ -411,6 +420,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
               state
               | instance_id: instance_id,
                 endpoint: endpoint,
+                tunnel_id: tunnel_id,
                 status: @status_running,
                 last_activity: System.monotonic_time(:millisecond)
             }
@@ -418,9 +428,11 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             schedule_idle_check()
             {:reply, {:ok, endpoint}, state}
 
-          {:error, :orphan_destroyed} ->
-            # Instance was orphaned (no cloudflared), destroyed it
+          {:error, :no_tunnel} ->
             {:reply, {:error, :no_instance_provision_required}, state}
+
+          {:error, {:tunnel_lookup_failed, reason}} ->
+            {:reply, {:error, {:tunnel_lookup_failed, reason}}, state}
         end
 
       {:ok, :stopped, instance_id} ->
@@ -726,7 +738,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
         # Check if we should recover or cleanup orphan
         case maybe_recover_or_cleanup_orphan(instance_id, ip) do
-          {:ok, endpoint} ->
+          {:ok, endpoint, tunnel_id} ->
             # Seed activity/start time on recovery
             ActivityTracker.record_activity_if_missing()
             StartTracker.record_first_seen(instance_id)
@@ -738,6 +750,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             GPU.log(:lifecycle, :startup_sync, "Recovered running instance on startup",
               instance_id: instance_id,
               endpoint: endpoint,
+              tunnel_id: tunnel_id,
               source: "instance_manager"
             )
 
@@ -745,6 +758,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
               state
               | instance_id: instance_id,
                 endpoint: endpoint,
+                tunnel_id: tunnel_id,
                 status: @status_running,
                 last_activity: System.monotonic_time(:millisecond)
             }
@@ -752,8 +766,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
             schedule_idle_check()
             {:noreply, new_state}
 
-          {:error, :orphan_destroyed} ->
-            Logger.info("[InstanceManager] Orphaned instance destroyed on startup")
+          {:error, _} ->
+            Logger.info("[InstanceManager] Could not adopt running instance; clearing state")
             {:noreply, %{state | status: @status_none}}
         end
 
@@ -786,57 +800,57 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   # Self-healing: decide whether to recover an instance or destroy it as orphaned
   # Orphaned instances are those without cloudflared when we're using tunnel-based setup
   defp maybe_recover_or_cleanup_orphan(instance_id, ip) do
-    alias Lumainus.VastAI.Instances
-
     # Check if there's an active tunnel for our domain
     case Tunnel.find_by_name("docling-vast") do
-      {:ok, [_tunnel | _]} ->
-        # Tunnel exists - this is a tunnel-based setup
-        # Instance without tunnel_id is orphaned (doesn't have cloudflared)
-        Logger.warning(
-          "[InstanceManager] Found orphaned instance #{instance_id} (tunnel exists but instance not tunnel-enabled)"
+      {:ok, [%{"id" => tunnel_id, "name" => tunnel_name} | _]} ->
+        Logger.info(
+          "[InstanceManager] Found Cloudflare tunnel #{tunnel_name} (#{tunnel_id}); adopting instance #{instance_id} via tunnel"
         )
 
-        Logger.info("[InstanceManager] Destroying orphaned instance #{instance_id}...")
+        # Ensure services (uvicorn + cloudflared) are running
+        ensure_services_after_start(instance_id, ip)
 
-        case Instances.destroy(instance_id) do
-          {:ok, _} ->
-            Logger.info("[InstanceManager] Destroyed orphaned instance #{instance_id}")
+        endpoint = "https://#{Cloudflare.cloud_fqdn()}"
 
-            GPU.log(
-              :lifecycle,
-              :orphan_destroyed,
-              "Destroyed orphaned instance (not tunnel-enabled)",
-              instance_id: instance_id,
-              ip: ip,
-              source: "instance_manager"
-            )
+        GPU.log(:lifecycle, :instance_recovered, "Adopted instance via tunnel",
+          instance_id: instance_id,
+          endpoint: endpoint,
+          tunnel_id: tunnel_id,
+          source: "instance_manager"
+        )
 
-          {:error, reason} ->
-            Logger.warning("[InstanceManager] Failed to destroy orphan: #{inspect(reason)}")
-        end
-
-        {:error, :orphan_destroyed}
+        {:ok, endpoint, tunnel_id}
 
       {:ok, []} ->
-        # No tunnel - use legacy A record recovery
-        Logger.info(
-          "[InstanceManager] Recovering instance #{instance_id} at #{ip} (no tunnel, using A record)"
+        Logger.warning(
+          "[InstanceManager] No Cloudflare tunnel found; cannot adopt instance #{instance_id}"
         )
 
-        update_dns_for_instance(ip, instance_id)
-        endpoint = recover_endpoint(ip)
-        {:ok, endpoint}
+        {:error, :no_tunnel}
 
       {:error, reason} ->
-        # Can't check tunnels - fall back to legacy recovery
         Logger.warning(
-          "[InstanceManager] Could not check tunnels: #{inspect(reason)}, using legacy recovery"
+          "[InstanceManager] Tunnel lookup failed (#{inspect(reason)}); cannot adopt instance #{instance_id}"
         )
 
-        update_dns_for_instance(ip, instance_id)
-        endpoint = recover_endpoint(ip)
-        {:ok, endpoint}
+        {:error, {:tunnel_lookup_failed, reason}}
+    end
+  end
+
+  defp tunnel_present? do
+    case Tunnel.find_by_name("docling-vast") do
+      {:ok, [_ | _]} ->
+        true
+
+      {:ok, []} ->
+        false
+
+      {:error, reason} ->
+        Logger.warning(
+          "[InstanceManager] Tunnel presence check failed: #{inspect(reason)}; assuming tunnel mode to avoid legacy DNS changes"
+        )
+
+        true
     end
   end
 

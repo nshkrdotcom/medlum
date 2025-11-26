@@ -8,6 +8,9 @@ defmodule LumainusWeb.Admin.VastAILive do
   alias Lumainus.Docling.VastAI.ActivityTracker
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Cloudflare
+  alias Lumainus.Cloudflare.Tunnel
+
+  @cloudflare_api "https://api.cloudflare.com/client/v4"
 
   # Port used by cloud instances (from VastAI module)
   defp cloud_port, do: VastAI.cloud_port()
@@ -111,7 +114,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   def handle_info({:provisioning_event, :provisioning_failed, reason}, socket) do
     {:noreply,
      socket
-     |> put_flash(:error, "Provisioning failed: #{inspect(reason)}")
+     |> put_flash(:error, "Tunnel provisioning failed: #{inspect(reason)}")
      |> assign(provisioning: false, provision_status: nil)}
   end
 
@@ -146,7 +149,7 @@ defmodule LumainusWeb.Admin.VastAILive do
 
     {:noreply,
      socket
-     |> put_flash(:error, "HTTPS provisioning failed: #{inspect(reason)}")
+     |> put_flash(:error, "Tunnel provisioning failed: #{inspect(reason)}")
      |> assign(provisioning: false, provision_status: nil)}
   end
 
@@ -171,12 +174,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                 {"Instance #{inst["id"]} loading...", false}
 
               "running" ->
-                if socket.assigns.use_https do
-                  {"Instance #{inst["id"]} running! Setting up DNS + HTTPS...", false}
-                else
-                  # HTTP-only mode: done when running
-                  {"Instance #{inst["id"]} is running!", true}
-                end
+                {"Instance #{inst["id"]} running! Waiting for Cloudflare tunnel...", true}
 
               other ->
                 {"Instance status: #{other}", false}
@@ -290,11 +288,11 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   def handle_event("quick_provision", _params, socket) do
-    # Quick provision with default settings (RTX 3090, HTTPS, US/CA)
+    # Quick provision with default settings (RTX 3090, Cloudflare tunnel, US/CA)
     # Uses shared ProvisioningState for logs (survives page navigation)
     ProvisioningState.start_provisioning(true)
     ProvisioningState.add_log(:info, "=== QUICK PROVISION STARTED ===")
-    ProvisioningState.add_log(:info, "Using defaults: RTX 3090, HTTPS, US/CA regions")
+    ProvisioningState.add_log(:info, "Using defaults: RTX 3090, Cloudflare tunnel, US/CA regions")
 
     # Spawn async task for provisioning
     filters = default_filters()
@@ -305,7 +303,11 @@ defmodule LumainusWeb.Admin.VastAILive do
 
       case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
         {_fqdn, nil} ->
-          ProvisioningState.add_log(:error, "CLOUDFLARE_API_TOKEN not set! Cannot setup HTTPS.")
+          ProvisioningState.add_log(
+            :error,
+            "CLOUDFLARE_API_TOKEN not set! Cannot setup Cloudflare tunnel."
+          )
+
           ProvisioningState.fail(:missing_cloudflare_token)
 
         {fqdn, _token} ->
@@ -321,7 +323,7 @@ defmodule LumainusWeb.Admin.VastAILive do
      socket
      |> assign(
        provisioning: true,
-       provision_status: "Starting quick provisioning...",
+       provision_status: "Starting quick provisioning (Cloudflare tunnel)...",
        use_https: true
      )
      |> put_flash(:info, "Quick provisioning started! This will take 2-5 minutes.")}
@@ -341,11 +343,6 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   def handle_event("select_image", %{"image" => image}, socket) do
     {:noreply, assign(socket, selected_image: image)}
-  end
-
-  def handle_event("toggle_https", %{"use_https" => value}, socket) do
-    use_https = value == "true"
-    {:noreply, assign(socket, use_https: use_https)}
   end
 
   def handle_event("provision", %{"offer_id" => offer_id}, socket) do
@@ -373,15 +370,7 @@ defmodule LumainusWeb.Admin.VastAILive do
           |> add_log(:info, "Starting provisioning for offer #{offer_id}...")
 
         image = socket.assigns.selected_image
-        use_https = socket.assigns.use_https
-
-        if use_https do
-          # Use HTTPS provisioning with Caddy + Let's Encrypt
-          provision_with_https(socket, offer_id, image)
-        else
-          # Legacy HTTP-only provisioning
-          provision_http_only(socket, offer_id, image)
-        end
+        provision_with_https(socket, offer_id, image)
       else
         {:noreply, put_flash(socket, :error, "Offer not found")}
       end
@@ -484,16 +473,8 @@ defmodule LumainusWeb.Admin.VastAILive do
     end
   end
 
-  def handle_event("set_cloud_backend", %{"ip" => ip} = params, socket) do
-    use_https = params["https"] == "true"
-
-    cloud_url =
-      if use_https do
-        # Use the Cloudflare-managed HTTPS domain
-        VastAI.cloud_https_url()
-      else
-        "http://#{ip}:#{cloud_port()}"
-      end
+  def handle_event("set_cloud_backend", %{"ip" => _ip}, socket) do
+    cloud_url = VastAI.cloud_https_url()
 
     case DoclingSettings.update_cloud_url(cloud_url) do
       {:ok, _setting} ->
@@ -514,9 +495,9 @@ defmodule LumainusWeb.Admin.VastAILive do
   defp provision_with_https(socket, _offer_id, image) do
     # Use shared ProvisioningState for logs (survives page navigation)
     ProvisioningState.start_provisioning(true)
-    ProvisioningState.add_log(:info, "Using HTTPS mode with Cloudflare Tunnel")
+    ProvisioningState.add_log(:info, "Using Cloudflare Tunnel mode")
 
-    # Spawn async task for HTTPS provisioning
+    # Spawn async task for Cloudflare Tunnel provisioning
     Task.start(fn ->
       ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
 
@@ -537,7 +518,7 @@ defmodule LumainusWeb.Admin.VastAILive do
 
     {:noreply,
      socket
-     |> assign(provisioning: true, provision_status: "Starting HTTPS provisioning...")
+     |> assign(provisioning: true, provision_status: "Starting Cloudflare tunnel provisioning...")
      |> put_flash(:info, "Provisioning started! This will take about 3-5 minutes.")}
   end
 
@@ -640,7 +621,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                   tunnel_id: tunnel.tunnel_id
                 )
 
-                ProvisioningState.add_log(:success, "HTTPS endpoint ready: #{endpoint}")
+                ProvisioningState.add_log(:success, "Cloudflare endpoint ready: #{endpoint}")
 
                 ProvisioningState.add_log(
                   :info,
@@ -763,53 +744,6 @@ defmodule LumainusWeb.Admin.VastAILive do
     end
   end
 
-  defp provision_http_only(socket, offer_id, image) do
-    create_params =
-      %{
-        image: image,
-        disk: socket.assigns.filters.disk_gb,
-        label: "lumainus-docling",
-        runtype: "ssh"
-      }
-      |> maybe_add_docker_login(image)
-
-    socket =
-      socket
-      |> assign(provision_status: "Creating instance...")
-      |> add_log(:info, "Creating HTTP-only instance...")
-
-    case Instances.create(offer_id, create_params) do
-      {:ok, %{"new_contract" => instance_id}} ->
-        # Start refresh loop
-        Process.send_after(self(), :refresh_while_provisioning, 5_000)
-
-        {:noreply,
-         socket
-         |> add_log(:success, "Instance #{instance_id} created!")
-         |> put_flash(:info, "Instance #{instance_id} created! Waiting for it to start...")
-         |> assign(
-           provisioning: true,
-           provision_status: "Instance #{instance_id} created, waiting for boot..."
-         )
-         |> load_instances()}
-
-      {:ok, resp} ->
-        {:noreply,
-         socket
-         |> add_log(:warning, "Unexpected response: #{inspect(resp)}")
-         |> put_flash(:info, "Provisioned: #{inspect(resp)}")
-         |> assign(provisioning: false, provision_status: nil)
-         |> load_instances()}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> add_log(:error, "Failed to provision: #{inspect(reason)}")
-         |> put_flash(:error, "Failed to provision: #{inspect(reason)}")
-         |> assign(provisioning: false, provision_status: nil, error: reason)}
-    end
-  end
-
   # =============================================================================
   # Private: Helpers
   # =============================================================================
@@ -903,12 +837,44 @@ defmodule LumainusWeb.Admin.VastAILive do
         {:error, reason} -> {reason, []}
       end
 
+    cname_lookup =
+      cond do
+        zone_id not in [nil, ""] and token not in [nil, ""] ->
+          fetch_cname_via_api(fqdn, zone_id, token)
+
+        true ->
+          resolve_cname(fqdn)
+      end
+
+    {cname_state, cname_target} =
+      case cname_lookup do
+        {:ok, target} -> {:ok, target}
+        {:error, reason} -> {reason, nil}
+      end
+
+    tunnel =
+      case Tunnel.find_by_name("docling-vast") do
+        {:ok, [t | _]} -> %{id: t["id"], name: t["name"]}
+        {:ok, []} -> nil
+        {:error, reason} -> {:error, reason}
+      end
+
+    expected_cname =
+      case tunnel do
+        %{id: id} -> "#{id}.cfargotunnel.com"
+        _ -> nil
+      end
+
     %{
       fqdn: fqdn,
       zone_id: mask_zone_id(zone_id),
       token_present?: token not in [nil, ""],
       dns_state: dns_state,
       resolved_ips: resolved_ips,
+      cname_state: cname_state,
+      cname_target: cname_target && strip_trailing_dot(cname_target),
+      expected_cname: expected_cname,
+      tunnel: tunnel,
       checked_at: DateTime.utc_now()
     }
   end
@@ -927,6 +893,41 @@ defmodule LumainusWeb.Admin.VastAILive do
       error -> {:error, error}
     catch
       :exit, reason -> {:error, reason}
+    end
+  end
+
+  defp resolve_cname(fqdn) when fqdn in [nil, ""], do: {:error, :no_fqdn_configured}
+
+  defp resolve_cname(fqdn) do
+    try do
+      case :inet_res.lookup(String.to_charlist(fqdn), :in, :cname) do
+        [] -> {:ok, nil}
+        [target | _] -> {:ok, to_string(target)}
+      end
+    rescue
+      error -> {:error, error}
+    catch
+      :exit, reason -> {:error, reason}
+    end
+  end
+
+  defp fetch_cname_via_api(fqdn, zone_id, token) do
+    url = "#{@cloudflare_api}/zones/#{zone_id}/dns_records?type=CNAME&name=#{URI.encode(fqdn)}"
+
+    headers = [{"Authorization", "Bearer #{token}"}]
+
+    case Req.get(url, headers: headers) do
+      {:ok, %{status: 200, body: %{"success" => true, "result" => [%{"content" => content} | _]}}} ->
+        {:ok, content}
+
+      {:ok, %{status: 200, body: %{"success" => true, "result" => []}}} ->
+        {:ok, nil}
+
+      {:ok, %{body: %{"errors" => errors}}} ->
+        {:error, {:cloudflare_error, errors}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -961,6 +962,12 @@ defmodule LumainusWeb.Admin.VastAILive do
     tuple
     |> :inet.ntoa()
     |> to_string()
+  end
+
+  defp strip_trailing_dot(nil), do: nil
+
+  defp strip_trailing_dot(value) when is_binary(value) do
+    String.replace_suffix(value, ".", "")
   end
 
   defp mask_zone_id(nil), do: nil
@@ -1012,7 +1019,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   defp parse_geolocation(val) when is_list(val), do: val
 
   defp build_cloud_endpoint(ip) do
-    # Use HTTPS via Cloudflare if configured, otherwise HTTP
+    # Prefer Cloudflare tunnel endpoint; fall back to direct IP if FQDN missing
     fqdn = Cloudflare.cloud_fqdn()
 
     if fqdn && String.trim(fqdn) != "" do
@@ -1024,22 +1031,6 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   defp docling_image, do: @docling_image
   defp pytorch_image, do: @pytorch_image
-
-  # Add docker_login for private ghcr.io images
-  defp maybe_add_docker_login(params, image) do
-    if String.starts_with?(image, "ghcr.io/") do
-      ghcr_user = Application.get_env(:lumainus, :ghcr_user) || "nshkrdotcom"
-      ghcr_token = Application.get_env(:lumainus, :ghcr_token) || System.get_env("GHCR_TOKEN")
-
-      if ghcr_token do
-        Map.put(params, :docker_login, "#{ghcr_user}:#{ghcr_token}")
-      else
-        params
-      end
-    else
-      params
-    end
-  end
 
   defp has_active_instances?(instances) do
     Enum.any?(instances, &(&1["actual_status"] in ["running", "loading"]))
@@ -1223,7 +1214,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                   d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
                 />
               </svg>
-              HTTPS via Cloudflare
+              Cloudflare Tunnel (docling.lumainus.com)
             </span>
           </div>
         </div>
@@ -1287,6 +1278,32 @@ defmodule LumainusWeb.Admin.VastAILive do
                     else: "not configured"}
                 </code>
               </div>
+              <div class="flex items-start gap-2">
+                <span class="text-gray-500 dark:text-gray-400">CNAME:</span>
+                <div class="text-xs">
+                  <%= cond do %>
+                    <% @dns_status.cname_state == :ok and @dns_status.cname_target -> %>
+                      <code class="px-2 py-1 bg-white/80 dark:bg-gray-900/60 rounded text-xs">
+                        {@dns_status.cname_target}
+                      </code>
+                    <% @dns_status.cname_state == :ok -> %>
+                      <div class="flex flex-col gap-1">
+                        <span class="text-amber-700 dark:text-amber-300">
+                          No CNAME found (Cloudflare may be flattening when proxied)
+                        </span>
+                        <%= if @dns_status.expected_cname do %>
+                          <span class="text-xs text-gray-600 dark:text-gray-300">
+                            Expected: {@dns_status.expected_cname}
+                          </span>
+                        <% end %>
+                      </div>
+                    <% true -> %>
+                      <span class="text-red-700 dark:text-red-300">
+                        CNAME lookup error: {inspect(@dns_status.cname_state)}
+                      </span>
+                  <% end %>
+                </div>
+              </div>
               <div class="flex items-center gap-2">
                 <span class="text-gray-500 dark:text-gray-400">Zone ID:</span>
                 <code class="px-2 py-1 bg-white/80 dark:bg-gray-900/60 rounded text-xs">
@@ -1308,13 +1325,30 @@ defmodule LumainusWeb.Admin.VastAILive do
                   {if @dns_status.token_present?, do: "API token present", else: "Missing API token"}
                 </span>
               </div>
+              <div class="flex items-start gap-2 text-xs">
+                <span class="text-gray-500 dark:text-gray-400">Tunnel:</span>
+                <%= cond do %>
+                  <% is_map(@dns_status.tunnel) -> %>
+                    <span class="text-green-700 dark:text-green-300">
+                      {@dns_status.tunnel.name} ({@dns_status.tunnel.id})
+                    </span>
+                  <% match?({:error, _}, @dns_status.tunnel) -> %>
+                    <span class="text-red-700 dark:text-red-300">
+                      Lookup error: {inspect(elem(@dns_status.tunnel, 1))}
+                    </span>
+                  <% true -> %>
+                    <span class="text-amber-700 dark:text-amber-300">
+                      No existing tunnel found (will be created on provision)
+                    </span>
+                <% end %>
+              </div>
             </div>
           </div>
 
           <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
             <div class="flex items-center justify-between mb-2">
               <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                Live DNS record (dig)
+                Live DNS (docling CNAME + legacy A)
               </p>
               <button
                 type="button"
@@ -1326,12 +1360,51 @@ defmodule LumainusWeb.Admin.VastAILive do
             </div>
             <div class="space-y-1 text-sm text-gray-700 dark:text-gray-200">
               <div class="flex items-start gap-2">
-                <span class="text-gray-500 dark:text-gray-400">A record:</span>
+                <span class="text-gray-500 dark:text-gray-400">CNAME:</span>
+                <div class="space-y-1 text-xs">
+                  <%= cond do %>
+                    <% @dns_status.cname_state == :ok and @dns_status.cname_target -> %>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <code class="px-2 py-1 bg-white/80 dark:bg-gray-900/60 rounded text-xs">
+                          {@dns_status.cname_target}
+                        </code>
+                        <span class={[
+                          "px-2 py-0.5 rounded-full text-[11px]",
+                          String.contains?(@dns_status.cname_target || "", "cfargotunnel.com") &&
+                            "bg-green-100 text-green-800",
+                          !String.contains?(@dns_status.cname_target || "", "cfargotunnel.com") &&
+                            "bg-amber-100 text-amber-800"
+                        ]}>
+                          {if String.contains?(@dns_status.cname_target || "", "cfargotunnel.com"),
+                            do: "Cloudflare Tunnel target",
+                            else: "Unexpected target"}
+                        </span>
+                      </div>
+                    <% @dns_status.cname_state == :ok -> %>
+                      <div class="flex flex-col gap-1">
+                        <span class="text-amber-700 dark:text-amber-300">
+                          No CNAME records returned (Cloudflare may be flattening)
+                        </span>
+                        <%= if @dns_status.expected_cname do %>
+                          <span class="text-gray-600 dark:text-gray-300">
+                            Expected target: {@dns_status.expected_cname}
+                          </span>
+                        <% end %>
+                      </div>
+                    <% true -> %>
+                      <span class="text-red-700 dark:text-red-300">
+                        Lookup error: {inspect(@dns_status.cname_state)}
+                      </span>
+                  <% end %>
+                </div>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-gray-500 dark:text-gray-400">A lookup (legacy):</span>
                 <div class="space-y-1">
                   <%= cond do %>
                     <% @dns_status.dns_state == :ok and @dns_status.resolved_ips == [] -> %>
                       <span class="text-xs text-amber-700 dark:text-amber-300">
-                        No A records returned
+                        No A records (expected when using tunnel CNAME)
                       </span>
                     <% @dns_status.dns_state == :ok -> %>
                       <div class="flex flex-wrap gap-1">
@@ -1414,7 +1487,7 @@ defmodule LumainusWeb.Admin.VastAILive do
                     <%= if instance["public_ipaddr"] && instance["actual_status"] == "running" do %>
                       <div class="mt-2 space-y-2">
                         <div class="flex items-center gap-2">
-                          <span class="text-xs text-gray-500 dark:text-gray-400">HTTP:</span>
+                          <span class="text-xs text-gray-500 dark:text-gray-400">Direct health:</span>
                           <code class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
                             http://{instance["public_ipaddr"]}:{cloud_port()}
                           </code>
@@ -1427,29 +1500,21 @@ defmodule LumainusWeb.Admin.VastAILive do
                           >
                             Test
                           </button>
-                          <button
-                            type="button"
-                            phx-click="set_cloud_backend"
-                            phx-value-ip={instance["public_ipaddr"]}
-                            phx-value-https="false"
-                            class="px-2 py-1 text-xs font-medium text-purple-700 bg-purple-100 rounded hover:bg-purple-200"
-                          >
-                            Use HTTP
-                          </button>
                         </div>
                         <div class="flex items-center gap-2">
-                          <span class="text-xs text-gray-500 dark:text-gray-400">HTTPS:</span>
+                          <span class="text-xs text-gray-500 dark:text-gray-400">
+                            Cloudflare endpoint:
+                          </span>
                           <code class="text-xs bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 px-2 py-1 rounded">
-                            https://docling.lumainus.com
+                            https://{Cloudflare.cloud_fqdn()}
                           </code>
                           <button
                             type="button"
                             phx-click="set_cloud_backend"
                             phx-value-ip={instance["public_ipaddr"]}
-                            phx-value-https="true"
                             class="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded hover:bg-green-200"
                           >
-                            Use HTTPS
+                            Set as backend
                           </button>
                           <button
                             type="button"
@@ -1461,14 +1526,20 @@ defmodule LumainusWeb.Admin.VastAILive do
                           >
                             Sync
                           </button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs text-gray-500 dark:text-gray-400">Direct health:</span>
+                          <code class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                            http://{instance["public_ipaddr"]}:{cloud_port()}
+                          </code>
                           <button
                             type="button"
-                            phx-click="update_dns"
+                            phx-click="check_health"
+                            phx-value-id={instance["id"]}
                             phx-value-ip={instance["public_ipaddr"]}
-                            class="px-2 py-1 text-xs font-medium text-orange-700 bg-orange-100 rounded hover:bg-orange-200"
-                            title="Update Cloudflare DNS to point docling.lumainus.com to this IP"
+                            class="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200"
                           >
-                            Update DNS
+                            Test
                           </button>
                         </div>
                         <%= case @health_results[instance["id"]] do %>
@@ -1801,26 +1872,6 @@ defmodule LumainusWeb.Admin.VastAILive do
                   PyTorch Base (needs manual setup)
                 </option>
               </select>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="use_https"
-                checked={@use_https}
-                phx-click="toggle_https"
-                phx-value-use_https={if @use_https, do: "false", else: "true"}
-                class="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-600"
-              />
-              <label for="use_https" class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                HTTPS (Let's Encrypt)
-              </label>
-              <span
-                class="text-xs text-gray-500 dark:text-gray-400"
-                title="Auto-configures Caddy + Cloudflare DNS for docling.lumainus.com"
-              >
-                ?
-              </span>
             </div>
           </div>
         </.form>
