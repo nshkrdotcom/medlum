@@ -30,7 +30,8 @@ defmodule Lumainus.Docling.Backends.VastAI do
   alias Lumainus.GPU
 
   @default_timeout 1_200_000
-  @default_health_timeout_ms 5_000
+  # Shorter health timeout for faster UI feedback when service is down
+  @default_health_timeout_ms 2_000
 
   @impl true
   def convert(binary, opts) when is_binary(binary) do
@@ -270,23 +271,48 @@ defmodule Lumainus.Docling.Backends.VastAI do
 
   defp try_health_endpoints(ip) do
     allow_insecure = allow_insecure_ip_https?()
+    attempts = health_attempts(ip, allow_insecure)
 
-    health_attempts(ip, allow_insecure)
-    |> Enum.reduce_while([], fn attempt, acc ->
-      {result, attempt_record} = perform_health_attempt(attempt)
-      acc = acc ++ [attempt_record]
+    # Run all health attempts concurrently to minimize total wait time
+    timeout = health_timeout_ms()
 
-      case result do
-        {:ok, resp} ->
-          {:halt, {:ok, resp, attempt.base_url, acc}}
+    # Pair each attempt with its task, capturing the attempt in the tuple
+    tasks_with_attempts =
+      Enum.map(attempts, fn attempt ->
+        task = Task.async(fn -> perform_health_attempt(attempt) end)
+        {attempt, task}
+      end)
 
-        {:error, _} ->
-          {:cont, acc}
-      end
-    end)
-    |> case do
-      {:ok, resp, endpoint, attempts} -> {:ok, resp, endpoint, attempts}
-      attempts when is_list(attempts) -> {:error, {:all_failed, attempts}}
+    # Wait for all tasks with overall timeout, collect results
+    results =
+      tasks_with_attempts
+      |> Enum.map(fn {attempt, task} ->
+        case Task.yield(task, timeout + 500) || Task.shutdown(task, :brutal_kill) do
+          {:ok, {result, record}} ->
+            {attempt, result, record}
+
+          nil ->
+            # Task didn't complete in time - build timeout record
+            attempt_record = %{
+              url: "#{attempt.base_url}/health",
+              scheme: attempt.scheme,
+              insecure?: attempt.insecure?,
+              result: {:error, :task_timeout}
+            }
+
+            {attempt, {:error, :task_timeout}, attempt_record}
+        end
+      end)
+
+    # Find first success or collect all failures
+    case Enum.find(results, fn {_attempt, result, _record} -> match?({:ok, _}, result) end) do
+      {attempt, {:ok, resp}, _record} ->
+        attempt_records = Enum.map(results, fn {_, _, record} -> record end)
+        {:ok, resp, attempt.base_url, attempt_records}
+
+      nil ->
+        attempt_records = Enum.map(results, fn {_, _, record} -> record end)
+        {:error, {:all_failed, attempt_records}}
     end
   end
 
@@ -295,19 +321,37 @@ defmodule Lumainus.Docling.Backends.VastAI do
     http_base = "http://#{ip}:#{port}"
     https_base = "https://#{ip}:#{port}"
 
+    # Build base connect options with short timeout for health checks
+    timeout = health_timeout_ms()
+    base_connect_opts = [timeout: timeout]
+
     attempts = [
-      %{scheme: "http", base_url: http_base, insecure?: false, opts: []},
-      %{scheme: "https", base_url: https_base, insecure?: false, opts: []}
+      %{
+        scheme: "http",
+        base_url: http_base,
+        insecure?: false,
+        connect_options: base_connect_opts
+      },
+      %{
+        scheme: "https",
+        base_url: https_base,
+        insecure?: false,
+        connect_options: base_connect_opts
+      }
     ]
 
     if allow_insecure_https? do
+      # Merge transport_opts for insecure HTTPS (skip cert verification)
+      insecure_connect_opts =
+        Keyword.merge(base_connect_opts, transport_opts: [verify: :verify_none])
+
       attempts ++
         [
           %{
             scheme: "https",
             base_url: https_base,
             insecure?: true,
-            opts: [connect_options: [transport_opts: [verify: :verify_none]]]
+            connect_options: insecure_connect_opts
           }
         ]
     else
@@ -317,8 +361,12 @@ defmodule Lumainus.Docling.Backends.VastAI do
 
   defp perform_health_attempt(%{base_url: base_url, scheme: scheme} = attempt) do
     insecure? = Map.get(attempt, :insecure?, false)
-    opts = Map.get(attempt, :opts, []) ++ health_req_opts()
+    connect_options = Map.get(attempt, :connect_options, [])
+    timeout = health_timeout_ms()
     url = "#{base_url}/health"
+
+    # Build opts with properly merged connect_options (no duplicates)
+    opts = [receive_timeout: timeout, connect_options: connect_options]
 
     Logger.warning(
       "[Docling.VastAI] Fallback health attempt #{url} (scheme=#{scheme}, insecure=#{insecure?})"

@@ -357,49 +357,102 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     %{error: "fallback_failed", detail: detail}
   end
 
+  defp normalize_error({:transport_error, reason}) do
+    %{error: friendly_transport_error(reason), raw: {:transport_error, reason}}
+  end
+
   defp normalize_error(reason) do
     %{error: inspect(reason)}
   end
+
+  defp friendly_transport_error(:timeout), do: "Connection timed out"
+  defp friendly_transport_error(:closed), do: "Connection closed"
+  defp friendly_transport_error(:econnrefused), do: "Connection refused"
+  defp friendly_transport_error(:nxdomain), do: "DNS lookup failed"
+  defp friendly_transport_error(other), do: "Network error: #{inspect(other)}"
 
   defp show_error?("healthy", _health), do: false
   defp show_error?("unconfigured", _health), do: false
   defp show_error?(_status, _health), do: true
 
-  defp error_summary(%{details: %{error: error} = details}) when is_binary(error) do
-    attempt = format_attempts(details[:detail] || details[:attempts])
-    if attempt, do: "#{error} (#{attempt})", else: error
+  defp error_summary(%{details: %{error: "fallback_failed", detail: detail}}) do
+    cond do
+      # All attempts failed - service likely not running
+      is_map(detail) and is_list(detail[:attempts]) ->
+        failed_count = length(detail[:attempts])
+        "Service unreachable (#{failed_count} endpoints tried)"
+
+      # No IP available
+      is_map(detail) and is_list(detail[:ip_attempts]) ->
+        "Cannot resolve IP address"
+
+      true ->
+        "Fallback failed"
+    end
+  end
+
+  defp error_summary(%{details: %{error: error}}) when is_binary(error) do
+    error
   end
 
   defp error_summary(%{details: details}) when is_map(details) do
-    inspect(details)
+    inspect(details, limit: 50)
   end
 
   defp error_summary(_), do: "unreachable"
 
+  defp error_full_text(%{details: %{detail: detail}}) when is_map(detail) do
+    format_fallback_detail(detail)
+  end
+
   defp error_full_text(%{details: details}) when is_map(details) do
-    inspect(details)
+    inspect(details, pretty: true, limit: 200)
   end
 
   defp error_full_text(_), do: ""
 
-  defp format_attempts(nil), do: nil
+  defp format_fallback_detail(%{attempts: attempts} = detail) when is_list(attempts) do
+    primary = detail[:primary_reason]
+    attempt_lines = format_attempts(attempts)
 
-  defp format_attempts(%{attempts: attempts}) when is_list(attempts) do
-    attempts
-    |> Enum.map(fn
-      %{url: url, result: res} -> "#{url} -> #{inspect(res)}"
-      other -> inspect(other)
-    end)
-    |> Enum.join("; ")
+    lines = []
+    lines = if primary, do: ["Primary: #{inspect(primary)}" | lines], else: lines
+    lines = if attempt_lines, do: ["Fallback attempts:\n#{attempt_lines}" | lines], else: lines
+    Enum.join(lines, "\n")
   end
+
+  defp format_fallback_detail(%{ip_attempts: ip_attempts}) when is_list(ip_attempts) do
+    "IP resolution failed:\n" <>
+      Enum.map_join(ip_attempts, "\n", fn
+        %{source: src, error: err} -> "  #{src}: #{inspect(err)}"
+        %{source: src, value: val} -> "  #{src}: #{val}"
+        other -> "  #{inspect(other)}"
+      end)
+  end
+
+  defp format_fallback_detail(detail), do: inspect(detail, pretty: true, limit: 200)
+
+  defp format_attempts(nil), do: nil
 
   defp format_attempts(attempts) when is_list(attempts) do
     attempts
     |> Enum.map(fn
-      %{url: url, result: res} -> "#{url} -> #{inspect(res)}"
-      other -> inspect(other)
+      %{url: url, result: :ok} ->
+        "  #{url} -> OK"
+
+      %{url: url, result: {:error, {:transport_error, reason}}} ->
+        "  #{url} -> #{friendly_transport_error(reason)}"
+
+      %{url: url, result: {:error, reason}} ->
+        "  #{url} -> #{inspect(reason)}"
+
+      %{url: url, result: res} ->
+        "  #{url} -> #{inspect(res)}"
+
+      other ->
+        "  #{inspect(other)}"
     end)
-    |> Enum.join("; ")
+    |> Enum.join("\n")
   end
 
   defp format_attempts(_), do: nil

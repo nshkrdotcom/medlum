@@ -545,15 +545,19 @@ defmodule LumainusWeb.Admin.VastAILive do
     ProvisioningState.add_log(:info, "Searching for GPU offers...")
     ProvisioningState.update_status("Searching for GPU offers...")
 
+    # Generate the Caddy onstart script that starts uvicorn and sets up HTTPS
+    onstart = VastAI.caddy_onstart_script(Cloudflare.cloud_fqdn(), VastAI.cloud_port())
+
     opts = [
       max_price: filters.max_price,
       disk_gb: filters.disk_gb,
       geolocation: filters.geolocation,
       label: "lumainus-docling",
-      image: image
+      image: image,
+      onstart: onstart
     ]
 
-    ProvisioningState.add_log(:info, "Creating Vast.ai instance...")
+    ProvisioningState.add_log(:info, "Creating Vast.ai instance with startup script...")
     ProvisioningState.update_status("Creating Vast.ai instance...")
 
     case VastAI.provision(opts) do

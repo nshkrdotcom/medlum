@@ -1284,12 +1284,20 @@ defmodule LumainusWeb.ReportsLive do
 
     ProvisioningState.update_status("Creating instance from offer ##{offer_id}...")
 
+    # Generate the Caddy onstart script that starts uvicorn and sets up HTTPS
+    onstart = VastAI.caddy_onstart_script(Cloudflare.cloud_fqdn(), VastAI.cloud_port())
+
     ProvisioningState.add_log(
       :info,
-      "Calling VastAI.provision(offer_id: #{offer_id}, disk_gb: 20, label: lumainus-docling)"
+      "Calling VastAI.provision(offer_id: #{offer_id}, disk_gb: 20, label: lumainus-docling, onstart: <script>)"
     )
 
-    case VastAI.provision(offer_id: offer_id, disk_gb: 20, label: "lumainus-docling") do
+    case VastAI.provision(
+           offer_id: offer_id,
+           disk_gb: 20,
+           label: "lumainus-docling",
+           onstart: onstart
+         ) do
       {:ok, instance_id} ->
         ProvisioningState.add_log(:success, "=== PHASE 1 COMPLETE ===")
 
