@@ -675,10 +675,16 @@ defmodule LumainusWeb.ReportsLive do
     # which may be stale from page load
     current_instance_status = check_gpu_instance_status_fast()
 
+    Logger.info(
+      "[ReportsLive] Health result received: available?=#{inspect(available?)}, " <>
+        "instance_status=#{inspect(current_instance_status.status)}"
+    )
+
     {final_available?, final_reason, should_retry?} =
       case {available?, current_instance_status} do
         {true, _} ->
           # Health check passed - all good
+          Logger.info("[ReportsLive] Setting fast_available?=true")
           {true, nil, false}
 
         {false, %{status: :running, endpoint: endpoint}}
@@ -1080,30 +1086,51 @@ defmodule LumainusWeb.ReportsLive do
     cloud_url = Keyword.get(config, :cloud_url)
     remote_url = Keyword.get(config, :remote_url)
 
+    # Debug logging for health check
+    Logger.debug(
+      "[ReportsLive] Health check: cloud_url=#{inspect(cloud_url)}, remote_url=#{inspect(remote_url)}"
+    )
+
     cond do
       is_nil(cloud_url) and is_nil(remote_url) ->
+        Logger.warning("[ReportsLive] Health check failed: Cloud URL not configured")
         {false, "Cloud URL not configured"}
 
       cloud_url == "" and (is_nil(remote_url) or remote_url == "") ->
+        Logger.warning("[ReportsLive] Health check failed: Cloud URL is empty")
         {false, "Cloud URL not configured"}
 
       true ->
         try do
+          url = cloud_url || remote_url
+          Logger.debug("[ReportsLive] Running health check against #{url}")
+
           # Use Task with timeout to avoid hanging forever
           task =
             Task.async(fn ->
               case Docling.health(backend: :vast_ai, timeout: timeout_ms) do
-                {:ok, _} -> {true, nil}
-                {:error, reason} -> {false, inspect(reason)}
+                {:ok, _} ->
+                  Logger.info("[ReportsLive] Health check passed for #{url}")
+                  {true, nil}
+
+                {:error, reason} ->
+                  Logger.warning("[ReportsLive] Health check failed: #{inspect(reason)}")
+                  {false, inspect(reason)}
               end
             end)
 
           case Task.yield(task, timeout_ms) || Task.shutdown(task) do
-            {:ok, result} -> result
-            nil -> {false, "Health check timed out"}
+            {:ok, result} ->
+              result
+
+            nil ->
+              Logger.warning("[ReportsLive] Health check timed out after #{timeout_ms}ms")
+              {false, "Health check timed out"}
           end
         rescue
-          error -> {false, inspect(error)}
+          error ->
+            Logger.error("[ReportsLive] Health check exception: #{inspect(error)}")
+            {false, inspect(error)}
         end
     end
   end
@@ -1750,7 +1777,7 @@ defmodule LumainusWeb.ReportsLive do
 
   defp maybe_fast_cost_flash(socket, _), do: socket
 
-  defp format_backend_reason(nil), do: nil
+  defp format_backend_reason(nil), do: ""
 
   defp format_backend_reason(reason) when is_binary(reason) do
     # Return user-friendly messages for common reasons
@@ -1850,11 +1877,15 @@ defmodule LumainusWeb.ReportsLive do
 
     Enum.map(documents, fn doc ->
       if doc.id == upload_id do
+        current_ingestion_progress = doc.ingestion_progress || 0
+        incoming_ingestion_progress = progress || current_ingestion_progress
+        ingestion_progress = max(current_ingestion_progress, incoming_ingestion_progress)
+
         doc
         |> Map.put(:status, state || stage || doc.status)
         |> Map.put(:ingestion_state, state || doc.ingestion_state)
         |> Map.put(:ingestion_stage, stage || doc.ingestion_stage)
-        |> Map.put(:ingestion_progress, progress || doc.ingestion_progress)
+        |> Map.put(:ingestion_progress, ingestion_progress)
         |> Map.put(:ingestion_message, message || doc.ingestion_message)
         |> Map.put(:ingestion_error, last_error || doc.ingestion_error)
         |> Map.put(:ingestion_job_id, job_id || doc.ingestion_job_id)
@@ -1871,15 +1902,35 @@ defmodule LumainusWeb.ReportsLive do
   defp maybe_put_progress(doc, nil), do: doc
 
   defp maybe_put_progress(doc, payload) when is_map(payload) do
+    existing_progress = doc.progress || %{}
+    current_overall = existing_progress["overall"] || doc.ingestion_progress || 0
+    current_stage_progress = existing_progress["stage_progress"] || 0
+    current_pages_done = existing_progress["pages_done"] || 0
+    current_pages_total = existing_progress["pages_total"]
+
+    incoming_overall = payload[:overall] || payload["overall"]
+    incoming_stage_progress = payload[:stage_progress] || payload["stage_progress"]
+    incoming_pages_done = payload[:pages_done] || payload["pages_done"]
+    incoming_pages_total = payload[:pages_total] || payload["pages_total"]
+
+    overall = max(current_overall, incoming_overall || current_overall)
+
+    stage_progress =
+      max(current_stage_progress, incoming_stage_progress || current_stage_progress)
+
+    pages_done = max(current_pages_done, incoming_pages_done || current_pages_done)
+    pages_total = incoming_pages_total || current_pages_total
+
     # Convert atom keys to string keys for consistency with component
     progress = %{
-      "overall" => payload[:overall] || payload["overall"] || doc.ingestion_progress,
-      "stage" => payload[:stage] || payload["stage"],
-      "stage_name" => payload[:stage_name] || payload["stage_name"],
-      "stage_progress" => payload[:stage_progress] || payload["stage_progress"],
-      "pages_done" => payload[:pages_done] || payload["pages_done"],
-      "pages_total" => payload[:pages_total] || payload["pages_total"],
-      "stages" => payload[:stages] || payload["stages"] || %{}
+      "overall" => overall,
+      "stage" => payload[:stage] || payload["stage"] || existing_progress["stage"],
+      "stage_name" =>
+        payload[:stage_name] || payload["stage_name"] || existing_progress["stage_name"],
+      "stage_progress" => stage_progress,
+      "pages_done" => pages_done,
+      "pages_total" => pages_total,
+      "stages" => payload[:stages] || payload["stages"] || existing_progress["stages"] || %{}
     }
 
     Map.put(doc, :progress, progress)
@@ -2806,26 +2857,33 @@ defmodule LumainusWeb.ReportsLive do
                 <% else %>
                   <span>Standard uses the local CPU Docling service.</span>
                 <% end %>
-                <%= unless @fast_available? do %>
-                  <span class={
-                    if @fast_unavailable_reason &&
-                         String.contains?(@fast_unavailable_reason || "", "Service starting"),
-                       do: "text-sky-600",
-                       else: "text-amber-600"
-                  }>
-                    <%= cond do %>
-                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "Service starting") -> %>
-                        {@fast_unavailable_reason}
-                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "loading") -> %>
-                        {@fast_unavailable_reason}
-                      <% true -> %>
-                        GPU service unavailable
-                        <%= if @fast_unavailable_reason do %>
-                          — {@fast_unavailable_reason}
-                        <% end %>
-                        — falling back to Standard.
-                    <% end %>
-                  </span>
+                <%= cond do %>
+                  <% @fast_available? == nil -> %>
+                    <%!-- Still checking - show subtle indicator --%>
+                    <span class="text-slate-500 text-sm">Checking GPU availability...</span>
+                  <% @fast_available? == false -> %>
+                    <%!-- Explicitly unavailable --%>
+                    <span class={
+                      if @fast_unavailable_reason &&
+                           String.contains?(@fast_unavailable_reason || "", "Service starting"),
+                         do: "text-sky-600",
+                         else: "text-amber-600"
+                    }>
+                      <%= cond do %>
+                        <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "Service starting") -> %>
+                          {@fast_unavailable_reason}
+                        <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "loading") -> %>
+                          {@fast_unavailable_reason}
+                        <% true -> %>
+                          GPU service unavailable
+                          <%= if @fast_unavailable_reason && @fast_unavailable_reason != "" do %>
+                            — {@fast_unavailable_reason}
+                          <% end %>
+                          — falling back to Standard.
+                      <% end %>
+                    </span>
+                  <% true -> %>
+                    <%!-- Available (true) - show nothing --%>
                 <% end %>
               </div>
             </div>

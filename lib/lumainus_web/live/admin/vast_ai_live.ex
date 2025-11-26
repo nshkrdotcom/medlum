@@ -55,7 +55,8 @@ defmodule LumainusWeb.Admin.VastAILive do
        use_https: prov_state.use_https,
        auto_shutdown_status: get_auto_shutdown_status(),
        dns_status: compute_dns_status(),
-       starting_instance_id: nil
+       starting_instance_id: nil,
+       stopping_instance_id: nil
      )}
   end
 
@@ -234,6 +235,46 @@ defmodule LumainusWeb.Admin.VastAILive do
       socket
       |> load_instances()
       |> ensure_start_poll()
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:stop_instance_async, instance_id}, socket) do
+    alias Lumainus.Docling.VastAI.InstanceManager
+
+    socket =
+      case Instances.stop(instance_id) do
+        {:ok, _} ->
+          # Also update InstanceManager
+          InstanceManager.set_stopped(instance_id)
+
+          socket
+          |> put_flash(:info, "Instance #{instance_id} stop initiated...")
+          |> load_instances()
+
+        {:error, reason} ->
+          socket
+          |> put_flash(:error, "Failed to stop: #{inspect(reason)}")
+          |> assign(stopping_instance_id: nil)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:poll_stopping_instance, %{assigns: %{stopping_instance_id: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info(:poll_stopping_instance, socket) do
+    socket =
+      socket
+      |> load_instances()
+      |> maybe_clear_stopping_indicator()
+
+    # Keep polling if still stopping
+    if socket.assigns.stopping_instance_id do
+      Process.send_after(self(), :poll_stopping_instance, 3_000)
+    end
 
     {:noreply, socket}
   end
@@ -425,23 +466,16 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   def handle_event("stop", %{"id" => id}, socket) do
-    alias Lumainus.Docling.VastAI.InstanceManager
-
     instance_id = String.to_integer(id)
 
-    case Instances.stop(instance_id) do
-      {:ok, _} ->
-        # Also update InstanceManager
-        InstanceManager.set_stopped(instance_id)
+    # Show immediate feedback and kick off async stop
+    send(self(), {:stop_instance_async, instance_id})
+    Process.send_after(self(), :poll_stopping_instance, 3_000)
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Instance #{instance_id} stopping...")
-         |> load_instances()}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to stop: #{inspect(reason)}")}
-    end
+    {:noreply,
+     socket
+     |> assign(stopping_instance_id: instance_id)
+     |> put_flash(:info, "Stopping instance #{instance_id}...")}
   end
 
   # Sync InstanceManager with a running instance from Vast.ai
@@ -951,6 +985,30 @@ defmodule LumainusWeb.Admin.VastAILive do
     end
   end
 
+  defp maybe_clear_stopping_indicator(socket) do
+    stopping_id = socket.assigns[:stopping_instance_id]
+    instances = socket.assigns[:instances] || []
+
+    cond do
+      is_nil(stopping_id) ->
+        socket
+
+      instance = Enum.find(instances, &(&1["id"] == stopping_id)) ->
+        # Clear indicator when status is no longer "running" (e.g., "exited", "stopped")
+        if instance["actual_status"] != "running" do
+          socket
+          |> assign(stopping_instance_id: nil)
+          |> put_flash(:info, "Instance #{stopping_id} stopped")
+        else
+          socket
+        end
+
+      # Instance no longer in list (destroyed or gone)
+      true ->
+        assign(socket, stopping_instance_id: nil)
+    end
+  end
+
   defp ensure_start_poll(%{assigns: %{starting_instance_id: nil}} = socket), do: socket
 
   defp ensure_start_poll(socket) do
@@ -1115,8 +1173,8 @@ defmodule LumainusWeb.Admin.VastAILive do
         </div>
       <% end %>
 
-      <%!-- Quick Provision Panel - shows when no instances exist --%>
-      <%= if @instances == [] and not @provisioning do %>
+      <%!-- Quick Provision Panel - shows when no instances exist (but not while loading) --%>
+      <%= if @instances == [] and not @provisioning and not @loading do %>
         <div class="rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-sky-900/30 dark:to-indigo-900/30 dark:border-sky-700 px-6 py-5 shadow-sm">
           <div class="flex items-center justify-between gap-6">
             <div class="flex items-center gap-4">
@@ -1566,15 +1624,34 @@ defmodule LumainusWeb.Admin.VastAILive do
                       </div>
                     <% end %>
 
+                    <%= if @stopping_instance_id == instance["id"] do %>
+                      <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                        <span class="h-4 w-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
+                        </span>
+                        Stopping...
+                      </div>
+                    <% end %>
+
                     <div class="flex gap-2">
                       <%= if instance["actual_status"] == "running" do %>
                         <button
                           type="button"
                           phx-click="stop"
                           phx-value-id={instance["id"]}
-                          class="px-3 py-1 text-sm font-medium text-amber-700 bg-amber-100 rounded hover:bg-amber-200"
+                          disabled={@stopping_instance_id == instance["id"]}
+                          class={[
+                            "px-3 py-1 text-sm font-medium rounded",
+                            @stopping_instance_id == instance["id"] &&
+                              "text-gray-500 bg-gray-100 cursor-wait",
+                            @stopping_instance_id != instance["id"] &&
+                              "text-amber-700 bg-amber-100 hover:bg-amber-200"
+                          ]}
                         >
-                          Stop
+                          <%= if @stopping_instance_id == instance["id"] do %>
+                            Stopping...
+                          <% else %>
+                            Stop
+                          <% end %>
                         </button>
                       <% else %>
                         <button

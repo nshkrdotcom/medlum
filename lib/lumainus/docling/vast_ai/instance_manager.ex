@@ -50,6 +50,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   alias Lumainus.VastAI.RemoteDiagnostics
   alias Lumainus.Cloudflare
   alias Lumainus.Cloudflare.Tunnel
+  alias Lumainus.Docling.Settings, as: DoclingSettings
   alias Lumainus.Docling.VastAI.StartTracker
   alias Lumainus.Docling.VastAI.ActivityTracker
   @compile {:no_warn_undefined, Lumainus.VastAI}
@@ -528,6 +529,15 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       update_dns_for_instance(ip_for_dns, instance_id)
     end
 
+    # IMPORTANT: Persist cloud_url to database for health checks
+    case DoclingSettings.update_cloud_url(endpoint) do
+      {:ok, _} ->
+        Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
+
+      {:error, reason} ->
+        Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
+    end
+
     GPU.log(:lifecycle, :endpoint_set, "Instance endpoint set from external provisioning",
       instance_id: instance_id,
       endpoint: endpoint,
@@ -607,6 +617,15 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
           # Found a running instance - adopt it
           endpoint = recover_endpoint(ip)
           Logger.info("[InstanceManager] Adopting running instance #{instance_id} at #{endpoint}")
+
+          # Update cloud_url for health checks
+          case DoclingSettings.update_cloud_url(endpoint) do
+            {:ok, _} ->
+              Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
+
+            {:error, reason} ->
+              Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
+          end
 
           GPU.log(:lifecycle, :instance_adopted, "Adopted existing Vast.ai instance",
             instance_id: instance_id,
@@ -812,6 +831,16 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
         endpoint = "https://#{Cloudflare.cloud_fqdn()}"
 
+        # IMPORTANT: Update cloud_url in database so health checks find it
+        # Without this, ReportsLive health check will fail with "Cloud URL not configured"
+        case DoclingSettings.update_cloud_url(endpoint) do
+          {:ok, _} ->
+            Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
+
+          {:error, reason} ->
+            Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
+        end
+
         GPU.log(:lifecycle, :instance_recovered, "Adopted instance via tunnel",
           instance_id: instance_id,
           endpoint: endpoint,
@@ -910,42 +939,24 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     Logger.info("[InstanceManager] Ensuring services running on instance #{instance_id}...")
 
     # Get SSH port from Vast.ai
+    # Handle both nested (%{"instances" => %{...}}) and flat (%{...}) response formats
     case VastAI.status(instance_id) do
-      {:ok, %{"ssh_port" => ssh_port}} when is_integer(ssh_port) ->
-        opts = [
-          ip: ip,
-          ssh_port: ssh_port,
-          instance_id: instance_id,
-          port: 8044,
-          domain: Cloudflare.cloud_fqdn()
-        ]
+      {:ok, %{"instances" => %{"ssh_port" => ssh_port} = instance_data}}
+      when is_integer(ssh_port) ->
+        # Nested response format from Vast.ai API
+        do_ensure_services(instance_id, ip, ssh_port, instance_data)
 
-        case RemoteDiagnostics.ensure_services_running(opts) do
-          {:ok, result} ->
-            Logger.info(
-              "[InstanceManager] Services status: uvicorn=#{result.uvicorn}, cloudflared=#{result.cloudflared}, healthy=#{result.healthy}"
-            )
+      {:ok, %{"ssh_port" => ssh_port} = instance_data} when is_integer(ssh_port) ->
+        # Flat response format (backward compatibility)
+        do_ensure_services(instance_id, ip, ssh_port, instance_data)
 
-            GPU.log(:lifecycle, :services_started, "Services started on instance",
-              instance_id: instance_id,
-              uvicorn: result.uvicorn,
-              cloudflared: result.cloudflared,
-              healthy: result.healthy,
-              source: "instance_manager"
-            )
+      {:ok, %{"instances" => instance_data}} when is_map(instance_data) ->
+        # Nested but no ssh_port
+        Logger.warning(
+          "[InstanceManager] No SSH port in nested instance data: #{inspect(instance_data)}"
+        )
 
-            :ok
-
-          {:error, reason} ->
-            Logger.error("[InstanceManager] Failed to ensure services: #{inspect(reason)}")
-
-            GPU.log_error(:lifecycle, :services_start_failed, "Failed to start services", reason,
-              instance_id: instance_id,
-              source: "instance_manager"
-            )
-
-            {:error, reason}
-        end
+        {:error, :no_ssh_port}
 
       {:ok, instance_data} ->
         Logger.warning(
@@ -956,6 +967,43 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
       {:error, reason} ->
         Logger.error("[InstanceManager] Failed to get instance status: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp do_ensure_services(instance_id, ip, ssh_port, _instance_data) do
+    opts = [
+      ip: ip,
+      ssh_port: ssh_port,
+      instance_id: instance_id,
+      port: 8044,
+      domain: Cloudflare.cloud_fqdn()
+    ]
+
+    case RemoteDiagnostics.ensure_services_running(opts) do
+      {:ok, result} ->
+        Logger.info(
+          "[InstanceManager] Services status: uvicorn=#{result.uvicorn}, cloudflared=#{result.cloudflared}, healthy=#{result.healthy}"
+        )
+
+        GPU.log(:lifecycle, :services_started, "Services started on instance",
+          instance_id: instance_id,
+          uvicorn: result.uvicorn,
+          cloudflared: result.cloudflared,
+          healthy: result.healthy,
+          source: "instance_manager"
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Logger.error("[InstanceManager] Failed to ensure services: #{inspect(reason)}")
+
+        GPU.log_error(:lifecycle, :services_start_failed, "Failed to start services", reason,
+          instance_id: instance_id,
+          source: "instance_manager"
+        )
+
         {:error, reason}
     end
   end

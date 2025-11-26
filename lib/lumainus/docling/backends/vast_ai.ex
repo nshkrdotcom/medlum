@@ -35,7 +35,7 @@ defmodule Lumainus.Docling.Backends.VastAI do
 
   @impl true
   def convert(binary, opts) when is_binary(binary) do
-    with {:ok, endpoint} <- InstanceManager.ensure_instance() do
+    with {:ok, endpoint} <- get_endpoint_with_fallback() do
       record_activity()
       HTTP.convert(binary, opts, base_url: endpoint)
     end
@@ -43,11 +43,34 @@ defmodule Lumainus.Docling.Backends.VastAI do
 
   @impl true
   def enqueue(binary, opts) when is_binary(binary) do
-    with {:ok, endpoint} <- InstanceManager.ensure_instance(),
+    with {:ok, endpoint} <- get_endpoint_with_fallback(),
          {:ok, response} <- HTTP.enqueue(binary, opts, base_url: endpoint) do
       record_activity()
       {:ok, build_job(response, opts, endpoint)}
     end
+  end
+
+  # Try InstanceManager first, fall back to configured cloud_url
+  defp get_endpoint_with_fallback do
+    case InstanceManager.ensure_instance() do
+      {:ok, endpoint} ->
+        {:ok, endpoint}
+
+      {:error, _reason} ->
+        # Fall back to configured cloud_url if available
+        case get_cloud_url_from_config() do
+          url when is_binary(url) and url != "" ->
+            Logger.info("[Docling.VastAI] Using configured cloud_url: #{url}")
+            {:ok, url}
+
+          _ ->
+            {:error, :no_instance_or_cloud_url}
+        end
+    end
+  end
+
+  defp get_cloud_url_from_config do
+    Lumainus.Docling.config()[:cloud_url]
   end
 
   @impl true
@@ -71,30 +94,40 @@ defmodule Lumainus.Docling.Backends.VastAI do
   def health do
     case InstanceManager.get_endpoint() do
       {:ok, endpoint} ->
-        case HTTP.health([base_url: endpoint], health_req_opts()) do
+        do_health_check(endpoint)
+
+      {:error, :no_instance} ->
+        # Fall back to configured cloud_url for health check
+        case get_cloud_url_from_config() do
+          url when is_binary(url) and url != "" ->
+            Logger.debug("[Docling.VastAI] No instance, checking configured cloud_url: #{url}")
+            do_health_check(url)
+
+          _ ->
+            {:error, :no_instance_or_cloud_url}
+        end
+    end
+  end
+
+  defp do_health_check(endpoint) do
+    case HTTP.health([base_url: endpoint], health_req_opts()) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[Docling.VastAI] Primary endpoint #{endpoint} unreachable: #{inspect(reason)}. Attempting direct IP fallback..."
+        )
+
+        case fallback_health_via_ip(reason) do
           {:ok, _} = ok ->
             ok
 
-          {:error, reason} ->
-            Logger.warning(
-              "[Docling.VastAI] Primary endpoint #{endpoint} unreachable: #{inspect(reason)}. Attempting direct IP fallback..."
-            )
+          {:error, fallback_reason} = error ->
+            Logger.warning("[Docling.VastAI] Fallback health failed: #{inspect(fallback_reason)}")
 
-            case fallback_health_via_ip(reason) do
-              {:ok, _} = ok ->
-                ok
-
-              {:error, fallback_reason} = error ->
-                Logger.warning(
-                  "[Docling.VastAI] Fallback health failed: #{inspect(fallback_reason)}"
-                )
-
-                error
-            end
+            error
         end
-
-      {:error, :no_instance} ->
-        {:ok, %{"status" => "no_instance", "message" => "No active Vast.ai instance"}}
     end
   end
 

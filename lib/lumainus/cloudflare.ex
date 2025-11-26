@@ -41,9 +41,16 @@ defmodule Lumainus.Cloudflare do
 
     with {:ok, token} <- get_token(),
          {:ok, zone_id} <- get_zone_id(),
-         {:ok, record_id} <- find_or_create_record(zone_id, fqdn, ip, token) do
-      Logger.info("[Cloudflare] Successfully updated #{fqdn} (record: #{record_id})")
-      {:ok, %{fqdn: fqdn, ip: ip, record_id: record_id}}
+         {:ok, result} <- find_or_create_record(zone_id, fqdn, ip, token) do
+      case result do
+        %{skipped: :cname_exists} ->
+          # CNAME already exists - tunnel mode active, no A record needed
+          {:ok, %{fqdn: fqdn, ip: ip, skipped: :cname_exists}}
+
+        record_id when is_binary(record_id) ->
+          Logger.info("[Cloudflare] Successfully updated #{fqdn} (record: #{record_id})")
+          {:ok, %{fqdn: fqdn, ip: ip, record_id: record_id}}
+      end
     end
   end
 
@@ -68,8 +75,29 @@ defmodule Lumainus.Cloudflare do
   # ---------------------------------------------------------------------------
 
   defp find_or_create_record(zone_id, fqdn, ip, token) do
-    # First, try to find existing record
-    case list_dns_records(zone_id, fqdn, token) do
+    # First, check if a CNAME already exists (tunnel mode)
+    case check_cname_exists(zone_id, fqdn, token) do
+      {:ok, true} ->
+        Logger.info(
+          "[Cloudflare] CNAME already exists for #{fqdn} - skipping A record (tunnel mode active)"
+        )
+
+        {:ok, %{fqdn: fqdn, skipped: :cname_exists}}
+
+      {:ok, false} ->
+        # No CNAME - proceed with A record
+        do_find_or_create_a_record(zone_id, fqdn, ip, token)
+
+      {:error, _} ->
+        # If CNAME check fails, try to proceed anyway
+        Logger.warning("[Cloudflare] CNAME check failed, attempting A record anyway")
+        do_find_or_create_a_record(zone_id, fqdn, ip, token)
+    end
+  end
+
+  defp do_find_or_create_a_record(zone_id, fqdn, ip, token) do
+    # Try to find existing A record
+    case list_dns_records(zone_id, fqdn, "A", token) do
       {:ok, [%{"id" => record_id} | _]} ->
         # Update existing record
         update_record(zone_id, record_id, fqdn, ip, token)
@@ -83,8 +111,16 @@ defmodule Lumainus.Cloudflare do
     end
   end
 
-  defp list_dns_records(zone_id, name, token) do
-    url = "#{@base_url}/zones/#{zone_id}/dns_records?type=A&name=#{URI.encode(name)}"
+  defp check_cname_exists(zone_id, name, token) do
+    case list_dns_records(zone_id, name, "CNAME", token) do
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp list_dns_records(zone_id, name, type, token) do
+    url = "#{@base_url}/zones/#{zone_id}/dns_records?type=#{type}&name=#{URI.encode(name)}"
 
     case Req.get(url, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => records}}} ->
