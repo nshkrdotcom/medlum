@@ -7,7 +7,7 @@ defmodule Lumainus.Accounts do
   alias Lumainus.Repo
 
   alias Lumainus.Accounts.{User, UserToken, UserNotifier, Invitation}
-  alias Lumainus.Docling
+  alias Lumainus.Docling.Settings
   alias Lumainus.Tenancy.Tenant
 
   ## Database getters
@@ -260,11 +260,11 @@ defmodule Lumainus.Accounts do
   Returns the user's preferred Docling backend, falling back to the configured default.
   """
   def docling_backend_for_user(%User{} = user, opts \\ []) do
-    default = Docling.user_backend_default()
+    default = user_backend_default()
 
     user.docling_backend
     |> Kernel.||(default |> Atom.to_string())
-    |> Docling.normalize_user_backend()
+    |> normalize_user_backend()
     |> apply_backend_override(opts)
   end
 
@@ -273,7 +273,7 @@ defmodule Lumainus.Accounts do
 
     case override do
       nil -> current
-      backend -> Docling.normalize_user_backend(backend)
+      backend -> normalize_user_backend(backend)
     end
   end
 
@@ -281,13 +281,36 @@ defmodule Lumainus.Accounts do
   Persist a user's Docling backend preference (`:local` | `:fast`).
   """
   def update_docling_backend(%User{} = user, backend) do
-    backend_atom = Docling.normalize_user_backend(backend)
+    backend_atom = normalize_user_backend(backend)
     backend_string = Atom.to_string(backend_atom)
 
     user
     |> User.docling_backend_changeset(%{docling_backend: backend_string})
     |> Repo.update()
   end
+
+  # User backend preference helpers
+  defp user_backend_default do
+    case Settings.fetch_or_init() do
+      {:ok, settings} ->
+        case settings.default_mode do
+          "cloud" -> :cloud
+          _ -> :local
+        end
+
+      _ ->
+        :local
+    end
+  end
+
+  defp normalize_user_backend(nil), do: :local
+  defp normalize_user_backend(:local), do: :local
+  defp normalize_user_backend("local"), do: :local
+  defp normalize_user_backend(:cloud), do: :cloud
+  defp normalize_user_backend("cloud"), do: :cloud
+  defp normalize_user_backend(:fast), do: :cloud
+  defp normalize_user_backend("fast"), do: :cloud
+  defp normalize_user_backend(_), do: :local
 
   @doc """
   Checks whether the user is in sudo mode.

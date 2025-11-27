@@ -51,6 +51,14 @@ defmodule Lumainus.Docling.Setting do
     field(:poll_interval_ms, :integer, default: 250)
     field(:progress_min_interval_ms, :integer, default: 50)
 
+    # v2 Conversion system profile configuration
+    field(:v2_profile_backends, :map,
+      default: %{
+        "standard" => ["docker_cpu", "local_cpu"],
+        "enhanced" => ["docker_gpu", "local_gpu", "cloud"]
+      }
+    )
+
     # Singleton constraint
     field(:singleton, :boolean, default: true)
 
@@ -75,6 +83,8 @@ defmodule Lumainus.Docling.Setting do
       :timeout_ms,
       :poll_interval_ms,
       :progress_min_interval_ms,
+      # v2 Conversion system
+      :v2_profile_backends,
       :singleton
     ])
     |> validate_required([

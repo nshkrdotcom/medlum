@@ -7,6 +7,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   alias Lumainus.VastAI.{Instances, Offers}
   alias Lumainus.Docling.Settings, as: DoclingSettings
   alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Cloudflare
   alias Lumainus.Cloudflare.Tunnel
@@ -18,6 +19,8 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   @docling_image "ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest"
   @pytorch_image "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime"
+  @initial_boot_wait_ms 300_000
+  @extended_boot_wait_ms 300_000
 
   # =============================================================================
   # Mount
@@ -661,40 +664,15 @@ defmodule LumainusWeb.Admin.VastAILive do
               "Instance #{instance_id} created, waiting for boot..."
             )
 
-            case VastAI.wait_for_ready(instance_id, 300_000) do
+            case VastAI.wait_for_ready(instance_id, @initial_boot_wait_ms) do
               {:ok, instance} ->
-                ProvisioningState.add_log(:success, "Instance is running!")
-                ip = instance["public_ipaddr"] || "unknown"
-                ProvisioningState.add_log(:info, "Instance IP: #{ip} (not exposed, using tunnel)")
+                handle_instance_ready(instance_id, instance, tunnel)
 
-                # Step 3: Register with InstanceManager (includes tunnel_id for cleanup)
-                endpoint = "https://#{tunnel.fqdn}"
-
-                InstanceManager.set_endpoint(instance_id, endpoint, ip,
-                  tunnel_id: tunnel.tunnel_id
-                )
-
-                ProvisioningState.add_log(:success, "Cloudflare endpoint ready: #{endpoint}")
-
-                ProvisioningState.add_log(
-                  :info,
-                  "Note: cloudflared connects outbound, may take 30-60s to establish"
-                )
-
-                # Auto-set as cloud backend
-                DoclingSettings.update_cloud_url(endpoint)
-                ProvisioningState.complete(instance_id, endpoint)
+              {:error, :timeout} ->
+                handle_wait_timeout(instance_id, tunnel)
 
               {:error, wait_error} ->
-                ProvisioningState.add_log(
-                  :error,
-                  "Instance failed to start: #{inspect(wait_error)}"
-                )
-
-                # Cleanup tunnel on failure
-                ProvisioningState.add_log(:info, "Cleaning up tunnel...")
-                Tunnel.cleanup_for_vast_ai(tunnel.tunnel_id)
-                ProvisioningState.fail(wait_error)
+                handle_wait_failure(instance_id, tunnel, wait_error)
             end
 
           {:error, provision_error} ->
@@ -713,6 +691,82 @@ defmodule LumainusWeb.Admin.VastAILive do
         ProvisioningState.add_log(:error, "Failed to provision tunnel: #{inspect(tunnel_error)}")
         ProvisioningState.fail(tunnel_error)
     end
+  end
+
+  defp handle_instance_ready(instance_id, instance, tunnel) do
+    ProvisioningState.add_log(:success, "Instance is running!")
+    ip = instance["public_ipaddr"] || "unknown"
+    ProvisioningState.add_log(:info, "Instance IP: #{ip} (not exposed, using tunnel)")
+
+    # Step 3: Register with InstanceManager (includes tunnel_id for cleanup)
+    endpoint = "https://#{tunnel.fqdn}"
+
+    InstanceManager.set_endpoint(instance_id, endpoint, ip, tunnel_id: tunnel.tunnel_id)
+
+    ProvisioningState.add_log(:success, "Cloudflare endpoint ready: #{endpoint}")
+
+    ProvisioningState.add_log(
+      :info,
+      "Note: cloudflared connects outbound, may take 30-60s to establish"
+    )
+
+    # Auto-set as cloud backend
+    DoclingSettings.update_cloud_url(endpoint)
+    ProvisioningState.complete(instance_id, endpoint)
+  end
+
+  defp handle_wait_timeout(instance_id, tunnel) do
+    extra_minutes = div(@extended_boot_wait_ms, 60_000)
+
+    ProvisioningState.add_log(
+      :warning,
+      "Instance #{instance_id} not ready within #{div(@initial_boot_wait_ms, 60_000)} minutes; watching for up to #{extra_minutes} more minutes before cleanup..."
+    )
+
+    ProvisioningState.update_status("Instance still booting... monitoring briefly")
+
+    case VastAI.wait_for_ready(instance_id, @extended_boot_wait_ms) do
+      {:ok, instance} ->
+        ProvisioningState.add_log(:success, "Instance became ready during extended wait")
+        handle_instance_ready(instance_id, instance, tunnel)
+
+      {:error, wait_error} ->
+        handle_wait_failure(instance_id, tunnel, wait_error, extended?: true)
+    end
+  end
+
+  defp handle_wait_failure(instance_id, tunnel, wait_error, opts \\ []) do
+    stage = if Keyword.get(opts, :extended, false), do: "Extended wait", else: "Initial wait"
+
+    ProvisioningState.add_log(:error, "#{stage} failed: #{inspect(wait_error)}")
+    ProvisioningState.update_status("Instance failed to start; cleaning up...")
+
+    ProvisioningState.add_log(:info, "Cleaning up instance and tunnel...")
+    cleanup_failed_provision(instance_id, tunnel, wait_error)
+  end
+
+  defp cleanup_failed_provision(instance_id, tunnel, wait_error) do
+    case VastAI.destroy_with_tunnel(instance_id, tunnel_id: tunnel.tunnel_id) do
+      {:ok, _} ->
+        ProvisioningState.add_log(
+          :success,
+          "Destroyed Vast.ai instance #{instance_id} and cleaned up tunnel #{tunnel.tunnel_id}"
+        )
+
+      :ok ->
+        ProvisioningState.add_log(
+          :success,
+          "Destroyed Vast.ai instance #{instance_id} and cleaned up tunnel #{tunnel.tunnel_id}"
+        )
+
+      {:error, reason} ->
+        ProvisioningState.add_log(
+          :warning,
+          "Failed to destroy instance #{instance_id}: #{inspect(reason)}"
+        )
+    end
+
+    ProvisioningState.fail(wait_error)
   end
 
   defp create_new_tunnel do

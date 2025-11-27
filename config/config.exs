@@ -24,39 +24,27 @@ config :lumainus,
   ecto_repos: [Lumainus.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# Docling Backend Configuration
-# ==============================
+# Docling Backend Defaults
+# ========================
+# Default values for Docling Settings database initialization.
 # Port assignments (standardized):
 #   8040 - native_cpu  (host Python, CPU)
 #   8041 - native_gpu  (host Python, GPU)
 #   8042 - docker_cpu  (Docker, CPU)
 #   8043 - docker_gpu  (Docker, GPU)
-#   8044 - vast_ai     (cloud GPU, $$$)
 #
 # User choice: "local" (free) vs "cloud" ($$$)
-# Admin configures which local backend is active via active_local_backend.
 
 config :lumainus, :docling,
-  # Default mode for new users: :local or :cloud
   default_mode: :local,
-  # Which local backend to use when user selects "local"
   active_local_backend: :docker_cpu,
-  # Backend URLs (all 5)
   native_cpu_url: "http://127.0.0.1:8040",
   native_gpu_url: "http://127.0.0.1:8041",
   docker_cpu_url: "http://127.0.0.1:8042",
   docker_gpu_url: "http://127.0.0.1:8043",
   cloud_url: System.get_env("DOCLING_CLOUD_URL"),
-  # Legacy aliases (for backward compatibility)
-  local_url: "http://127.0.0.1:8042",
-  remote_url: System.get_env("DOCLING_CLOUD_URL") || System.get_env("DOCLING_REMOTE_URL"),
-  # Timing
   timeout_ms: 1_200_000,
-  poll_interval_ms: 250,
-  progress_min_interval_ms: 50,
-  # Operations
-  health_cron: "*/5 * * * *",
-  queue_mode: :http_queue
+  poll_interval_ms: 250
 
 # Vast.ai Auto-Shutdown Configuration
 # ====================================
@@ -68,6 +56,42 @@ config :lumainus, :vast_ai_auto_shutdown,
   check_interval_minutes: 5,
   # Destroy instance if no activity for this many minutes
   idle_timeout_minutes: 15
+
+# Conversion System v2 Configuration
+# ==================================
+# Define which backends are available and how profiles map to them.
+#
+# Backend types:
+#   :local - Docling running on localhost (Docker or native)
+#   :cloud - Vast.ai GPU instance (provisioned on demand)
+#
+# Example configurations:
+#
+# 1. Default (local + cloud):
+#    Uses local Docker for :standard, GPU/cloud for :enhanced
+#
+# 2. Cloud-only (for production without local GPU):
+#    backends: [{:cloud, type: :cloud}],
+#    profiles: %{standard: [:cloud], enhanced: [:cloud]}
+#
+# 3. Local-only (for development):
+#    backends: [{:docker_cpu, endpoint: "http://localhost:8042", type: :local}],
+#    profiles: %{standard: [:docker_cpu], enhanced: [:docker_cpu]}
+#
+config :lumainus, :conversion,
+  # Available backends (order = fallback preference)
+  backends: [
+    {:docker_cpu, endpoint: "http://localhost:8042", type: :local},
+    {:docker_gpu, endpoint: "http://localhost:8043", type: :local},
+    {:local_cpu, endpoint: "http://localhost:8040", type: :local},
+    {:local_gpu, endpoint: "http://localhost:8041", type: :local},
+    {:cloud, type: :cloud}
+  ],
+  # Profile to backend mapping (order = preference)
+  profiles: %{
+    standard: [:docker_cpu, :local_cpu],
+    enhanced: [:docker_gpu, :local_gpu, :cloud]
+  }
 
 # Ingestion queue configuration
 config :lumainus, :ingestion,
@@ -86,7 +110,6 @@ config :lumainus, Oban,
     {Oban.Plugins.Pruner, max_age: 86_400},
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/5 * * * *", Lumainus.Docling.HealthCheckWorker},
        {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker}
      ]}
   ],

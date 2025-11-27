@@ -2,7 +2,6 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   use LumainusWeb, :live_view
 
   alias Lumainus.Accounts
-  alias Lumainus.Docling
   alias LumainusWeb.CoreComponents
 
   @impl true
@@ -175,7 +174,8 @@ defmodule LumainusWeb.Admin.InvitationsLive do
   @impl true
   def mount(_params, _session, socket) do
     invitations = Accounts.list_invitations()
-    docling_health = Docling.latest_health_check()
+    # TODO: Integrate with v2 HealthManager when UI is updated
+    docling_health = nil
 
     {:ok,
      socket

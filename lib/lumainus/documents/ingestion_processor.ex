@@ -4,7 +4,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
   import Ecto.Query, warn: false
 
   alias Ecto.Changeset
-  alias Lumainus.Docling
+  alias Lumainus.Conversion.Service, as: ConversionService
   alias Lumainus.Documents
   alias Lumainus.Documents.{DocumentChunk, DocumentParse, DocumentUpload, IngestionJob}
   alias Lumainus.Documents.ProgressTracker
@@ -12,6 +12,9 @@ defmodule Lumainus.Documents.IngestionProcessor do
   alias Lumainus.Repo
 
   require Logger
+
+  # Default timeout for conversion (20 minutes)
+  @default_timeout_ms 1_200_000
 
   @duplicate_min_length 8
 
@@ -67,28 +70,31 @@ defmodule Lumainus.Documents.IngestionProcessor do
   defp docling_convert(%IngestionJob{} = job) do
     upload = job.upload
 
-    backend =
-      try do
-        job.backend |> Docling.normalize_user_backend()
-      rescue
-        _ -> Docling.user_backend_default()
-      end
+    # Determine profile from user's backend preference
+    profile = profile_from_backend(job.backend)
 
-    docling_opts =
-      [
-        filename: upload.filename,
-        content_type: upload.content_type,
-        byte_size: upload.byte_size,
+    # Build v2 Service options
+    service_opts = [
+      filename: upload.filename,
+      content_type: upload.content_type || "application/pdf",
+      profile: profile,
+      tenant_id: upload.tenant_id,
+      user_id: upload.uploader_id,
+      timeout_ms: @default_timeout_ms,
+      metadata: %{
         upload_id: upload.id,
-        job_id: job.id,
-        timeout_ms: Docling.timeout(),
-        backend: backend
-      ]
+        ingestion_job_id: job.id
+      }
+    ]
 
-    with {:ok, queue_job} <- Docling.enqueue(upload.raw_blob, docling_opts) do
-      timeout_at = queue_job.timeout_at
-      {:ok, _linked} = Documents.link_docling_job(job, queue_job.job_id)
-      job = %{job | docling_job_id: queue_job.job_id}
+    # Submit to v2 Conversion Service
+    with {:ok, conversion_job} <- ConversionService.submit(upload.raw_blob, service_opts) do
+      # Truncate to seconds for database compatibility
+      timeout_at = DateTime.truncate(conversion_job.timeout_at, :second)
+      {:ok, _linked} = Documents.link_docling_job(job, conversion_job.id)
+      job = %{job | docling_job_id: conversion_job.id}
+
+      backend_name = conversion_job.backend_used || profile
 
       {job, _event} =
         Documents.record_job_stage!(
@@ -97,22 +103,56 @@ defmodule Lumainus.Documents.IngestionProcessor do
           message: "Sending binary to Docling service",
           progress: 50,
           timeout_at: timeout_at,
-          payload: %{timeout_at: timeout_at, docling_job_id: queue_job.job_id},
+          payload: %{
+            timeout_at: DateTime.to_iso8601(timeout_at),
+            docling_job_id: conversion_job.id
+          },
           state: "running",
-          backend: Atom.to_string(backend)
+          backend: to_string(backend_name)
         )
 
-      case Docling.await(queue_job,
-             on_status: fn status -> maybe_track_progress(job, status) end
+      # Await completion via v2 Service
+      case ConversionService.await(conversion_job.id,
+             on_progress: fn status -> maybe_track_progress_v2(job, status) end
            ) do
         {:ok, response} -> {:ok, response, job}
+        {:error, :timeout} -> {:error, :timeout, job}
+        {:error, {:failed, reason}} -> {:error, {:docling_failed, reason}, job}
         {:error, reason} -> {:error, reason, job}
       end
     else
+      {:error, :file_too_large} ->
+        {:error, {:docling_failed, "File exceeds 100MB limit"}, job}
+
+      {:error, :invalid_content_type} ->
+        {:error, {:docling_failed, "Only PDF files are supported"}, job}
+
+      {:error, :service_unavailable} ->
+        {:error, {:docling_failed, "No conversion backends available"}, job}
+
       {:error, reason} ->
         {:error, reason, job}
     end
   end
+
+  # Map user backend preference to v2 processing profile
+  defp profile_from_backend(backend)
+       when backend in [
+              :docker_gpu,
+              :local_gpu,
+              :native_gpu,
+              :vast_ai,
+              :cloud,
+              "docker_gpu",
+              "local_gpu",
+              "native_gpu",
+              "vast_ai",
+              "cloud"
+            ] do
+    :enhanced
+  end
+
+  defp profile_from_backend(_), do: :standard
 
   defp persist_parse(%IngestionJob{} = job, response) do
     {job, _event} =
@@ -531,8 +571,23 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
   defp maybe_track_progress(_job, _status), do: :ok
 
+  # v2 Service progress callback - receives JobStatus struct
+  defp maybe_track_progress_v2(job, %{state: state, progress: progress} = status) do
+    # Convert v2 JobStatus to v1-compatible format for existing progress tracking
+    v1_status = %{
+      "state" => to_string(state),
+      "progress" => progress,
+      "pages_done" => Map.get(status, :pages_done, 0),
+      "pages_total" => Map.get(status, :pages_total, 0)
+    }
+
+    maybe_track_progress(job, v1_status)
+  end
+
+  defp maybe_track_progress_v2(_job, _status), do: :ok
+
   defp debug_progress_log? do
-    Application.get_env(:lumainus, :docling, [])
+    Application.get_env(:lumainus, :conversion, [])
     |> Keyword.get(:debug_progress_log, false)
   end
 end

@@ -2,33 +2,31 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   @moduledoc """
   Routes processing profiles to available backends.
 
+  ## Configuration
+
+  Backend URLs and profile mappings are stored in the database via `Lumainus.Docling.Settings`.
+  This allows administrators to configure backends at runtime through the admin UI.
+
+  Falls back to application config if database is unavailable.
+
   ## Selection Algorithm
 
-  1. Get backends configured for profile
+  1. Get backends configured for profile (from DB settings)
   2. Filter by health (healthy or unknown, not unhealthy)
   3. Filter by circuit breaker (closed or half-open, not open)
   4. Sort by: breaker state priority, then latency
   5. Return first available, or :service_unavailable
 
-  ## Backend Ordering
-
-  - Closed breaker: priority 0
-  - Half-open breaker: priority 1
-  - Open breaker: filtered out
-
-  Latency ties broken by config order.
-
   ## Usage
 
-      # Route a profile to best available backend
       {:ok, backend} = BackendRouter.route(:standard)
-
-      # Get all backends for a profile
       backends = BackendRouter.backends_for_profile(:enhanced)
   """
 
   alias Lumainus.Conversion.Infrastructure.HealthManager
   alias Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker
+  alias Lumainus.Conversion.Backends.{LocalBackend, CloudBackend}
+  alias Lumainus.Docling.Settings
 
   require Logger
 
@@ -71,59 +69,99 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   @doc """
   Get all backends configured for a profile.
 
-  ## Profiles
-
-  - `:standard` — Returns CPU backends (local_cpu, docker_cpu)
-  - `:enhanced` — Returns GPU and cloud backends (local_gpu, docker_gpu, cloud)
+  Reads from database settings via `Lumainus.Docling.Settings`.
   """
   @spec backends_for_profile(atom()) :: [backend_info()]
-  def backends_for_profile(:standard) do
-    config = Application.get_env(:lumainus, :conversion, [])
+  def backends_for_profile(profile) do
+    {:ok, setting} = Settings.fetch_or_init()
+    profile_backends = get_profile_backends(setting, profile)
 
-    [
-      %{
-        name: :local_cpu,
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        endpoint: config[:native_cpu_url] || "http://localhost:8040",
-        backend_type: :local
-      },
-      %{
-        name: :docker_cpu,
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        endpoint: config[:docker_cpu_url] || "http://localhost:8042",
-        backend_type: :local
-      }
-    ]
+    profile_backends
+    |> Enum.map(&build_backend_from_settings(&1, setting))
+    |> Enum.reject(&is_nil/1)
   end
 
-  def backends_for_profile(:enhanced) do
-    config = Application.get_env(:lumainus, :conversion, [])
+  @doc """
+  Get all configured backends (for HealthManager).
 
-    [
-      %{
-        name: :local_gpu,
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        endpoint: config[:native_gpu_url] || "http://localhost:8041",
-        backend_type: :local
-      },
-      %{
-        name: :docker_gpu,
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        endpoint: config[:docker_gpu_url] || "http://localhost:8043",
-        backend_type: :local
-      },
-      %{
-        name: :cloud,
-        module: Lumainus.Conversion.Backends.CloudBackend,
-        endpoint: config[:cloud_url],
-        backend_type: :cloud
-      }
-    ]
+  Reads from database settings.
+  """
+  @spec all_backends() :: [backend_info()]
+  def all_backends do
+    {:ok, setting} = Settings.fetch_or_init()
+
+    all_backend_names()
+    |> Enum.map(&build_backend_from_settings(&1, setting))
+    |> Enum.reject(&is_nil/1)
   end
 
   # ============================================================================
-  # Private Functions
+  # Private Functions - Settings Integration
   # ============================================================================
+
+  defp get_profile_backends(setting, profile) do
+    profiles = setting.v2_profile_backends || default_profiles()
+    Map.get(profiles, to_string(profile), [])
+  end
+
+  defp build_backend_from_settings(backend_name, setting) do
+    endpoint = get_endpoint_from_settings(backend_name, setting)
+    type = backend_type(backend_name)
+
+    # Skip local backends without endpoints, but allow cloud (gets URL from InstanceManager)
+    if endpoint || type == :cloud do
+      name = safe_atom(backend_name)
+
+      %{
+        name: name,
+        module: module_for_type(type),
+        endpoint: endpoint,
+        backend_type: type
+      }
+    else
+      nil
+    end
+  end
+
+  defp get_endpoint_from_settings("docker_cpu", s), do: s.docker_cpu_url
+  defp get_endpoint_from_settings("docker_gpu", s), do: s.docker_gpu_url
+  defp get_endpoint_from_settings("local_cpu", s), do: s.native_cpu_url
+  defp get_endpoint_from_settings("native_cpu", s), do: s.native_cpu_url
+  defp get_endpoint_from_settings("local_gpu", s), do: s.native_gpu_url
+  defp get_endpoint_from_settings("native_gpu", s), do: s.native_gpu_url
+  defp get_endpoint_from_settings("cloud", _s), do: nil
+  defp get_endpoint_from_settings(_, _), do: nil
+
+  defp backend_type("cloud"), do: :cloud
+  defp backend_type(_), do: :local
+
+  defp safe_atom(name) when is_atom(name), do: name
+
+  defp safe_atom(name) when is_binary(name) do
+    try do
+      String.to_existing_atom(name)
+    rescue
+      ArgumentError -> String.to_atom(name)
+    end
+  end
+
+  defp default_profiles do
+    %{
+      "standard" => ["docker_cpu", "local_cpu"],
+      "enhanced" => ["docker_gpu", "local_gpu", "cloud"]
+    }
+  end
+
+  defp all_backend_names do
+    ["docker_cpu", "docker_gpu", "local_cpu", "local_gpu", "cloud"]
+  end
+
+  # ============================================================================
+  # Private Functions - Module Selection
+  # ============================================================================
+
+  defp module_for_type(:local), do: LocalBackend
+  defp module_for_type(:cloud), do: CloudBackend
 
   defp filter_available(backends, health_manager, circuit_breaker_fn) do
     Enum.filter(backends, fn backend ->

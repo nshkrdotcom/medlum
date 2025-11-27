@@ -78,19 +78,17 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
     job = create_test_job(tenant, upload, record_set)
 
     bypass = Bypass.open()
-    original = Application.get_env(:lumainus, :docling, [])
+    bypass_url = "http://127.0.0.1:#{bypass.port}"
 
-    Application.put_env(
-      :lumainus,
-      :docling,
-      Keyword.merge(original,
-        backend: :local,
-        local_url: "http://127.0.0.1:#{bypass.port}",
-        prefer_sse: false
-      )
-    )
-
-    on_exit(fn -> Application.put_env(:lumainus, :docling, original) end)
+    # Configure v2 Settings with bypass URL
+    {:ok, _} =
+      Lumainus.Docling.Settings.update_settings(%{
+        docker_cpu_url: bypass_url,
+        v2_profile_backends: %{
+          "standard" => ["docker_cpu"],
+          "enhanced" => ["docker_cpu"]
+        }
+      })
 
     {:ok,
      tenant: tenant,
@@ -148,12 +146,19 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
     end
 
     test "updates attempt info when processing", %{job: job, bypass: bypass} do
-      Bypass.expect_once(bypass, "POST", "/jobs", fn conn ->
-        Conn.resp(conn, 200, ~s({"job_id":"job-123"}))
-      end)
+      # v2 Service uses UUIDs - handle all requests dynamically
+      Bypass.expect(bypass, fn conn ->
+        cond do
+          conn.method == "POST" and conn.request_path == "/jobs" ->
+            Conn.resp(conn, 200, ~s({"job_id":"accepted","state":"queued"}))
 
-      Bypass.expect_once(bypass, "GET", "/jobs/job-123/status", fn conn ->
-        Conn.resp(conn, 200, ~s({"state":"completed","result":{"markdown":"ok"}}))
+          conn.method == "GET" and String.ends_with?(conn.request_path, "/status") ->
+            # Return markdown at top level (v2 format for persist_parse)
+            Conn.resp(conn, 200, ~s({"state":"completed","markdown":"ok","metadata":{}}))
+
+          true ->
+            Conn.resp(conn, 404, "not found")
+        end
       end)
 
       oban_job = %Oban.Job{args: %{"ingestion_job_id" => job.id}, attempt: 1}

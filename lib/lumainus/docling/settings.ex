@@ -118,6 +118,12 @@ defmodule Lumainus.Docling.Settings do
       timeout_ms: Keyword.get(env, :timeout_ms, 1_200_000),
       poll_interval_ms: Keyword.get(env, :poll_interval_ms, 250),
       progress_min_interval_ms: Keyword.get(env, :progress_min_interval_ms, 50),
+      # v2 Conversion system profile backends
+      v2_profile_backends:
+        Keyword.get(env, :v2_profile_backends, %{
+          "standard" => ["docker_cpu", "local_cpu"],
+          "enhanced" => ["docker_gpu", "local_gpu", "cloud"]
+        }),
       singleton: true
     }
   end

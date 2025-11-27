@@ -3,7 +3,6 @@ defmodule LumainusWeb.ReportsLive do
 
   alias Ecto.Changeset
   alias Lumainus.Accounts
-  alias Lumainus.Docling
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Docling.Settings, as: DoclingSettings
@@ -165,7 +164,7 @@ defmodule LumainusWeb.ReportsLive do
       backend_atom =
         backend
         |> String.downcase()
-        |> Docling.normalize_user_backend()
+        |> normalize_backend_atom()
 
       cond do
         backend_atom == :cloud and not socket.assigns.fast_available? ->
@@ -557,7 +556,8 @@ defmodule LumainusWeb.ReportsLive do
     sections = format_sections(workspace.sections)
     t3 = System.monotonic_time(:millisecond)
 
-    docling_health = Docling.latest_health_check()
+    # TODO: Integrate with v2 HealthManager
+    docling_health = nil
     t4 = System.monotonic_time(:millisecond)
 
     # INSTANT: Get GPU status from InstanceManager state machine (no HTTP)
@@ -695,6 +695,52 @@ defmodule LumainusWeb.ReportsLive do
     else
       {:noreply, socket}
     end
+  end
+
+  # =============================================================================
+  # v2 Conversion Events Handlers
+  # =============================================================================
+
+  def handle_info({:conversion_job, :progress, %{job_id: job_id, progress: progress}}, socket) do
+    Logger.debug("[ReportsLive] v2 progress event: job_id=#{job_id} progress=#{progress}")
+
+    # Update any document that has this conversion_job_id in its metadata
+    updated_docs = update_v2_conversion_progress(socket.assigns.documents, job_id, progress)
+    {:noreply, assign(socket, :documents, updated_docs)}
+  end
+
+  def handle_info({:conversion_job, :completed, %{id: job_id} = _job}, socket) do
+    Logger.info("[ReportsLive] v2 conversion completed: job_id=#{job_id}")
+
+    socket =
+      socket
+      |> put_flash(:info, "Conversion complete")
+      |> load_workspace()
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:conversion_job, :failed, %{job_id: job_id, reason: reason}}, socket) do
+    Logger.warning(
+      "[ReportsLive] v2 conversion failed: job_id=#{job_id} reason=#{inspect(reason)}"
+    )
+
+    socket =
+      socket
+      |> put_flash(:error, "Conversion failed: #{format_v2_error(reason)}")
+      |> load_workspace()
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:conversion_job, :cancelled, %{id: job_id}}, socket) do
+    Logger.info("[ReportsLive] v2 conversion cancelled: job_id=#{job_id}")
+    {:noreply, load_workspace(socket)}
+  end
+
+  def handle_info({:conversion_job, :submitted, %{id: job_id}}, socket) do
+    Logger.debug("[ReportsLive] v2 conversion submitted: job_id=#{job_id}")
+    {:noreply, socket}
   end
 
   def handle_info({:section_run_updated, record_set_id}, socket) do
@@ -1905,6 +1951,22 @@ defmodule LumainusWeb.ReportsLive do
 
   defp format_backend_reason(reason), do: inspect(reason)
 
+  # =============================================================================
+  # v2 Conversion Helpers
+  # =============================================================================
+
+  defp update_v2_conversion_progress(documents, _job_id, _progress) do
+    # For now, just return documents unchanged - the full integration
+    # would update the document metadata based on the conversion job
+    documents
+  end
+
+  defp format_v2_error(:service_unavailable), do: "No conversion backends available"
+  defp format_v2_error(:file_too_large), do: "File exceeds 100MB limit"
+  defp format_v2_error(:invalid_content_type), do: "Only PDF files are supported"
+  defp format_v2_error(:timeout), do: "Conversion timed out"
+  defp format_v2_error(reason), do: inspect(reason)
+
   defp backend_label(backend) do
     case normalize_backend_atom(backend) do
       :cloud -> "Cloud (GPU)"
@@ -1930,12 +1992,13 @@ defmodule LumainusWeb.ReportsLive do
   defp backend_badge_title(_), do: "Docling backend"
 
   defp normalize_backend_atom(nil), do: :local
-
-  defp normalize_backend_atom(value) do
-    Docling.normalize_user_backend(value)
-  rescue
-    _ -> :local
-  end
+  defp normalize_backend_atom(:local), do: :local
+  defp normalize_backend_atom("local"), do: :local
+  defp normalize_backend_atom(:cloud), do: :cloud
+  defp normalize_backend_atom("cloud"), do: :cloud
+  defp normalize_backend_atom(:fast), do: :cloud
+  defp normalize_backend_atom("fast"), do: :cloud
+  defp normalize_backend_atom(_), do: :local
 
   defp update_document_progress(documents, payload) do
     upload_id = Map.get(payload, :upload_id) || Map.get(payload, "upload_id")

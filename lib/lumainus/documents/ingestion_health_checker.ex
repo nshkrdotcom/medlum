@@ -11,7 +11,7 @@ defmodule Lumainus.Documents.IngestionHealthChecker do
 
   use GenServer
 
-  alias Lumainus.Docling
+  alias Lumainus.Conversion.Infrastructure.HealthManager
   alias Lumainus.Documents.{IngestionConfig, IngestionJob}
   alias Lumainus.Repo
 
@@ -48,7 +48,7 @@ defmodule Lumainus.Documents.IngestionHealthChecker do
   @impl GenServer
   def init(opts) do
     check_interval = Keyword.get(opts, :check_interval_ms, @default_check_interval_ms)
-    docling_health_fun = Keyword.get(opts, :docling_health_fun, &Docling.health/0)
+    docling_health_fun = Keyword.get(opts, :docling_health_fun, &default_health_check/0)
 
     state = %{
       check_interval: check_interval,
@@ -63,6 +63,18 @@ defmodule Lumainus.Documents.IngestionHealthChecker do
     schedule_check(check_interval)
 
     {:ok, state}
+  end
+
+  # v2 health check via HealthManager
+  defp default_health_check do
+    # Check the primary backend (docker_cpu) health status
+    case HealthManager.status(:docker_cpu) do
+      :healthy -> {:ok, %{status: "healthy"}}
+      :unhealthy -> {:error, "Backend unhealthy"}
+      :unknown -> {:error, "Backend status unknown"}
+    end
+  catch
+    :exit, _ -> {:error, "HealthManager not running"}
   end
 
   @impl GenServer

@@ -23,8 +23,8 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
   require Logger
 
-  alias Lumainus.Docling
   alias Lumainus.Docling.Settings
+  alias Lumainus.Conversion.Infrastructure.HealthManager
 
   @backends [
     {:native_cpu, "Native CPU", "8040", false},
@@ -125,7 +125,9 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
           %{status: "stopped", details: %{instance_id: id, message: "Instance stopped"}}
 
         %{status: :none} ->
-          case Docling.config()[:cloud_url] do
+          {:ok, settings} = Settings.fetch_or_init()
+
+          case settings.cloud_url do
             nil ->
               %{
                 status: "unconfigured",
@@ -151,34 +153,48 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
   end
 
   defp check_backend_health(backend) do
-    url_key = backend_url_key(backend)
-
-    case Docling.config()[url_key] do
-      nil -> %{status: "unconfigured", details: %{error: "URL not configured"}}
-      "" -> %{status: "unconfigured", details: %{error: "URL not configured"}}
-      _url -> do_health_check(backend)
+    # Use v2 HealthManager for health checks
+    if Process.whereis(HealthManager) do
+      check_backend_health_v2(backend)
+    else
+      %{status: "unavailable", details: %{error: "HealthManager not running"}}
     end
   end
 
-  defp do_health_check(backend) do
-    case Docling.health(backend: backend) do
-      {:ok, details} ->
-        %{status: "healthy", details: details}
-
-      {:error, reason} ->
-        Logger.warning("[Admin.Docling] Health check for #{backend} failed: #{inspect(reason)}")
-        %{status: "unreachable", details: normalize_error(reason)}
-    end
-  rescue
-    e -> %{status: "error", details: %{error: Exception.message(e)}}
+  # v2 HealthManager-based health check
+  defp check_backend_health_v2(backend) do
+    v2_name = v2_backend_name(backend)
+    status = HealthManager.status(v2_name)
+    latency = HealthManager.latency(v2_name)
+    health_status_from_v2(status, latency)
   end
 
-  defp backend_url_key(:native_cpu), do: :native_cpu_url
-  defp backend_url_key(:native_gpu), do: :native_gpu_url
-  defp backend_url_key(:docker_cpu), do: :docker_cpu_url
-  defp backend_url_key(:docker_gpu), do: :docker_gpu_url
-  defp backend_url_key(:vast_ai), do: :cloud_url
-  defp backend_url_key(_), do: :local_url
+  defp health_status_from_v2(:healthy, latency_ms) do
+    %{
+      status: "healthy",
+      details: %{latency_ms: latency_ms, source: "v2_health_manager"}
+    }
+  end
+
+  defp health_status_from_v2(:unhealthy, _latency) do
+    %{
+      status: "unreachable",
+      details: %{error: "Backend unhealthy", source: "v2_health_manager"}
+    }
+  end
+
+  defp health_status_from_v2(:unknown, _latency) do
+    %{
+      status: "checking",
+      details: %{message: "Health check pending...", source: "v2_health_manager"}
+    }
+  end
+
+  # Map UI backend names to v2 HealthManager backend names
+  defp v2_backend_name(:native_cpu), do: :local_cpu
+  defp v2_backend_name(:native_gpu), do: :local_gpu
+  defp v2_backend_name(:vast_ai), do: :cloud
+  defp v2_backend_name(backend), do: backend
 
   @impl true
   def render(assigns) do
@@ -414,18 +430,6 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
   defp is_active_backend?(backend, setting) do
     active = setting.active_local_backend || "docker_cpu"
     to_string(backend) == active
-  end
-
-  defp normalize_error({:fallback_failed, detail}) when is_map(detail) do
-    %{error: "fallback_failed", detail: detail}
-  end
-
-  defp normalize_error({:transport_error, reason}) do
-    %{error: friendly_transport_error(reason), raw: {:transport_error, reason}}
-  end
-
-  defp normalize_error(reason) do
-    %{error: inspect(reason)}
   end
 
   defp friendly_transport_error(:timeout), do: "Connection timed out"

@@ -875,18 +875,37 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, :stopped, instance_id} ->
         Logger.info("[InstanceManager] Found stopped instance #{instance_id} on startup")
 
+        # Look up tunnel_id so we don't create A-records when starting
+        tunnel_id = find_tunnel_id_for_instance()
+
         GPU.log(:lifecycle, :startup_sync, "Found stopped instance on startup",
           instance_id: instance_id,
+          tunnel_id: tunnel_id,
           source: "instance_manager"
         )
 
-        new_state = %{state | instance_id: instance_id, status: @status_stopped}
+        new_state = %{
+          state
+          | instance_id: instance_id,
+            tunnel_id: tunnel_id,
+            status: @status_stopped
+        }
+
         broadcast_status_change(new_state)
         {:noreply, new_state}
 
       {:ok, :loading, instance_id} ->
         Logger.info("[InstanceManager] Found loading instance #{instance_id} on startup")
-        new_state = %{state | instance_id: instance_id, status: @status_loading}
+        # Look up tunnel_id so we don't create A-records when it becomes running
+        tunnel_id = find_tunnel_id_for_instance()
+
+        new_state = %{
+          state
+          | instance_id: instance_id,
+            tunnel_id: tunnel_id,
+            status: @status_loading
+        }
+
         broadcast_status_change(new_state)
         {:noreply, new_state}
 
@@ -1015,6 +1034,27 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         )
 
         true
+    end
+  end
+
+  # Look up tunnel ID for stopped instance recovery
+  # This ensures we don't create A-records when starting a tunnel-managed instance
+  defp find_tunnel_id_for_instance do
+    case Tunnel.find_by_name("docling-vast") do
+      {:ok, [%{"id" => tunnel_id} | _]} ->
+        Logger.info("[InstanceManager] Found tunnel #{tunnel_id} for stopped instance")
+        tunnel_id
+
+      {:ok, []} ->
+        Logger.info("[InstanceManager] No tunnel found for stopped instance")
+        nil
+
+      {:error, reason} ->
+        Logger.warning(
+          "[InstanceManager] Tunnel lookup failed: #{inspect(reason)}; tunnel_id will be nil"
+        )
+
+        nil
     end
   end
 

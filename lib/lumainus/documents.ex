@@ -6,7 +6,7 @@ defmodule Lumainus.Documents do
   import Ecto.Query, warn: false
   alias Ecto.Changeset
   alias Lumainus.Accounts.Scope
-  alias Lumainus.Docling
+  alias Lumainus.Docling.Settings
 
   alias Lumainus.Documents.{
     DoclingIngestionWorker,
@@ -792,11 +792,11 @@ defmodule Lumainus.Documents do
 
   defp resolve_docling_backend(opts) do
     raw_requested = Keyword.get(opts, :backend)
-    default_backend = Docling.user_backend_default()
+    default_backend = user_backend_default()
 
     requested =
       (raw_requested || default_backend)
-      |> Docling.normalize_user_backend()
+      |> normalize_user_backend()
 
     # Use InstanceManager state instead of HTTP health check
     # This is INSTANT - no HTTP calls, no delays
@@ -904,7 +904,7 @@ defmodule Lumainus.Documents do
 
   defp maybe_backend_string(backend) do
     backend
-    |> Docling.normalize_user_backend()
+    |> normalize_user_backend()
     |> Atom.to_string()
   rescue
     _ -> nil
@@ -1004,4 +1004,27 @@ defmodule Lumainus.Documents do
 
   defp topic(record_set_id), do: "#{@topic_prefix}:#{record_set_id}:documents"
   defp job_topic(job_id), do: "#{@job_topic_prefix}:#{job_id}"
+
+  # User backend preference helpers (replacing v1 Docling functions)
+  defp user_backend_default do
+    case Settings.fetch_or_init() do
+      {:ok, settings} ->
+        case settings.default_mode do
+          "cloud" -> :cloud
+          _ -> :local
+        end
+
+      _ ->
+        :local
+    end
+  end
+
+  defp normalize_user_backend(nil), do: :local
+  defp normalize_user_backend(:local), do: :local
+  defp normalize_user_backend("local"), do: :local
+  defp normalize_user_backend(:cloud), do: :cloud
+  defp normalize_user_backend("cloud"), do: :cloud
+  defp normalize_user_backend(:fast), do: :cloud
+  defp normalize_user_backend("fast"), do: :cloud
+  defp normalize_user_backend(_), do: :local
 end

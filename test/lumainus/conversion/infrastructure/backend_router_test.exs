@@ -1,11 +1,30 @@
 defmodule Lumainus.Conversion.Infrastructure.BackendRouterTest do
-  use Lumainus.Conversion.TestCase
+  use Lumainus.DataCase, async: false
 
   alias Lumainus.Conversion.Infrastructure.BackendRouter
   alias Lumainus.Conversion.Infrastructure.HealthManager
   alias Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker
+  alias Lumainus.Docling.Settings
 
   @moduletag :capture_log
+
+  # Set up default settings for all tests
+  setup do
+    {:ok, _} =
+      Settings.update_settings(%{
+        native_cpu_url: "http://localhost:8040",
+        native_gpu_url: "http://localhost:8041",
+        docker_cpu_url: "http://localhost:8042",
+        docker_gpu_url: "http://localhost:8043",
+        cloud_url: nil,
+        v2_profile_backends: %{
+          "standard" => ["docker_cpu", "local_cpu"],
+          "enhanced" => ["docker_gpu", "local_gpu", "cloud"]
+        }
+      })
+
+    :ok
+  end
 
   describe "backends_for_profile/1" do
     test ":standard returns CPU backends" do
@@ -275,6 +294,106 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouterTest do
 
       # Should prefer closed breaker over half_open
       assert backend.name == :docker_cpu
+    end
+  end
+
+  describe "DB-driven backend configuration" do
+    test "cloud-only mode returns only cloud backend for all profiles" do
+      {:ok, _} =
+        Settings.update_settings(%{
+          v2_profile_backends: %{
+            "standard" => ["cloud"],
+            "enhanced" => ["cloud"]
+          }
+        })
+
+      standard_backends = BackendRouter.backends_for_profile(:standard)
+      enhanced_backends = BackendRouter.backends_for_profile(:enhanced)
+
+      assert length(standard_backends) == 1
+      assert hd(standard_backends).name == :cloud
+      assert hd(standard_backends).backend_type == :cloud
+
+      assert length(enhanced_backends) == 1
+      assert hd(enhanced_backends).name == :cloud
+    end
+
+    test "local-only mode returns only local backends" do
+      {:ok, _} =
+        Settings.update_settings(%{
+          docker_cpu_url: "http://localhost:8042",
+          v2_profile_backends: %{
+            "standard" => ["docker_cpu"],
+            "enhanced" => ["docker_cpu"]
+          }
+        })
+
+      backends = BackendRouter.backends_for_profile(:standard)
+
+      assert length(backends) == 1
+      assert hd(backends).name == :docker_cpu
+      assert hd(backends).backend_type == :local
+      assert hd(backends).endpoint == "http://localhost:8042"
+    end
+
+    test "custom profile configuration via DB settings" do
+      {:ok, _} =
+        Settings.update_settings(%{
+          docker_cpu_url: "http://localhost:8042",
+          docker_gpu_url: "http://localhost:8043",
+          v2_profile_backends: %{
+            "standard" => ["docker_cpu"],
+            "enhanced" => ["docker_gpu", "cloud"]
+          }
+        })
+
+      standard = BackendRouter.backends_for_profile(:standard)
+      enhanced = BackendRouter.backends_for_profile(:enhanced)
+
+      assert hd(standard).name == :docker_cpu
+      assert hd(standard).endpoint == "http://localhost:8042"
+
+      # Enhanced includes cloud
+      cloud = Enum.find(enhanced, &(&1.name == :cloud))
+      assert cloud != nil
+    end
+  end
+
+  describe "all_backends/0" do
+    test "returns all configured backends from DB settings" do
+      {:ok, _} =
+        Settings.update_settings(%{
+          native_cpu_url: "http://localhost:8040",
+          native_gpu_url: "http://localhost:8041",
+          docker_cpu_url: "http://localhost:8042",
+          docker_gpu_url: "http://localhost:8043"
+        })
+
+      all = BackendRouter.all_backends()
+
+      # Should return all 5 backend types (including cloud with nil endpoint)
+      assert length(all) == 5
+      names = Enum.map(all, & &1.name)
+      assert :docker_cpu in names
+      assert :docker_gpu in names
+      assert :local_cpu in names
+      assert :local_gpu in names
+      assert :cloud in names
+    end
+
+    test "includes cloud backend even without cloud_url" do
+      {:ok, _} =
+        Settings.update_settings(%{
+          docker_cpu_url: "http://localhost:8042",
+          cloud_url: nil
+        })
+
+      all = BackendRouter.all_backends()
+      cloud = Enum.find(all, &(&1.name == :cloud))
+
+      assert cloud != nil
+      assert cloud.endpoint == nil
+      assert cloud.backend_type == :cloud
     end
   end
 

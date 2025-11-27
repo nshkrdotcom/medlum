@@ -54,7 +54,21 @@ defmodule Lumainus.VastAI.Instances do
         {:ok, %{"actual_status" => "running"} = inst} ->
           {:halt, {:ok, inst}}
 
+        # Some Vast.ai responses nest instance data under "instances"
+        {:ok, %{"instances" => %{"actual_status" => "running"} = inst}} ->
+          {:halt, {:ok, inst}}
+
+        # Fallback to cur_state which is sometimes present instead of actual_status
+        {:ok, %{"cur_state" => "running"} = inst} ->
+          {:halt, {:ok, inst}}
+
+        {:ok, %{"instances" => %{"cur_state" => "running"} = inst}} ->
+          {:halt, {:ok, inst}}
+
         {:ok, %{"actual_status" => "exited"}} ->
+          {:halt, {:error, :exited}}
+
+        {:ok, %{"instances" => %{"actual_status" => "exited"}}} ->
           {:halt, {:error, :exited}}
 
         {:ok, _} ->

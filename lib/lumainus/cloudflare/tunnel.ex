@@ -423,21 +423,50 @@ defmodule Lumainus.Cloudflare.Tunnel do
         update_dns_record(zone_id, record_id, name, target, "CNAME", proxied, token)
 
       {:ok, []} ->
-        # Check for conflicting A record and delete it
-        case list_dns_records(zone_id, name, "A", token) do
-          {:ok, [%{"id" => a_record_id} | _]} ->
-            Logger.info("[Cloudflare.Tunnel] Deleting conflicting A record for #{name}")
-            delete_dns_record(zone_id, a_record_id, token)
-
-          _ ->
-            :ok
-        end
+        # Delete ALL conflicting A records before creating CNAME
+        :ok = purge_a_records(zone_id, name, token)
 
         # Create new CNAME
         create_dns_record(zone_id, name, target, "CNAME", proxied, token)
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  # Delete all A records for a given name to avoid conflicts with CNAME
+  defp purge_a_records(zone_id, name, token) do
+    case list_dns_records(zone_id, name, "A", token) do
+      {:ok, a_records} when is_list(a_records) and length(a_records) > 0 ->
+        Logger.info(
+          "[Cloudflare.Tunnel] Purging #{length(a_records)} conflicting A record(s) for #{name}"
+        )
+
+        Enum.each(a_records, fn %{"id" => record_id, "content" => ip} ->
+          Logger.info("[Cloudflare.Tunnel] Deleting A record #{record_id} (#{ip})")
+
+          case delete_dns_record(zone_id, record_id, token) do
+            :ok ->
+              Logger.info("[Cloudflare.Tunnel] Deleted A record #{record_id}")
+
+            {:error, reason} ->
+              Logger.error(
+                "[Cloudflare.Tunnel] Failed to delete A record #{record_id}: #{inspect(reason)}"
+              )
+          end
+        end)
+
+        :ok
+
+      {:ok, []} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[Cloudflare.Tunnel] Failed to list A records for #{name}: #{inspect(reason)}"
+        )
+
+        :ok
     end
   end
 

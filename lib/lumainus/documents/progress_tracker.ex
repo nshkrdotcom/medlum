@@ -197,7 +197,7 @@ defmodule Lumainus.Documents.ProgressTracker do
   end
 
   defp progress_min_interval_ms do
-    Lumainus.Docling.config()
+    Application.get_env(:lumainus, :docling, [])
     |> Keyword.get(:progress_min_interval_ms, 250)
   end
 
