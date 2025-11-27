@@ -31,14 +31,18 @@ defmodule Lumainus.Application do
 
     # Add VastAI workers: StartTracker must start before InstanceManager (dependency)
     children =
-      children ++
-        [
-          Lumainus.Docling.VastAI.StartTracker,
-          Lumainus.Docling.VastAI.InstanceManager,
-          Lumainus.Docling.VastAI.ActivityTracker,
-          Lumainus.Docling.VastAI.AutoShutdown,
-          Lumainus.Docling.VastAI.ProvisioningState
-        ]
+      if vast_ai_enabled?() do
+        children ++
+          [
+            Lumainus.Docling.VastAI.StartTracker,
+            Lumainus.Docling.VastAI.InstanceManager,
+            Lumainus.Docling.VastAI.ActivityTracker,
+            Lumainus.Docling.VastAI.AutoShutdown,
+            Lumainus.Docling.VastAI.ProvisioningState
+          ]
+      else
+        children
+      end
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -52,5 +56,12 @@ defmodule Lumainus.Application do
   def config_change(changed, _new, removed) do
     LumainusWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp vast_ai_enabled? do
+    case Application.get_env(:lumainus, :vast_ai) do
+      nil -> false
+      config -> Keyword.has_key?(config, :api_key)
+    end
   end
 end

@@ -445,7 +445,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     {:reply, {:error, :no_instance}, state}
   end
 
-  # Handle :ensure_instance - now just starts stopped instances, doesn't provision
+  # Handle :ensure_instance - start existing instance or provision when configured
   def handle_call(:ensure_instance, _from, %{status: @status_running, endpoint: endpoint} = state) do
     state = %{state | last_activity: System.monotonic_time(:millisecond)}
     {:reply, {:ok, endpoint}, state}
@@ -457,60 +457,71 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   end
 
   def handle_call(:ensure_instance, _from, %{status: @status_none} = state) do
-    # No instance - sync with Vast.ai first to see if there's one we don't know about
-    case check_vast_ai_for_instances() do
-      {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
-        # Found running instance - check if we should recover or cleanup
-        case maybe_recover_or_cleanup_orphan(instance_id, ip) do
-          {:ok, endpoint, tunnel_id} ->
-            # Seed activity/start time on recovery
-            ActivityTracker.record_activity_if_missing()
-            StartTracker.record_first_seen(instance_id)
+    config = vast_ai_config()
 
-            GPU.log(:lifecycle, :instance_recovered, "Recovered existing Vast.ai instance",
-              instance_id: instance_id,
-              endpoint: endpoint,
-              tunnel_id: tunnel_id,
-              source: "instance_manager"
-            )
-
-            state = %{
-              state
-              | instance_id: instance_id,
-                endpoint: endpoint,
-                tunnel_id: tunnel_id,
-                status: @status_running,
-                last_activity: System.monotonic_time(:millisecond)
-            }
-
-            schedule_idle_check()
-            {:reply, {:ok, endpoint}, state}
-
-          {:error, :no_tunnel} ->
-            {:reply, {:error, :no_instance_provision_required}, state}
-
-          {:error, {:tunnel_lookup_failed, reason}} ->
-            {:reply, {:error, {:tunnel_lookup_failed, reason}}, state}
-        end
-
-      {:ok, :stopped, instance_id} ->
-        # Found stopped instance - update state and try to start
-        Logger.info("[InstanceManager] Found stopped instance #{instance_id}, starting...")
-        state = %{state | instance_id: instance_id, status: @status_stopped}
-        handle_call(:start_instance, nil, state)
-
-      {:ok, :loading, instance_id} ->
-        Logger.warning("[InstanceManager] Instance #{instance_id} is still loading")
-        {:reply, {:error, {:instance_loading, instance_id}}, state}
-
-      {:ok, :none} ->
-        # No instance exists - provisioning is admin-only
-        Logger.info("[InstanceManager] No instance exists. Provisioning is admin-only.")
-        {:reply, {:error, :no_instance_provision_required}, state}
+    case maybe_provision_instance(config, state) do
+      {:ok, endpoint, new_state} ->
+        {:reply, {:ok, endpoint}, new_state}
 
       {:error, reason} ->
-        Logger.error("[InstanceManager] Failed to check Vast.ai: #{inspect(reason)}")
-        {:reply, {:error, {:api_check_failed, reason}}, state}
+        {:reply, {:error, reason}, state}
+
+      :skip ->
+        # No instance - sync with Vast.ai first to see if there's one we don't know about
+        case check_vast_ai_for_instances(config) do
+          {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
+            # Found running instance - check if we should recover or cleanup
+            case maybe_recover_or_cleanup_orphan(instance_id, ip) do
+              {:ok, endpoint, tunnel_id} ->
+                # Seed activity/start time on recovery
+                ActivityTracker.record_activity_if_missing()
+                StartTracker.record_first_seen(instance_id)
+
+                GPU.log(:lifecycle, :instance_recovered, "Recovered existing Vast.ai instance",
+                  instance_id: instance_id,
+                  endpoint: endpoint,
+                  tunnel_id: tunnel_id,
+                  source: "instance_manager"
+                )
+
+                state = %{
+                  state
+                  | instance_id: instance_id,
+                    endpoint: endpoint,
+                    tunnel_id: tunnel_id,
+                    status: @status_running,
+                    last_activity: System.monotonic_time(:millisecond)
+                }
+
+                schedule_idle_check()
+                {:reply, {:ok, endpoint}, state}
+
+              {:error, :no_tunnel} ->
+                {:reply, {:error, :no_instance_provision_required}, state}
+
+              {:error, {:tunnel_lookup_failed, reason}} ->
+                {:reply, {:error, {:tunnel_lookup_failed, reason}}, state}
+            end
+
+          {:ok, :stopped, instance_id} ->
+            # Found stopped instance - update state and try to start
+            Logger.info("[InstanceManager] Found stopped instance #{instance_id}, starting...")
+            state = %{state | instance_id: instance_id, status: @status_stopped}
+            handle_call(:start_instance, nil, state)
+
+          {:ok, :loading, instance_id} ->
+            Logger.warning("[InstanceManager] Instance #{instance_id} is still loading")
+            {:reply, {:error, {:instance_loading, instance_id}}, state}
+
+          {:ok, :none} ->
+            # No instance exists - provisioning is admin-only
+            Logger.info("[InstanceManager] No instance exists. Provisioning is admin-only.")
+            {:reply, {:error, :no_instance_provision_required}, state}
+
+          {:error, reason} ->
+            Logger.error("[InstanceManager] Failed to check Vast.ai: #{inspect(reason)}")
+            {:reply, {:error, {:api_check_failed, reason}}, state}
+        end
     end
   end
 
@@ -1183,37 +1194,48 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   #   {:ok, :stopped, instance_id} - Stopped instance
   #   {:ok, :loading, instance_id} - Loading instance (no IP yet)
   #   {:error, reason} - API error
-  defp check_vast_ai_for_instances do
+  defp check_vast_ai_for_instances(config \\ vast_ai_config()) do
     alias Lumainus.VastAI.Instances
 
-    case Instances.list() do
-      {:ok, %{"instances" => instances}} when is_list(instances) ->
-        # Filter to find our instances (could be multiple)
-        case instances do
-          [] ->
-            {:ok, :none}
-
-          _ ->
-            # Find first instance that's not destroyed
-            instance =
-              Enum.find(instances, fn inst ->
-                status = inst["actual_status"] || inst["cur_state"]
-                status not in ["exited", "destroyed", nil]
-              end)
-
-            classify_instance(instance)
-        end
-
-      {:ok, %{"instances" => %{"id" => _} = instance}} ->
-        # Single instance returned as map
-        classify_instance(instance)
-
-      {:ok, _} ->
+    cond do
+      skip_vast_ai_discovery?(config) ->
         {:ok, :none}
 
-      {:error, reason} ->
-        Logger.error("[InstanceManager] Failed to check Vast.ai instances: #{inspect(reason)}")
-        {:error, reason}
+      true ->
+        opts = api_opts(config)
+
+        case Instances.list(opts) do
+          {:ok, %{"instances" => instances}} when is_list(instances) ->
+            # Filter to find our instances (could be multiple)
+            case instances do
+              [] ->
+                {:ok, :none}
+
+              _ ->
+                # Find first instance that's not destroyed
+                instance =
+                  Enum.find(instances, fn inst ->
+                    status = inst["actual_status"] || inst["cur_state"]
+                    status not in ["exited", "destroyed", nil]
+                  end)
+
+                classify_instance(instance)
+            end
+
+          {:ok, %{"instances" => %{"id" => _} = instance}} ->
+            # Single instance returned as map
+            classify_instance(instance)
+
+          {:ok, _} ->
+            {:ok, :none}
+
+          {:error, reason} ->
+            Logger.error(
+              "[InstanceManager] Failed to check Vast.ai instances: #{inspect(reason)}"
+            )
+
+            {:error, reason}
+        end
     end
   end
 
@@ -1245,6 +1267,54 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         # Unknown status - treat as loading
         Logger.warning("[InstanceManager] Unknown instance status: #{status}")
         {:ok, :loading, instance_id}
+    end
+  end
+
+  defp maybe_provision_instance(config, state) do
+    provisioner = Keyword.get(config, :provisioner)
+
+    cond do
+      is_function(provisioner, 0) ->
+        case provisioner.() do
+          {:ok, instance_id, endpoint} ->
+            ActivityTracker.record_activity_if_missing()
+            StartTracker.record_first_seen(instance_id)
+
+            new_state = %{
+              state
+              | status: @status_running,
+                instance_id: instance_id,
+                endpoint: endpoint,
+                last_activity: System.monotonic_time(:millisecond),
+                healthy: nil,
+                health_check_error: nil
+            }
+
+            schedule_idle_check()
+            schedule_health_check()
+            broadcast_status_change(new_state)
+            {:ok, endpoint, new_state}
+
+          {:error, reason} ->
+            {:error, reason}
+
+          other ->
+            {:error, {:invalid_provision_response, other}}
+        end
+
+      true ->
+        :skip
+    end
+  end
+
+  defp skip_vast_ai_discovery?(config) do
+    Keyword.get(config, :skip_discovery, false) or Mix.env() == :test
+  end
+
+  defp api_opts(config) do
+    case Keyword.get(config, :api_key) do
+      nil -> []
+      key -> [api_key: key]
     end
   end
 

@@ -24,6 +24,7 @@ defmodule Lumainus.Reports do
   alias Lumainus.Tenancy.Tenant
   alias Oban
   alias Phoenix.PubSub
+  require Logger
 
   @run_topic_prefix "report-run"
 

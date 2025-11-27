@@ -1,5 +1,5 @@
 defmodule Lumainus.Docling.VastAI.InstanceManagerTest do
-  use ExUnit.Case, async: false
+  use Lumainus.DataCase, async: false
 
   alias Lumainus.Docling.VastAI.InstanceManager
 
@@ -11,7 +11,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManagerTest do
 
   setup do
     # Start the InstanceManager for each test with default name
-    start_supervised!(InstanceManager)
+    restart_instance_manager()
     :ok
   end
 
@@ -181,6 +181,39 @@ defmodule Lumainus.Docling.VastAI.InstanceManagerTest do
 
       # Update activity
       :ok = InstanceManager.update_activity()
+    end
+  end
+
+  defp restart_instance_manager do
+    start_tracker =
+      ensure_started(Lumainus.Docling.VastAI.StartTracker, fn ->
+        start_supervised!(Lumainus.Docling.VastAI.StartTracker)
+      end)
+
+    activity_tracker =
+      ensure_started(Lumainus.Docling.VastAI.ActivityTracker, fn ->
+        start_supervised!(Lumainus.Docling.VastAI.ActivityTracker)
+      end)
+
+    instance_manager =
+      case Process.whereis(InstanceManager) do
+        nil ->
+          start_supervised!(InstanceManager)
+
+        pid ->
+          InstanceManager.clear_state(pid)
+          pid
+      end
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), start_tracker)
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), activity_tracker)
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), instance_manager)
+  end
+
+  defp ensure_started(mod, starter) do
+    case Process.whereis(mod) do
+      nil -> starter.()
+      pid -> pid
     end
   end
 end

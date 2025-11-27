@@ -1,5 +1,5 @@
 defmodule Lumainus.Docling.Backends.VastAITest do
-  use ExUnit.Case, async: false
+  use Lumainus.DataCase, async: false
 
   alias Lumainus.Docling.Backends.VastAI
   alias Lumainus.Docling.VastAI.InstanceManager
@@ -15,7 +15,7 @@ defmodule Lumainus.Docling.Backends.VastAITest do
     endpoint = "http://localhost:#{bypass.port}"
 
     # Start InstanceManager
-    start_supervised!(InstanceManager)
+    restart_instance_manager()
 
     # Set up config with mock provisioner
     original_config = Application.get_env(:lumainus, :docling, [])
@@ -176,6 +176,39 @@ defmodule Lumainus.Docling.Backends.VastAITest do
       assert :async in caps
       assert :gpu in caps
       assert :auto_provision in caps
+    end
+  end
+
+  defp restart_instance_manager do
+    start_tracker =
+      ensure_started(Lumainus.Docling.VastAI.StartTracker, fn ->
+        start_supervised!(Lumainus.Docling.VastAI.StartTracker)
+      end)
+
+    activity_tracker =
+      ensure_started(Lumainus.Docling.VastAI.ActivityTracker, fn ->
+        start_supervised!(Lumainus.Docling.VastAI.ActivityTracker)
+      end)
+
+    instance_manager =
+      case Process.whereis(InstanceManager) do
+        nil ->
+          start_supervised!(InstanceManager)
+
+        pid ->
+          InstanceManager.clear_state(pid)
+          pid
+      end
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), start_tracker)
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), activity_tracker)
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), instance_manager)
+  end
+
+  defp ensure_started(mod, starter) do
+    case Process.whereis(mod) do
+      nil -> starter.()
+      pid -> pid
     end
   end
 end

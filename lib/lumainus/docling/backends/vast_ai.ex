@@ -104,7 +104,7 @@ defmodule Lumainus.Docling.Backends.VastAI do
             do_health_check(url)
 
           _ ->
-            {:error, :no_instance_or_cloud_url}
+            {:ok, %{"status" => "no_instance"}}
         end
     end
   end

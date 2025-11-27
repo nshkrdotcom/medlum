@@ -68,13 +68,16 @@ defmodule Lumainus.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 0.26"},
       {:jason, "~> 1.2"},
+      {:retry, "~> 0.18"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
       # Pin to 1.11.10 for OTP 25/26 compatibility
       {:jose, "== 1.11.10", override: true},
       {:tidewave, "~> 0.5", only: :dev},
-      {:bypass, "~> 2.1", only: :test}
+      {:bypass, "~> 2.1", only: :test},
+      {:supertester, "~> 0.3.1", only: :test},
+      {:stream_data, "~> 1.0", only: :test}
     ]
   end
 

@@ -66,12 +66,12 @@ defmodule Lumainus.Docling do
     :vast_ai => :vast_ai,
     "vast_ai" => :vast_ai,
     # Legacy aliases
-    :local => :docker_cpu,
-    "local" => :docker_cpu,
-    :remote => :vast_ai,
-    "remote" => :vast_ai,
-    :fast => :vast_ai,
-    "fast" => :vast_ai,
+    :local => :local,
+    "local" => :local,
+    :remote => :remote,
+    "remote" => :remote,
+    :fast => :fast,
+    "fast" => :fast,
     # User-facing cloud mode
     :cloud => :vast_ai,
     "cloud" => :vast_ai
@@ -216,6 +216,8 @@ defmodule Lumainus.Docling do
   Return the backend name for a given set of options or the active backend.
   """
   def backend_name_from_opts(opts) do
+    config_backend = config()[:backend]
+
     cond do
       # Explicit backend override
       opts[:backend] ->
@@ -224,6 +226,9 @@ defmodule Lumainus.Docling do
       # User mode (local/cloud) - resolve to actual backend
       opts[:mode] ->
         resolve_mode_to_backend(opts[:mode])
+
+      config_backend ->
+        normalize_backend_name(config_backend)
 
       # Default to active local backend
       true ->
@@ -277,10 +282,11 @@ defmodule Lumainus.Docling do
   def normalize_user_backend(name) do
     backend = normalize_backend_name(name)
 
-    if backend in @cloud_backends do
-      :cloud
-    else
-      :local
+    cond do
+      backend in [:fast, :remote] -> :fast
+      backend in @cloud_backends -> :cloud
+      backend == :cloud -> :cloud
+      true -> :local
     end
   rescue
     ArgumentError ->
@@ -324,6 +330,9 @@ defmodule Lumainus.Docling do
       :native_gpu -> cfg[:native_gpu_url]
       :docker_cpu -> cfg[:docker_cpu_url]
       :docker_gpu -> cfg[:docker_gpu_url]
+      :local -> cfg[:local_url] || cfg[:docker_cpu_url]
+      :remote -> cfg[:remote_url] || cfg[:cloud_url]
+      :fast -> cfg[:remote_url] || cfg[:cloud_url]
       :vast_ai -> cfg[:cloud_url]
       # Legacy fallbacks
       _ -> cfg[:local_url]
@@ -341,7 +350,7 @@ defmodule Lumainus.Docling do
       raise ArgumentError, "No URL configured for backend: #{backend_name}"
     end
 
-    ensure_https_or_loopback!(url, backend_name, allow_loopback: true)
+    ensure_https_or_loopback!(url, url_field_label(backend_name), allow_loopback: true)
   end
 
   @doc """
@@ -474,6 +483,13 @@ defmodule Lumainus.Docling do
       Application.get_env(:lumainus, :env_overrides_docling, false) ||
       Mix.env() == :test
   end
+
+  defp url_field_label(:remote), do: :remote_url
+  defp url_field_label(:fast), do: :remote_url
+  defp url_field_label(:vast_ai), do: :cloud_url
+  defp url_field_label(:cloud), do: :cloud_url
+  defp url_field_label(:local), do: :local_url
+  defp url_field_label(other), do: other
 
   defp env_config_with_defaults(env_config) do
     defaults = [

@@ -92,6 +92,7 @@ lumainus/
 - `/reports` (`lib/lumainus_web/live/reports_live.ex`) now pulls from the real ingestion pipeline (PDF uploads + GeminiEx-powered markdown generation via the LLM facade). Use the `/prompts` editor to tweak prompts for each section or for the ingestion step.
 - Tailwind 4 lives in `assets/css/app.css` with the `@import "tailwindcss" source(none)` + `@source` directives; DaisyUI themes are registered inline so new components should stay compatible with this file rather than adding ad-hoc CSS frameworks.
 - Tests are split between `test/lumainus_web` (contexts) and `test/lumainus_web_web/{controllers,live}` (router/auth/LiveView exercises). Add regression coverage next to whichever module you touch (ex: LiveView tests in `test/lumainus_web_web/live/*_test.exs`).
+- Conversion resilience uses the Hex `retry` library—do not reimplement backoff/jitter; only wrap idempotent operations (health/status/SSE reconnect).
 
 ---
 
@@ -590,6 +591,13 @@ open http://localhost:4000/dev/mailbox
 
 # 5. Click link to log in
 ```
+
+### Testing Concurrency & HTTP
+
+- Prefer `Supertester` isolation (or `Lumainus.Conversion.TestCase`) for OTP-heavy tests; avoid `Process.sleep/1`—use monitors, telemetry, or supervised processes instead.
+- For Bypass-based HTTP/SSE tests, ensure expectations are consumed (choose `stub` vs `expect` appropriately) and clean up streams/processes via `on_exit`.
+- Use the Hex `retry` library for backoff/jitter—do not implement custom sleep loops.
+- Start required pools (e.g., Finch) inside tests when isolating; keep them supervised and unlinked to avoid registry leaks.
 
 ---
 
