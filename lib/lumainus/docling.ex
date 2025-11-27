@@ -144,6 +144,9 @@ defmodule Lumainus.Docling do
   def capabilities(opts \\ []) do
     backend = backend_module_from_opts(opts)
 
+    Code.ensure_loaded?(backend)
+    Code.ensure_loaded?(Lumainus.Docling.Backends.Local)
+
     cond do
       function_exported?(backend, :capabilities, 0) ->
         backend.capabilities()

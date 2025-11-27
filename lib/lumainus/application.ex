@@ -18,6 +18,10 @@ defmodule Lumainus.Application do
       {Finch, name: Lumainus.Finch},
       # Task supervisor for SSE streaming tasks
       {Task.Supervisor, name: Lumainus.TaskSupervisor},
+      # Conversion system (v2)
+      {Registry, keys: :unique, name: Lumainus.Conversion.Registry},
+      Lumainus.Conversion.Application.JobTracker,
+      Lumainus.Conversion.Infrastructure.HealthManager,
       # Start to serve requests, typically the last entry
       LumainusWeb.Endpoint
     ]
