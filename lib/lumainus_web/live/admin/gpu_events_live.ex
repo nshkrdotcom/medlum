@@ -8,6 +8,7 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
   use LumainusWeb, :live_view
 
   alias Lumainus.GPU
+  alias LumainusWeb.DateTimeHelpers
 
   @impl true
   def mount(_params, _session, socket) do
@@ -213,11 +214,19 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
   defp session_status_class(_),
     do: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
 
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp format_datetime(nil, _locale, _timezone), do: "-"
 
-  defp format_datetime_short(nil), do: "-"
-  defp format_datetime_short(dt), do: Calendar.strftime(dt, "%H:%M:%S")
+  defp format_datetime(dt, locale, timezone) do
+    DateTimeHelpers.format_datetime(dt, locale: locale, timezone: timezone, format: :medium) ||
+      Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_datetime_short(nil, _locale, _timezone), do: "-"
+
+  defp format_datetime_short(dt, locale, timezone) do
+    DateTimeHelpers.format_time(dt, locale: locale, timezone: timezone, format: :short) ||
+      Calendar.strftime(dt, "%H:%M:%S")
+  end
 
   defp format_cost(nil), do: "-"
   defp format_cost(decimal), do: "$#{Decimal.round(decimal, 4)}"
@@ -416,25 +425,25 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
                 <div class="flex justify-between">
                   <dt class="text-gray-500 dark:text-gray-400">Created</dt>
                   <dd class="font-mono text-gray-900 dark:text-gray-100">
-                    {format_datetime(@selected_session.inserted_at)}
+                    {format_datetime(@selected_session.inserted_at, @locale, @timezone)}
                   </dd>
                 </div>
                 <div class="flex justify-between">
                   <dt class="text-gray-500 dark:text-gray-400">Provisioned</dt>
                   <dd class="font-mono text-gray-900 dark:text-gray-100">
-                    {format_datetime(@selected_session.provisioned_at)}
+                    {format_datetime(@selected_session.provisioned_at, @locale, @timezone)}
                   </dd>
                 </div>
                 <div class="flex justify-between">
                   <dt class="text-gray-500 dark:text-gray-400">Ready</dt>
                   <dd class="font-mono text-gray-900 dark:text-gray-100">
-                    {format_datetime(@selected_session.ready_at)}
+                    {format_datetime(@selected_session.ready_at, @locale, @timezone)}
                   </dd>
                 </div>
                 <div class="flex justify-between">
                   <dt class="text-gray-500 dark:text-gray-400">Destroyed</dt>
                   <dd class="font-mono text-gray-900 dark:text-gray-100">
-                    {format_datetime(@selected_session.destroyed_at)}
+                    {format_datetime(@selected_session.destroyed_at, @locale, @timezone)}
                   </dd>
                 </div>
                 <div class="flex justify-between">
@@ -463,7 +472,7 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
                 <%= for event <- @session_events do %>
                   <div class="flex items-start gap-3 text-sm p-2 bg-gray-50 dark:bg-gray-700 rounded">
                     <span class="font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      {format_datetime_short(event.inserted_at)}
+                      {format_datetime_short(event.inserted_at, @locale, @timezone)}
                     </span>
                     <span class={[
                       "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium",
@@ -600,7 +609,7 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
                   <%= for event <- @events do %>
                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td class="px-4 py-3 whitespace-nowrap text-xs font-mono text-gray-500 dark:text-gray-400">
-                        {format_datetime_short(event.inserted_at)}
+                        {format_datetime_short(event.inserted_at, @locale, @timezone)}
                       </td>
                       <td class="px-4 py-3 whitespace-nowrap">
                         <span class={[
@@ -698,7 +707,7 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
                   <%= for session <- @sessions do %>
                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td class="px-4 py-3 whitespace-nowrap text-xs font-mono text-gray-500 dark:text-gray-400">
-                        {format_datetime(session.inserted_at)}
+                        {format_datetime(session.inserted_at, @locale, @timezone)}
                       </td>
                       <td class="px-4 py-3 whitespace-nowrap">
                         <span class={[
@@ -766,7 +775,7 @@ defmodule LumainusWeb.Admin.GPUEventsLive do
             <%= for event <- @correlated_events do %>
               <div class="flex items-start gap-3 text-sm p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                 <span class="font-mono text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  {format_datetime(event.inserted_at)}
+                  {format_datetime(event.inserted_at, @locale, @timezone)}
                 </span>
                 <span class={[
                   "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium",

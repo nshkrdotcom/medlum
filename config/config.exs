@@ -7,6 +7,16 @@
 # General application configuration
 import Config
 
+config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
+
+config :lumainus, Lumainus.Cldr,
+  default_locale: "en",
+  locales: ["en", "en-GB", "en-US", "es", "es-US"],
+  providers: [Cldr.Number, Cldr.Calendar, Cldr.DateTime],
+  gettext: LumainusWeb.Gettext
+
+config :ex_cldr, default_backend: Lumainus.Cldr
+
 config :lumainus, :scopes,
   user: [
     default: true,

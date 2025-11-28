@@ -667,7 +667,7 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp document_payload(%DocumentUpload{} = doc) do
     metadata = doc.metadata || %{}
-    parse = List.first(doc.parses || [])
+    parse = if Ecto.assoc_loaded?(doc.parses), do: List.first(doc.parses), else: nil
 
     %{
       "id" => doc.id,

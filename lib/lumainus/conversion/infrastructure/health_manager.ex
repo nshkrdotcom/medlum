@@ -2,6 +2,9 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
   @moduledoc """
   Periodic health checking for all backends.
 
+  Reads backend configuration from `Lumainus.Docling.Settings` (database) as the
+  single source of truth, ensuring consistency with `BackendRouter`.
+
   ## Health States
 
   - `:healthy` — Recent successful health check
@@ -28,16 +31,18 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
 
       # Force immediate check
       HealthManager.check_now(:docker_cpu)
+
+      # Reload backends from Settings (e.g., after admin changes)
+      HealthManager.reload_backends()
   """
 
   use GenServer
   require Logger
 
   alias Lumainus.Conversion.Infrastructure.Resilience.RetryPolicy
+  alias Lumainus.Docling.Settings
 
   @default_check_interval_ms 30_000
-  @default_local_timeout_ms 10_000
-  @default_cloud_timeout_ms 20_000
   @default_stale_threshold_ms 90_000
   @default_jitter_percent 20
 
@@ -60,14 +65,14 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
 
   ## Options
 
-  - `:backends` — Map of backend configs (default: default_backends())
+  - `:backends` — Map of backend configs (default: backends_from_settings())
   - `:name` — Process name (default: __MODULE__)
   - `:check_interval_ms` — Interval between checks (default: 30_000)
   - `:stale_threshold_ms` — When to consider data stale (default: 90_000)
   - `:jitter_percent` — Jitter percentage for scheduling (default: 20)
   """
   def start_link(opts \\ []) do
-    backends = Keyword.get(opts, :backends, default_backends())
+    backends = Keyword.get_lazy(opts, :backends, &backends_from_settings/0)
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, {backends, opts}, name: name)
   end
@@ -98,6 +103,17 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
     GenServer.cast(server, {:check_now, backend_name})
   end
 
+  @doc """
+  Reload backend configurations from Settings.
+
+  Call this after Settings are updated to ensure HealthManager
+  uses the latest backend URLs.
+  """
+  @spec reload_backends(atom() | pid()) :: :ok
+  def reload_backends(server \\ __MODULE__) do
+    GenServer.cast(server, :reload_backends)
+  end
+
   # ============================================================================
   # Server Callbacks
   # ============================================================================
@@ -113,10 +129,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
     }
 
     # Schedule initial checks with staggered starts
-    Enum.each(backends, fn {name, _config} ->
-      delay = :rand.uniform(5_000)
-      Process.send_after(self(), {:check, name}, delay)
-    end)
+    schedule_initial_checks(backends)
 
     {:ok, state}
   end
@@ -154,11 +167,42 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
   end
 
   @impl true
+  def handle_cast(:reload_backends, state) do
+    new_backends = backends_from_settings()
+
+    # Clear health states for backends that changed endpoints
+    new_health_states =
+      Enum.reduce(new_backends, state.health_states, fn {name, new_config}, acc ->
+        old_config = Map.get(state.backends, name)
+
+        if old_config && old_config.endpoint != new_config.endpoint do
+          # Endpoint changed - clear health state and trigger immediate check
+          send(self(), {:check, name})
+          Map.delete(acc, name)
+        else
+          acc
+        end
+      end)
+
+    # Schedule checks for any new backends
+    new_backend_names = MapSet.new(Map.keys(new_backends))
+    old_backend_names = MapSet.new(Map.keys(state.backends))
+
+    MapSet.difference(new_backend_names, old_backend_names)
+    |> Enum.each(fn name ->
+      delay = :rand.uniform(1_000)
+      Process.send_after(self(), {:check, name}, delay)
+    end)
+
+    {:noreply, %{state | backends: new_backends, health_states: new_health_states}}
+  end
+
+  @impl true
   def handle_info({:check, backend_name}, state) do
     config = Map.get(state.backends, backend_name)
 
-    if config do
-      # Run health check (spawned to not block GenServer)
+    # Skip cloud backends - they use CloudStatus instead of HealthManager
+    if config && config.backend_type != :cloud do
       parent = self()
 
       Task.start(fn ->
@@ -180,24 +224,75 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
 
     new_states = Map.put(state.health_states, backend_name, new_health)
 
-    # Emit telemetry
     emit_health_telemetry(backend_name, status, latency_ms)
-
-    # Schedule next check with jitter
     schedule_next_check(backend_name, state.check_interval_ms, state.jitter_percent)
 
     {:noreply, %{state | health_states: new_states}}
   end
 
   # ============================================================================
-  # Private Functions
+  # Private Functions - Backend Configuration
+  # ============================================================================
+
+  @doc false
+  def backends_from_settings do
+    case Settings.fetch_or_init() do
+      {:ok, setting} ->
+        build_backends_from_setting(setting)
+
+      _ ->
+        # Fallback to empty map if Settings unavailable (e.g., during migrations)
+        Logger.warning("[HealthManager] Settings unavailable, using empty backends")
+        %{}
+    end
+  end
+
+  defp build_backends_from_setting(setting) do
+    %{
+      local_cpu: %{
+        module: Lumainus.Conversion.Backends.LocalBackend,
+        backend_type: :local,
+        endpoint: setting.native_cpu_url
+      },
+      docker_cpu: %{
+        module: Lumainus.Conversion.Backends.LocalBackend,
+        backend_type: :local,
+        endpoint: setting.docker_cpu_url
+      },
+      local_gpu: %{
+        module: Lumainus.Conversion.Backends.LocalBackend,
+        backend_type: :local,
+        endpoint: setting.native_gpu_url
+      },
+      docker_gpu: %{
+        module: Lumainus.Conversion.Backends.LocalBackend,
+        backend_type: :local,
+        endpoint: setting.docker_gpu_url
+      },
+      cloud: %{
+        module: Lumainus.Conversion.Backends.CloudBackend,
+        backend_type: :cloud,
+        endpoint: setting.cloud_url
+      }
+    }
+    |> Enum.reject(fn {_name, config} -> is_nil(config.endpoint) or config.endpoint == "" end)
+    |> Map.new()
+  end
+
+  defp schedule_initial_checks(backends) do
+    Enum.each(backends, fn {name, _config} ->
+      delay = :rand.uniform(5_000)
+      Process.send_after(self(), {:check, name}, delay)
+    end)
+  end
+
+  # ============================================================================
+  # Private Functions - Health Checking
   # ============================================================================
 
   defp perform_health_check(backend_name, config) do
-    _timeout = health_timeout(config.backend_type)
     start = System.monotonic_time(:millisecond)
 
-    # Health checks are idempotent, so we can retry
     result =
       RetryPolicy.with_retry(
         fn -> do_health_check(config) end,
@@ -223,7 +318,6 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
     module = Map.get(config, :module)
 
     cond do
-      # If endpoint is provided, use direct HTTP check
       endpoint && endpoint != "" ->
         case Req.get("#{endpoint}/health", receive_timeout: 10_000, retry: false) do
           {:ok, %Req.Response{status: status}} when status in 200..299 ->
@@ -239,11 +333,9 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
             {:error, {:transport_error, reason}}
         end
 
-      # If module has health/0 callback, use it
       module && function_exported?(module, :health, 0) ->
         module.health()
 
-      # If module has health/1 callback, pass config
       module && function_exported?(module, :health, 1) ->
         module.health(Map.to_list(config))
 
@@ -251,10 +343,6 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
         {:error, :no_health_check_available}
     end
   end
-
-  defp health_timeout(:local), do: @default_local_timeout_ms
-  defp health_timeout(:cloud), do: @default_cloud_timeout_ms
-  defp health_timeout(_), do: @default_local_timeout_ms
 
   defp stale?(checked_at, stale_threshold_ms) do
     now = System.monotonic_time(:millisecond)
@@ -284,37 +372,5 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
           %{backend: backend_name}
         )
     end
-  end
-
-  defp default_backends do
-    config = Application.get_env(:lumainus, :conversion, [])
-
-    %{
-      local_cpu: %{
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        backend_type: :local,
-        endpoint: config[:native_cpu_url] || "http://localhost:8040"
-      },
-      docker_cpu: %{
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        backend_type: :local,
-        endpoint: config[:docker_cpu_url] || "http://localhost:8042"
-      },
-      local_gpu: %{
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        backend_type: :local,
-        endpoint: config[:native_gpu_url] || "http://localhost:8041"
-      },
-      docker_gpu: %{
-        module: Lumainus.Conversion.Backends.LocalBackend,
-        backend_type: :local,
-        endpoint: config[:docker_gpu_url] || "http://localhost:8043"
-      },
-      cloud: %{
-        module: Lumainus.Conversion.Backends.CloudBackend,
-        backend_type: :cloud,
-        endpoint: config[:cloud_url]
-      }
-    }
   end
 end

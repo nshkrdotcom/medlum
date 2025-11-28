@@ -12,6 +12,7 @@ defmodule LumainusWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_scope_for_user
+    plug LumainusWeb.Locale
   end
 
   pipeline :api do
@@ -56,7 +57,7 @@ defmodule LumainusWeb.Router do
     pipe_through [:browser]
 
     live_session :current_user,
-      on_mount: [{LumainusWeb.UserAuth, :mount_current_scope}] do
+      on_mount: [{LumainusWeb.UserAuth, :mount_current_scope}, {LumainusWeb.Locale, :set_locale}] do
       live "/users/register", UserLive.Registration, :new
       live "/users/register/:token", UserLive.Registration, :new
       live "/users/log-in", UserLive.Login, :new
@@ -73,7 +74,10 @@ defmodule LumainusWeb.Router do
     pipe_through [:browser, :require_authenticated_user]
 
     live_session :require_authenticated_user,
-      on_mount: [{LumainusWeb.UserAuth, :require_authenticated}] do
+      on_mount: [
+        {LumainusWeb.UserAuth, :require_authenticated},
+        {LumainusWeb.Locale, :set_locale}
+      ] do
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
@@ -86,7 +90,7 @@ defmodule LumainusWeb.Router do
     pipe_through [:browser, :require_authenticated_user, :require_doctor_role]
 
     live_session :doctor_routes,
-      on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}] do
+      on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}, {LumainusWeb.Locale, :set_locale}] do
       live "/reports", ReportsLive
       live "/prompts", PromptsLive
     end
@@ -97,7 +101,7 @@ defmodule LumainusWeb.Router do
     pipe_through [:browser, :require_authenticated_user, :require_admin_role]
 
     live_session :admin_routes,
-      on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}] do
+      on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}, {LumainusWeb.Locale, :set_locale}] do
       live "/invitations", Admin.InvitationsLive
       live "/docling", Admin.DoclingSettingsLive
       live "/vast_ai", Admin.VastAILive

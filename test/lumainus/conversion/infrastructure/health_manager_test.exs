@@ -6,18 +6,24 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
   @moduletag :capture_log
 
   describe "start_link/1" do
-    test "starts successfully with default backends" do
-      {:ok, pid} = start_supervised({HealthManager, name: unique_name(:health_manager)})
-      assert Process.alive?(pid)
-    end
-
     test "starts successfully with custom backends" do
       backends = %{
-        test_backend: %{module: FakeBackend, backend_type: :local}
+        test_backend: %{
+          module: FakeBackend,
+          backend_type: :local,
+          endpoint: "http://localhost:9999"
+        }
       }
 
       {:ok, pid} =
         start_supervised({HealthManager, name: unique_name(:health_manager), backends: backends})
+
+      assert Process.alive?(pid)
+    end
+
+    test "starts successfully with empty backends" do
+      {:ok, pid} =
+        start_supervised({HealthManager, name: unique_name(:health_manager), backends: %{}})
 
       assert Process.alive?(pid)
     end

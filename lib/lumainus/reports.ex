@@ -56,11 +56,21 @@ defmodule Lumainus.Reports do
   def list_patients_for_scope(%Scope{} = scope) do
     tenant_id = tenant_id_from_scope(scope)
 
+    # Preload profile WITHOUT structured_metadata (can be huge - contains full document text)
+    profile_fields =
+      Lumainus.Clinical.PatientProfile.__schema__(:fields)
+      |> Enum.reject(&(&1 == :structured_metadata))
+
+    profile_query =
+      from(pp in Lumainus.Clinical.PatientProfile,
+        select: struct(pp, ^profile_fields)
+      )
+
     Patient
     |> where([p], p.tenant_id == ^tenant_id)
     |> maybe_filter_patients_for_user(scope.user)
     |> order_by([p], asc: p.inserted_at)
-    |> preload(:current_profile)
+    |> preload(current_profile: ^profile_query)
     |> Repo.all()
   end
 
@@ -113,13 +123,47 @@ defmodule Lumainus.Reports do
     |> Repo.update()
   end
 
+  @doc """
+  List documents for a record set, excluding raw_blob to avoid loading multi-MB PDFs.
+  """
   def list_documents(%Scope{} = scope, record_set) do
+    # Select all fields EXCEPT raw_blob to avoid loading multi-MB PDF binaries
+    fields =
+      DocumentUpload.__schema__(:fields)
+      |> Enum.reject(&(&1 == :raw_blob))
+
     DocumentUpload
     |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
     |> where([d], d.record_set_id == ^record_set.id)
     |> order_by([d], desc: d.inserted_at)
-    |> preload(parses: [:chunks])
+    |> select([d], struct(d, ^fields))
     |> Repo.all()
+    |> Repo.preload(parses: :chunks)
+  end
+
+  @doc """
+  Load document content (raw_blob and parsed_text) for a specific document.
+  Used for lazy-loading when opening the document modal.
+  """
+  def get_document_content(document_id) when is_binary(document_id) do
+    upload =
+      DocumentUpload
+      |> where([d], d.id == ^document_id)
+      |> select([d], %{raw_blob: d.raw_blob})
+      |> Repo.one()
+
+    parse =
+      Lumainus.Documents.DocumentParse
+      |> where([p], p.upload_id == ^document_id)
+      |> order_by([p], desc: p.extracted_at)
+      |> limit(1)
+      |> select([p], %{parsed_text: p.parsed_text})
+      |> Repo.one()
+
+    %{
+      raw_content: upload && upload.raw_blob,
+      cleaned_content: parse && parse.parsed_text
+    }
   end
 
   defp document_ids_for(%Scope{} = scope, record_set) do

@@ -80,6 +80,11 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
     bypass = Bypass.open()
     bypass_url = "http://127.0.0.1:#{bypass.port}"
 
+    # Handle health check requests from HealthManager
+    Bypass.stub(bypass, "GET", "/health", fn conn ->
+      Plug.Conn.resp(conn, 200, Jason.encode!(%{"status" => "ok"}))
+    end)
+
     # Configure v2 Settings with bypass URL
     {:ok, _} =
       Lumainus.Docling.Settings.update_settings(%{
@@ -89,6 +94,11 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
           "enhanced" => ["docker_cpu"]
         }
       })
+
+    # Reload HealthManager to pick up the new Settings
+    Lumainus.Conversion.Infrastructure.HealthManager.reload_backends()
+    # Give HealthManager time to trigger health check
+    Process.sleep(100)
 
     {:ok,
      tenant: tenant,

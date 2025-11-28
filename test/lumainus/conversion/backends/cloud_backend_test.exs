@@ -33,7 +33,56 @@ defmodule Lumainus.Conversion.Backends.CloudBackendTest do
         )
       end)
 
-      # Mock the InstanceManager with a function that returns the endpoint
+      # Mock CloudStatus to return ready with endpoint
+      mock_cloud_status = fn ->
+        %{
+          availability: :ready,
+          endpoint: bypass_url(bypass),
+          can_accept_jobs: true,
+          message: "Cloud GPU ready"
+        }
+      end
+
+      binary = sample_pdf()
+
+      result =
+        CloudBackend.enqueue(binary,
+          filename: "document.pdf",
+          cloud_status_fn: mock_cloud_status
+        )
+
+      assert {:ok, response} = result
+      assert response["job_id"] == "cloud-job-123"
+    end
+
+    test "triggers provisioning when cloud available but no instance" do
+      bypass = Bypass.open()
+
+      Bypass.expect_once(bypass, "POST", "/jobs", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"job_id" => "cloud-job-456", "state" => "queued"}))
+      end)
+
+      # First call returns available (triggers provisioning), second returns ready
+      call_count = :counters.new(1, [:atomics])
+
+      mock_cloud_status = fn ->
+        count = :counters.get(call_count, 1)
+        :counters.add(call_count, 1, 1)
+
+        if count == 0 do
+          %{availability: :available, endpoint: nil, can_accept_jobs: true, message: "Available"}
+        else
+          %{
+            availability: :ready,
+            endpoint: bypass_url(bypass),
+            can_accept_jobs: true,
+            message: "Ready"
+          }
+        end
+      end
+
       mock_ensure = fn -> {:ok, bypass_url(bypass)} end
 
       binary = sample_pdf()
@@ -41,27 +90,34 @@ defmodule Lumainus.Conversion.Backends.CloudBackendTest do
       result =
         CloudBackend.enqueue(binary,
           filename: "document.pdf",
-          ensure_instance_fn: mock_ensure
+          cloud_status_fn: mock_cloud_status,
+          ensure_instance_fn: mock_ensure,
+          poll_interval_ms: 10
         )
 
       assert {:ok, response} = result
-      assert response["job_id"] == "cloud-job-123"
+      assert response["job_id"] == "cloud-job-456"
     end
 
-    test "returns provisioning status when no instance" do
-      # Mock ensure_instance returning error
-      mock_ensure = fn -> {:error, :no_instance} end
+    test "returns error when cloud unavailable" do
+      mock_cloud_status = fn ->
+        %{
+          availability: :unavailable,
+          endpoint: nil,
+          can_accept_jobs: false,
+          message: "Cloud GPU not configured"
+        }
+      end
 
       binary = sample_pdf()
 
       result =
         CloudBackend.enqueue(binary,
           filename: "document.pdf",
-          ensure_instance_fn: mock_ensure
+          cloud_status_fn: mock_cloud_status
         )
 
-      assert {:ok, response} = result
-      assert response["state"] == "provisioning"
+      assert {:error, {:cloud_unavailable, "Cloud GPU not configured"}} = result
     end
   end
 
@@ -219,19 +275,49 @@ defmodule Lumainus.Conversion.Backends.CloudBackendTest do
         metadata: %{endpoint: bypass_url(bypass)}
       }
 
-      mock_get_endpoint = fn -> {:ok, bypass_url(bypass)} end
+      # Mock CloudStatus to return ready with endpoint
+      mock_cloud_status = fn ->
+        %{
+          availability: :ready,
+          endpoint: bypass_url(bypass),
+          can_accept_jobs: true,
+          message: "Cloud GPU ready"
+        }
+      end
+
       mock_update_activity = fn -> :ok end
 
       result =
         CloudBackend.await(job_ref,
           timeout_ms: 5000,
           poll_interval_ms: 50,
-          get_endpoint_fn: mock_get_endpoint,
+          cloud_status_fn: mock_cloud_status,
           update_activity_fn: mock_update_activity
         )
 
       assert {:ok, response} = result
       assert response["state"] == "completed"
+    end
+
+    test "returns error when cloud unavailable" do
+      job_ref = %{job_id: "cloud-job-123", timeout_ms: 5000, metadata: %{}}
+
+      mock_cloud_status = fn ->
+        %{
+          availability: :unavailable,
+          endpoint: nil,
+          can_accept_jobs: false,
+          message: "Cloud GPU not configured"
+        }
+      end
+
+      result =
+        CloudBackend.await(job_ref,
+          timeout_ms: 1000,
+          cloud_status_fn: mock_cloud_status
+        )
+
+      assert {:error, {:cloud_unavailable, "Cloud GPU not configured"}} = result
     end
   end
 end

@@ -3,6 +3,7 @@ defmodule LumainusWeb.ReportsLive do
 
   alias Ecto.Changeset
   alias Lumainus.Accounts
+  alias Lumainus.Conversion.CloudStatus
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Docling.Settings, as: DoclingSettings
@@ -120,9 +121,17 @@ defmodule LumainusWeb.ReportsLive do
       doc ->
         Logger.debug("Found document: #{inspect(doc.label)}")
 
+        # Lazy-load document content only when modal opens
+        content = Reports.get_document_content(doc.id)
+
+        doc_with_content =
+          doc
+          |> Map.put(:cleaned_content, content.cleaned_content)
+          |> Map.put(:raw_content, content.raw_content)
+
         {:noreply,
          socket
-         |> assign(:document_modal_document, doc)
+         |> assign(:document_modal_document, doc_with_content)
          |> assign(:document_modal_tab, "summary")
          |> assign(:document_modal_open, true)}
     end
@@ -565,8 +574,8 @@ defmodule LumainusWeb.ReportsLive do
     gpu_instance_status = check_gpu_instance_status_fast()
     t5 = System.monotonic_time(:millisecond)
 
-    # Derive fast_available? directly from InstanceManager state
-    # No "Checking..." delays - trust the state machine
+    # Derive fast_available? from CloudStatus via gpu_instance_status
+    # No "Checking..." delays - trust CloudStatus as single source of truth
     {fast_available?, fast_reason} =
       case gpu_instance_status do
         %{status: :running, healthy: false, health_check_error: error} ->
@@ -575,14 +584,22 @@ defmodule LumainusWeb.ReportsLive do
 
         %{status: :running, healthy: healthy} when healthy != false ->
           # Instance running and either healthy (true) or not yet checked (nil)
-          # Trust it's available - background health check will update if not
           {true, nil}
 
         %{status: :loading} ->
-          {false, "GPU instance still loading"}
+          # Provisioning - jobs will wait automatically
+          {true, "GPU instance provisioning..."}
 
-        %{status: :stopped} ->
-          {false, "GPU instance stopped"}
+        %{status: :no_instance, cloud_status: %{availability: :available}} ->
+          # No instance but will auto-provision on first use
+          {true, "GPU will provision on first use"}
+
+        %{status: :no_instance} ->
+          # No instance, not available for auto-provision
+          {false, "No GPU instance"}
+
+        %{status: :unavailable, health_check_error: error} ->
+          {false, error || "GPU unavailable"}
 
         _ ->
           {false, "No GPU instance"}
@@ -984,19 +1001,37 @@ defmodule LumainusWeb.ReportsLive do
     )
 
     if entry.done? do
-      result =
-        consume_uploaded_entry(socket, entry, fn %{path: path} ->
-          case read_uploaded_file(path, entry) do
-            {:ok, payload} ->
-              {:ok, {:success, payload}}
+      # PREFLIGHT CHECK: If cloud is selected, verify GPU is available BEFORE processing
+      case preflight_backend_check(socket) do
+        :ok ->
+          result =
+            consume_uploaded_entry(socket, entry, fn %{path: path} ->
+              case read_uploaded_file(path, entry) do
+                {:ok, payload} ->
+                  {:ok, {:success, payload}}
 
-            {:error, reason} ->
-              {:ok, {:error, reason}}
-          end
-        end)
+                {:error, reason} ->
+                  {:ok, {:error, reason}}
+              end
+            end)
 
-      Logger.debug("consume_uploaded_entry returned #{inspect(result)}")
-      entry_processed(socket, result)
+          Logger.debug("consume_uploaded_entry returned #{inspect(result)}")
+          entry_processed(socket, result)
+
+        {:error, reason} ->
+          Logger.warning(
+            "[ReportsLive] UPLOAD BLOCKED - cloud unavailable: #{entry.client_name} reason=#{reason}"
+          )
+
+          # Cancel the upload entry to clean up
+          {:noreply,
+           socket
+           |> cancel_upload(:documents, entry.ref)
+           |> put_flash(
+             :error,
+             "Cannot upload: Cloud GPU is not available (#{reason}). Start a GPU instance or switch to Local mode."
+           )}
+      end
     else
       {:noreply, socket}
     end
@@ -1078,6 +1113,19 @@ defmodule LumainusWeb.ReportsLive do
 
             {:error, :already_queued, socket}
 
+          {:error, :cloud_unavailable, reason} ->
+            Logger.warning(
+              "[ReportsLive] CLOUD UNAVAILABLE upload=#{upload.id} filename=#{meta.filename} " <>
+                "reason=#{inspect(reason)} lv_pid=#{inspect(lv_pid)}"
+            )
+
+            {:error,
+             socket
+             |> put_flash(
+               :error,
+               "Cloud GPU is not available: #{reason}. Please start a GPU instance or switch to Local mode."
+             )}
+
           {:error, reason} ->
             Logger.error(
               "[ReportsLive] queue_ingestion failed upload=#{upload.id} " <>
@@ -1118,7 +1166,6 @@ defmodule LumainusWeb.ReportsLive do
     documents
     |> Enum.with_index(1)
     |> Enum.map(fn {doc, index} ->
-      parse = List.first(doc.parses || [])
       metadata = doc.metadata || %{}
       label = metadata["label"] || Path.rootname(doc.filename)
       summary = metadata["summary"] || "Awaiting ingestion"
@@ -1146,8 +1193,9 @@ defmodule LumainusWeb.ReportsLive do
         provider: provider,
         date: date,
         kind: doc.document_kind,
-        cleaned_content: parse && parse.parsed_text,
-        raw_content: doc.raw_blob,
+        # Lazy-load content only when modal opens (avoid MB+ data in socket)
+        cleaned_content: nil,
+        raw_content: nil,
         status: status,
         ingestion_state: ingestion_state || status,
         ingestion_stage: ingestion_stage,
@@ -1262,53 +1310,117 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
+  # Preflight check: if cloud backend is selected, verify GPU can accept jobs
+  # Returns :ok or {:error, reason}
+  # Note: With the new CloudStatus design, jobs can be accepted even when no instance
+  # is running - the CloudBackend will wait for provisioning automatically.
+  defp preflight_backend_check(socket) do
+    backend = socket.assigns.docling_backend
+
+    case backend do
+      :cloud ->
+        # Check CloudStatus for job acceptance ability
+        gpu_status = check_gpu_instance_status_fast()
+        cloud_status = gpu_status[:cloud_status] || %{}
+
+        case cloud_status do
+          %{can_accept_jobs: true} ->
+            # Cloud can accept jobs (ready, available, or provisioning)
+            :ok
+
+          %{can_accept_jobs: false, message: message, detail: detail} ->
+            {:error, "#{message}: #{detail}"}
+
+          _ ->
+            # Fallback to legacy status check
+            case gpu_status do
+              %{status: :running} ->
+                :ok
+
+              %{status: :loading} ->
+                :ok
+
+              %{status: :no_instance} ->
+                :ok
+
+              %{status: :unavailable, health_check_error: error} ->
+                {:error, error}
+
+              %{status: :unknown, health_check_error: error} ->
+                {:error, error || "GPU status unknown"}
+
+              _ ->
+                {:error, "Cloud GPU unavailable"}
+            end
+        end
+
+      # Local backends don't need preflight check
+      _ ->
+        :ok
+    end
+  end
+
   # Fast version that only checks local state - NO HTTP calls
   # Used during mount to avoid blocking page load
-  # Returns map with: status, endpoint, instance_id, healthy, health_check_error
+  # Returns map with: status, endpoint, instance_id, healthy, health_check_error, cloud_status
+  # Uses CloudStatus as single source of truth for cloud backend availability
   defp check_gpu_instance_status_fast do
-    if Process.whereis(InstanceManager) do
-      try do
-        # Use the status() function that returns full state including health
-        status_map = InstanceManager.status()
+    cloud_status = CloudStatus.get()
 
-        # Normalize status values for backward compatibility
-        normalized_status =
-          case status_map.status do
-            :running -> :running
-            :stopped -> :stopped
-            :loading -> :loading
-            :none -> :no_instance
-            _ -> :unknown
-          end
+    # Convert CloudStatus to legacy format for backward compatibility with UI
+    case cloud_status do
+      %{availability: :ready, endpoint: endpoint, instance_info: info} ->
+        %{
+          status: :running,
+          endpoint: endpoint,
+          instance_id: get_in(info || %{}, [:instance_id]),
+          healthy: true,
+          health_check_error: nil,
+          cloud_status: cloud_status
+        }
+
+      %{availability: :provisioning, endpoint: endpoint, instance_info: info} ->
+        # Could be loading or running-but-unhealthy
+        instance_status = get_in(info || %{}, [:status])
 
         %{
-          status: normalized_status,
-          endpoint: status_map.endpoint,
-          instance_id: status_map.instance_id,
-          healthy: status_map[:healthy],
-          health_check_error: status_map[:health_check_error]
+          status: if(instance_status == :running, do: :running, else: :loading),
+          endpoint: endpoint,
+          instance_id: get_in(info || %{}, [:instance_id]),
+          healthy: false,
+          health_check_error: "Starting up...",
+          cloud_status: cloud_status
         }
-      rescue
-        _ ->
-          %{
-            status: :unknown,
-            endpoint: nil,
-            instance_id: nil,
-            healthy: nil,
-            health_check_error: nil
-          }
-      catch
-        :exit, _ ->
-          %{
-            status: :unknown,
-            endpoint: nil,
-            instance_id: nil,
-            healthy: nil,
-            health_check_error: nil
-          }
-      end
-    else
-      %{status: :unknown, endpoint: nil, instance_id: nil, healthy: nil, health_check_error: nil}
+
+      %{availability: :available} ->
+        %{
+          status: :no_instance,
+          endpoint: nil,
+          instance_id: nil,
+          healthy: nil,
+          health_check_error: nil,
+          cloud_status: cloud_status
+        }
+
+      %{availability: :unavailable, message: message} ->
+        %{
+          status: :unavailable,
+          endpoint: nil,
+          instance_id: nil,
+          healthy: false,
+          health_check_error: message,
+          cloud_status: cloud_status
+        }
+
+      _ ->
+        %{
+          status: :unknown,
+          endpoint: nil,
+          instance_id: nil,
+          healthy: nil,
+          health_check_error: "CloudStatus unavailable",
+          cloud_status: cloud_status
+        }
     end
   end
 
@@ -2151,17 +2263,17 @@ defmodule LumainusWeb.ReportsLive do
     not dismissed and gpu_status.status == :no_instance
   end
 
-  defp format_health_timestamp(nil), do: "no recent checks"
+  defp format_health_timestamp(nil, _locale, _timezone), do: "no recent checks"
 
-  defp format_health_timestamp(%{responded_at: %DateTime{} = dt}) do
-    format_timestamp(dt)
+  defp format_health_timestamp(%{responded_at: %DateTime{} = dt}, locale, timezone) do
+    format_timestamp(dt, locale, timezone)
   end
 
-  defp format_health_timestamp(%{inserted_at: %DateTime{} = dt}) do
-    format_timestamp(dt)
+  defp format_health_timestamp(%{inserted_at: %DateTime{} = dt}, locale, timezone) do
+    format_timestamp(dt, locale, timezone)
   end
 
-  defp format_health_timestamp(_), do: "no recent checks"
+  defp format_health_timestamp(_, _locale, _timezone), do: "no recent checks"
 
   defp format_timeout_remaining(nil), do: "expired"
 
@@ -2764,7 +2876,9 @@ defmodule LumainusWeb.ReportsLive do
             <span class="text-sm font-semibold">Docling ingestion is unreachable</span>
             <span class="text-xs text-amber-800">
               Retries will stay queued until the service responds. Last check: {format_health_timestamp(
-                @docling_health
+                @docling_health,
+                @locale,
+                @timezone
               )}
             </span>
           </div>
@@ -2850,11 +2964,22 @@ defmodule LumainusWeb.ReportsLive do
         </div>
       <% end %>
 
-      <%!-- No Instance Message (when admin hasn't provisioned) --%>
+      <%!-- Cloud GPU Status Message (when no running instance) --%>
       <%= if @can_manage_gpu? and show_gpu_no_instance_message?(@gpu_instance_status, @gpu_prompt_dismissed) do %>
-        <div class="rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-gray-50 px-5 py-4 flex items-center justify-between gap-4 shadow-sm">
+        <% cloud_status = @gpu_instance_status[:cloud_status] || %{} %>
+        <% is_available = cloud_status[:availability] == :available %>
+        <div class={[
+          "rounded-xl border px-5 py-4 flex items-center justify-between gap-4 shadow-sm",
+          if(is_available,
+            do: "border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50",
+            else: "border-slate-200 bg-gradient-to-r from-slate-50 to-gray-50"
+          )
+        ]}>
           <div class="flex items-center gap-4">
-            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+            <div class={[
+              "flex h-12 w-12 items-center justify-center rounded-full",
+              if(is_available, do: "bg-blue-100 text-blue-600", else: "bg-slate-100 text-slate-500")
+            ]}>
               <svg
                 class="h-6 w-6"
                 fill="none"
@@ -2870,11 +2995,25 @@ defmodule LumainusWeb.ReportsLive do
               </svg>
             </div>
             <div class="flex flex-col">
-              <span class="text-sm font-semibold text-gray-900">
-                No GPU Instance Available
+              <span class={[
+                "text-sm font-semibold",
+                if(is_available, do: "text-blue-900", else: "text-gray-900")
+              ]}>
+                <%= if is_available do %>
+                  Cloud GPU Available
+                <% else %>
+                  {cloud_status[:message] || "No GPU Instance"}
+                <% end %>
               </span>
-              <span class="text-xs text-gray-600">
-                An administrator needs to provision a GPU instance first.
+              <span class={[
+                "text-xs",
+                if(is_available, do: "text-blue-700", else: "text-gray-600")
+              ]}>
+                <%= if is_available do %>
+                  Will provision automatically on first upload (~3-5 min)
+                <% else %>
+                  {cloud_status[:detail] || "An administrator needs to configure cloud GPU access."}
+                <% end %>
               </span>
             </div>
           </div>
@@ -3211,7 +3350,9 @@ defmodule LumainusWeb.ReportsLive do
               <div class="doc-detail-meta">
                 <div>
                   <span>Uploaded</span>
-                  <strong>{format_timestamp(@selected_document.uploaded_at)}</strong>
+                  <strong>
+                    {format_timestamp(@selected_document.uploaded_at, @locale, @timezone)}
+                  </strong>
                 </div>
                 <div>
                   <span>File Size</span>
@@ -3239,7 +3380,9 @@ defmodule LumainusWeb.ReportsLive do
                 <%= if @selected_document.ingested_at do %>
                   <div>
                     <span>Processed</span>
-                    <strong>{format_timestamp(@selected_document.ingested_at)}</strong>
+                    <strong>
+                      {format_timestamp(@selected_document.ingested_at, @locale, @timezone)}
+                    </strong>
                   </div>
                 <% end %>
                 <%= if @selected_document.ingestion_message do %>
@@ -3319,7 +3462,7 @@ defmodule LumainusWeb.ReportsLive do
               <div class="section-output">
                 <%= if section_entry.last_run do %>
                   <div style="margin-bottom: 12px; font-size: 12px; color: #94a3b8;">
-                    Updated {format_timestamp(section_entry.last_run.updated_at)}
+                    Updated {format_timestamp(section_entry.last_run.updated_at, @locale, @timezone)}
                   </div>
                   <Markdown.markdown
                     content={section_entry.last_run.output_markdown}
@@ -3366,7 +3509,7 @@ defmodule LumainusWeb.ReportsLive do
               </div>
               <h2>{@document_modal_document.label}</h2>
               <div style="font-size: 13px; color: #64748b;">
-                Uploaded {format_timestamp(@document_modal_document.uploaded_at)} • {@document_modal_document.filename}
+                Uploaded {format_timestamp(@document_modal_document.uploaded_at, @locale, @timezone)} • {@document_modal_document.filename}
               </div>
             </div>
             <div class="flex gap-2">
@@ -3526,7 +3669,7 @@ defmodule LumainusWeb.ReportsLive do
                             </span>
                           </header>
                           <p>
-                            {run_timestamp_label(run)}
+                            {run_timestamp_label(run, @locale, @timezone)}
                           </p>
                         </div>
                       <% end %>
@@ -3582,14 +3725,14 @@ defmodule LumainusWeb.ReportsLive do
                       </div>
                       <div style="font-size: 12px; color: #475569;">Status: {set.status}</div>
                       <div style="font-size: 11px; color: #94a3b8;">
-                        Updated {format_timestamp(set.updated_at)}
+                        Updated {format_timestamp(set.updated_at, @locale, @timezone)}
                       </div>
                       <div class="workspace-run-meta">
                         <%= if run = Map.get(@record_set_latest_runs, set.id) do %>
                           <span>
                             {String.capitalize(run.run_type || "full")} · {run_status_label(run)}
                           </span>
-                          <span>{format_timestamp(run_timestamp(run))}</span>
+                          <span>{format_timestamp(run_timestamp(run), @locale, @timezone)}</span>
                         <% else %>
                           <span>No report runs yet.</span>
                         <% end %>
@@ -3645,10 +3788,10 @@ defmodule LumainusWeb.ReportsLive do
   defp run_timestamp(%{inserted_at: %DateTime{} = dt}), do: dt
   defp run_timestamp(_), do: nil
 
-  defp run_timestamp_label(run) do
+  defp run_timestamp_label(run, locale, timezone) do
     case run_timestamp(run) do
       nil -> "Updated recently"
-      dt -> "Updated #{format_timestamp(dt)}"
+      dt -> "Updated #{format_timestamp(dt, locale, timezone)}"
     end
   end
 
@@ -3718,8 +3861,12 @@ defmodule LumainusWeb.ReportsLive do
   defp status_label(%{last_run: %{status: "error"}}), do: "Needs attention"
   defp status_label(%{last_run: %{status: status}}), do: status
 
-  defp format_timestamp(nil), do: "recently"
-  defp format_timestamp(dt), do: Calendar.strftime(dt, "%b %d · %H:%M UTC")
+  defp format_timestamp(nil, _locale, _timezone), do: "recently"
+
+  defp format_timestamp(dt, locale, timezone) do
+    format_datetime(dt, locale: locale, timezone: timezone, format: :medium) ||
+      Calendar.strftime(dt, "%b %d · %H:%M UTC")
+  end
 
   defp humanize_errors(%Changeset{} = changeset) do
     changeset

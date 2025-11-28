@@ -95,11 +95,21 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
   # For vast_ai, use InstanceManager state instead of HTTP health check
   # The state machine handles periodic health checks in the background
+  # Uses 200ms timeout to avoid blocking if InstanceManager is stuck on SSH
   defp check_backend_health(:vast_ai) do
     alias Lumainus.Docling.VastAI.InstanceManager
 
     if Process.whereis(InstanceManager) do
-      status = InstanceManager.status()
+      status =
+        try do
+          GenServer.call(InstanceManager, :status, 200)
+        catch
+          :exit, {:timeout, _} ->
+            %{status: :timeout, error: "InstanceManager blocked"}
+
+          :exit, _ ->
+            %{status: :error, error: "InstanceManager unavailable"}
+        end
 
       case status do
         %{status: :running, healthy: true, endpoint: endpoint} ->
@@ -143,6 +153,15 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
             _url ->
               %{status: "no_instance", details: %{message: "No active instance"}}
           end
+
+        %{status: :timeout, error: error} ->
+          %{
+            status: "blocked",
+            details: %{error: error, message: "InstanceManager busy (SSH timeout?)"}
+          }
+
+        %{status: :error, error: error} ->
+          %{status: "error", details: %{error: error}}
 
         _ ->
           %{status: "unknown", details: %{}}

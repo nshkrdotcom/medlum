@@ -23,6 +23,7 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
       backends = BackendRouter.backends_for_profile(:enhanced)
   """
 
+  alias Lumainus.Conversion.CloudStatus
   alias Lumainus.Conversion.Infrastructure.HealthManager
   alias Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker
   alias Lumainus.Conversion.Backends.{LocalBackend, CloudBackend}
@@ -165,8 +166,23 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
 
   defp filter_available(backends, health_manager, circuit_breaker_fn) do
     Enum.filter(backends, fn backend ->
-      health_ok?(backend, health_manager) and breaker_allows?(backend, circuit_breaker_fn)
+      case backend.backend_type do
+        :cloud ->
+          # Cloud backend uses CloudStatus (wraps InstanceManager) instead of HealthManager
+          cloud_available?() and breaker_allows?(backend, circuit_breaker_fn)
+
+        :local ->
+          # Local backends use traditional health check
+          health_ok?(backend, health_manager) and breaker_allows?(backend, circuit_breaker_fn)
+      end
     end)
+  end
+
+  defp cloud_available? do
+    case CloudStatus.get() do
+      %{can_accept_jobs: true} -> true
+      _ -> false
+    end
   end
 
   defp health_ok?(backend, health_manager) do
@@ -208,5 +224,22 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   defp normalize_latency(ms) when is_integer(ms), do: ms
 
   defp select_best([]), do: {:error, :service_unavailable}
-  defp select_best([best | _]), do: {:ok, best}
+
+  defp select_best([best | _]) do
+    # For cloud backends, enrich with dynamic endpoint from CloudStatus
+    backend =
+      if best.backend_type == :cloud do
+        case CloudStatus.get() do
+          %{endpoint: endpoint} when is_binary(endpoint) and endpoint != "" ->
+            Map.put(best, :endpoint, endpoint)
+
+          _ ->
+            best
+        end
+      else
+        best
+      end
+
+    {:ok, backend}
+  end
 end

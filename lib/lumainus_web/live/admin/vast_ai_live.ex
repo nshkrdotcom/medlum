@@ -1110,12 +1110,13 @@ defmodule LumainusWeb.Admin.VastAILive do
     "#{prefix}...#{suffix}"
   end
 
-  defp format_timestamp(nil), do: ""
+  defp format_timestamp(nil, _locale, _timezone), do: ""
 
-  defp format_timestamp(%DateTime{} = dt) do
-    dt
-    |> DateTime.truncate(:second)
-    |> DateTime.to_iso8601()
+  defp format_timestamp(%DateTime{} = dt, locale, timezone) do
+    format_datetime(dt, locale: locale, timezone: timezone, format: :medium) ||
+      dt
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
   end
 
   defp format_location(nil), do: "Unknown"
@@ -1612,227 +1613,262 @@ defmodule LumainusWeb.Admin.VastAILive do
                 </div>
               </div>
               <div class="text-xs text-gray-500 dark:text-gray-400">
-                Checked at: {format_timestamp(@dns_status.checked_at)}
+                Checked at: {format_timestamp(@dns_status.checked_at, @locale, @timezone)}
               </div>
             </div>
           </div>
         </div>
 
-        <%= if @instances == [] do %>
-          <p class="text-center text-gray-500 dark:text-gray-400 py-8">
-            No active instances. Search for offers below to provision one.
-          </p>
-        <% else %>
-          <div class="space-y-4">
-            <%= for instance <- @instances do %>
-              <% status = instance["actual_status"] || "" %>
-              <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <div class="flex items-start justify-between">
-                  <div class="flex-1">
-                    <div class="flex items-center gap-3 mb-2">
-                      <span class="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
-                        #{instance["id"]}
-                      </span>
-                      <span class={status_badge_class(status)}>
-                        {status || "unknown"}
-                      </span>
-                      <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
-                        {instance["gpu_name"]}
-                      </span>
-                    </div>
-
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 dark:text-gray-300">
-                      <div>
-                        <span class="font-medium">Location:</span>
-                        {format_location(instance["geolocation"])}
-                      </div>
-                      <div>
-                        <span class="font-medium">Cost:</span>
-                        {format_price(instance["dph_total"])}
-                      </div>
-                      <div>
-                        <span class="font-medium">GPU RAM:</span>
-                        {div(instance["gpu_ram"] || 0, 1024)} GB
-                      </div>
-                      <div>
-                        <span class="font-medium">Label:</span>
-                        {instance["label"] || "—"}
-                      </div>
-                    </div>
-
-                    <%= if instance["ssh_host"] do %>
-                      <div class="mt-3 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs font-mono text-gray-800 dark:text-gray-200">
-                        ssh -p {instance["ssh_port"]} root@{instance["ssh_host"]}
-                      </div>
-                    <% end %>
-
-                    <%= if instance["public_ipaddr"] do %>
-                      <div class="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                        <span class="font-medium">Instance IP:</span>
-                        <code class="px-2 py-1 bg-gray-100 dark:bg-gray-900/60 rounded text-xs">
-                          {instance["public_ipaddr"]}
-                        </code>
-                      </div>
-                    <% end %>
-
-                    <%= if instance["public_ipaddr"] && status == "running" do %>
-                      <div class="mt-2 space-y-2">
-                        <div class="flex items-center gap-2">
-                          <span class="text-xs text-gray-500 dark:text-gray-400">Direct health:</span>
-                          <code class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                            http://{instance["public_ipaddr"]}:{cloud_port()}
-                          </code>
-                          <button
-                            type="button"
-                            phx-click="check_health"
-                            phx-value-id={instance["id"]}
-                            phx-value-ip={instance["public_ipaddr"]}
-                            class="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200"
-                          >
-                            Test
-                          </button>
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <span class="text-xs text-gray-500 dark:text-gray-400">
-                            Cloudflare endpoint:
-                          </span>
-                          <code class="text-xs bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 px-2 py-1 rounded">
-                            https://{Cloudflare.cloud_fqdn()}
-                          </code>
-                          <button
-                            type="button"
-                            phx-click="set_cloud_backend"
-                            phx-value-ip={instance["public_ipaddr"]}
-                            class="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded hover:bg-green-200"
-                          >
-                            Set as backend
-                          </button>
-                          <button
-                            type="button"
-                            phx-click="sync_instance"
-                            phx-value-id={instance["id"]}
-                            phx-value-ip={instance["public_ipaddr"]}
-                            class="px-2 py-1 text-xs font-medium text-cyan-700 bg-cyan-100 rounded hover:bg-cyan-200"
-                            title="Sync this instance to InstanceManager so /reports can use it"
-                          >
-                            Sync
-                          </button>
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <span class="text-xs text-gray-500 dark:text-gray-400">Direct health:</span>
-                          <code class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                            http://{instance["public_ipaddr"]}:{cloud_port()}
-                          </code>
-                          <button
-                            type="button"
-                            phx-click="check_health"
-                            phx-value-id={instance["id"]}
-                            phx-value-ip={instance["public_ipaddr"]}
-                            class="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200"
-                          >
-                            Test
-                          </button>
-                        </div>
-                        <%= case @health_results[instance["id"]] do %>
-                          <% {:ok, _} -> %>
-                            <span class="text-xs text-green-600 dark:text-green-400 font-medium">
-                              ✓ Healthy
-                            </span>
-                          <% {:error, err} -> %>
-                            <span class="text-xs text-red-600 dark:text-red-400 font-medium">
-                              ✗ {err}
-                            </span>
-                          <% nil -> %>
-                        <% end %>
-                      </div>
-                    <% end %>
-                  </div>
-
-                  <div class="flex items-center gap-3 ml-4">
-                    <%= if @starting_instance_id == instance["id"] do %>
-                      <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                        <span class="h-4 w-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin">
+        <%= cond do %>
+          <% @loading -> %>
+            <div class="text-center py-8">
+              <div class="inline-flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                <svg
+                  class="animate-spin h-5 w-5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  >
+                  </circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  >
+                  </path>
+                </svg>
+                <span>Checking for active instances...</span>
+              </div>
+            </div>
+          <% @instances == [] -> %>
+            <p class="text-center text-gray-500 dark:text-gray-400 py-8">
+              No active instances. Search for offers below to provision one.
+            </p>
+          <% true -> %>
+            <div class="space-y-4">
+              <%= for instance <- @instances do %>
+                <% status = instance["actual_status"] || "" %>
+                <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-3 mb-2">
+                        <span class="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          #{instance["id"]}
                         </span>
-                        Starting...
-                      </div>
-                    <% end %>
-
-                    <%= if @stopping_instance_id == instance["id"] do %>
-                      <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                        <span class="h-4 w-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
+                        <span class={status_badge_class(status)}>
+                          {status || "unknown"}
                         </span>
-                        Stopping...
+                        <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+                          {instance["gpu_name"]}
+                        </span>
                       </div>
-                    <% end %>
 
-                    <div class="flex gap-2">
-                      <%= if status == "running" do %>
-                        <button
-                          type="button"
-                          phx-click="stop"
-                          phx-value-id={instance["id"]}
-                          disabled={@stopping_instance_id == instance["id"]}
-                          class={[
-                            "px-3 py-1 text-sm font-medium rounded",
-                            @stopping_instance_id == instance["id"] &&
-                              "text-gray-500 bg-gray-100 cursor-wait",
-                            @stopping_instance_id != instance["id"] &&
-                              "text-amber-700 bg-amber-100 hover:bg-amber-200"
-                          ]}
-                        >
-                          <%= if @stopping_instance_id == instance["id"] do %>
-                            Stopping...
-                          <% else %>
-                            Stop
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 dark:text-gray-300">
+                        <div>
+                          <span class="font-medium">Location:</span>
+                          {format_location(instance["geolocation"])}
+                        </div>
+                        <div>
+                          <span class="font-medium">Cost:</span>
+                          {format_price(instance["dph_total"])}
+                        </div>
+                        <div>
+                          <span class="font-medium">GPU RAM:</span>
+                          {div(instance["gpu_ram"] || 0, 1024)} GB
+                        </div>
+                        <div>
+                          <span class="font-medium">Label:</span>
+                          {instance["label"] || "—"}
+                        </div>
+                      </div>
+
+                      <%= if instance["ssh_host"] do %>
+                        <div class="mt-3 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs font-mono text-gray-800 dark:text-gray-200">
+                          ssh -p {instance["ssh_port"]} root@{instance["ssh_host"]}
+                        </div>
+                      <% end %>
+
+                      <%= if instance["public_ipaddr"] do %>
+                        <div class="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                          <span class="font-medium">Instance IP:</span>
+                          <code class="px-2 py-1 bg-gray-100 dark:bg-gray-900/60 rounded text-xs">
+                            {instance["public_ipaddr"]}
+                          </code>
+                        </div>
+                      <% end %>
+
+                      <%= if instance["public_ipaddr"] && status == "running" do %>
+                        <div class="mt-2 space-y-2">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">
+                              Direct health:
+                            </span>
+                            <code class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                              http://{instance["public_ipaddr"]}:{cloud_port()}
+                            </code>
+                            <button
+                              type="button"
+                              phx-click="check_health"
+                              phx-value-id={instance["id"]}
+                              phx-value-ip={instance["public_ipaddr"]}
+                              class="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200"
+                            >
+                              Test
+                            </button>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">
+                              Cloudflare endpoint:
+                            </span>
+                            <code class="text-xs bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                              https://{Cloudflare.cloud_fqdn()}
+                            </code>
+                            <button
+                              type="button"
+                              phx-click="set_cloud_backend"
+                              phx-value-ip={instance["public_ipaddr"]}
+                              class="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded hover:bg-green-200"
+                            >
+                              Set as backend
+                            </button>
+                            <button
+                              type="button"
+                              phx-click="sync_instance"
+                              phx-value-id={instance["id"]}
+                              phx-value-ip={instance["public_ipaddr"]}
+                              class="px-2 py-1 text-xs font-medium text-cyan-700 bg-cyan-100 rounded hover:bg-cyan-200"
+                              title="Sync this instance to InstanceManager so /reports can use it"
+                            >
+                              Sync
+                            </button>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">
+                              Direct health:
+                            </span>
+                            <code class="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                              http://{instance["public_ipaddr"]}:{cloud_port()}
+                            </code>
+                            <button
+                              type="button"
+                              phx-click="check_health"
+                              phx-value-id={instance["id"]}
+                              phx-value-ip={instance["public_ipaddr"]}
+                              class="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded hover:bg-blue-200"
+                            >
+                              Test
+                            </button>
+                          </div>
+                          <%= case @health_results[instance["id"]] do %>
+                            <% {:ok, _} -> %>
+                              <span class="text-xs text-green-600 dark:text-green-400 font-medium">
+                                ✓ Healthy
+                              </span>
+                            <% {:error, err} -> %>
+                              <span class="text-xs text-red-600 dark:text-red-400 font-medium">
+                                ✗ {err}
+                              </span>
+                            <% nil -> %>
                           <% end %>
-                        </button>
-                      <% else %>
-                        <%= if status in ["loading", "provisioning", "pending", "initializing", ""] do %>
-                          <span class="px-3 py-1 text-sm font-medium rounded text-amber-700 bg-amber-100 inline-flex items-center gap-2">
-                            <span class="h-3 w-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
-                            </span>
-                            Provisioning...
+                        </div>
+                      <% end %>
+                    </div>
+
+                    <div class="flex items-center gap-3 ml-4">
+                      <%= if @starting_instance_id == instance["id"] do %>
+                        <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                          <span class="h-4 w-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin">
                           </span>
-                        <% else %>
+                          Starting...
+                        </div>
+                      <% end %>
+
+                      <%= if @stopping_instance_id == instance["id"] do %>
+                        <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                          <span class="h-4 w-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
+                          </span>
+                          Stopping...
+                        </div>
+                      <% end %>
+
+                      <div class="flex gap-2">
+                        <%= if status == "running" do %>
                           <button
                             type="button"
-                            phx-click="start"
+                            phx-click="stop"
                             phx-value-id={instance["id"]}
+                            disabled={@stopping_instance_id == instance["id"]}
                             class={[
                               "px-3 py-1 text-sm font-medium rounded",
-                              status == "running" &&
-                                "text-gray-400 bg-gray-100 cursor-not-allowed",
-                              @starting_instance_id == instance["id"] &&
+                              @stopping_instance_id == instance["id"] &&
                                 "text-gray-500 bg-gray-100 cursor-wait",
-                              status != "running" &&
-                                @starting_instance_id != instance["id"] &&
-                                "text-green-700 bg-green-100 hover:bg-green-200"
+                              @stopping_instance_id != instance["id"] &&
+                                "text-amber-700 bg-amber-100 hover:bg-amber-200"
                             ]}
-                            disabled={status == "running" || @starting_instance_id == instance["id"]}
                           >
-                            <%= if @starting_instance_id == instance["id"] do %>
-                              Starting...
+                            <%= if @stopping_instance_id == instance["id"] do %>
+                              Stopping...
                             <% else %>
-                              Start
+                              Stop
                             <% end %>
                           </button>
+                        <% else %>
+                          <%= if status in ["loading", "provisioning", "pending", "initializing", ""] do %>
+                            <span class="px-3 py-1 text-sm font-medium rounded text-amber-700 bg-amber-100 inline-flex items-center gap-2">
+                              <span class="h-3 w-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
+                              </span>
+                              Provisioning...
+                            </span>
+                          <% else %>
+                            <button
+                              type="button"
+                              phx-click="start"
+                              phx-value-id={instance["id"]}
+                              class={[
+                                "px-3 py-1 text-sm font-medium rounded",
+                                status == "running" &&
+                                  "text-gray-400 bg-gray-100 cursor-not-allowed",
+                                @starting_instance_id == instance["id"] &&
+                                  "text-gray-500 bg-gray-100 cursor-wait",
+                                status != "running" &&
+                                  @starting_instance_id != instance["id"] &&
+                                  "text-green-700 bg-green-100 hover:bg-green-200"
+                              ]}
+                              disabled={
+                                status == "running" || @starting_instance_id == instance["id"]
+                              }
+                            >
+                              <%= if @starting_instance_id == instance["id"] do %>
+                                Starting...
+                              <% else %>
+                                Start
+                              <% end %>
+                            </button>
+                          <% end %>
                         <% end %>
-                      <% end %>
-                      <button
-                        type="button"
-                        phx-click="destroy"
-                        phx-value-id={instance["id"]}
-                        data-confirm={"Are you sure you want to destroy instance #{instance["id"]}? This cannot be undone."}
-                        class="px-3 py-1 text-sm font-medium text-red-700 bg-red-100 rounded hover:bg-red-200"
-                      >
-                        Destroy
-                      </button>
+                        <button
+                          type="button"
+                          phx-click="destroy"
+                          phx-value-id={instance["id"]}
+                          data-confirm={"Are you sure you want to destroy instance #{instance["id"]}? This cannot be undone."}
+                          class="px-3 py-1 text-sm font-medium text-red-700 bg-red-100 rounded hover:bg-red-200"
+                        >
+                          Destroy
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            <% end %>
-          </div>
+              <% end %>
+            </div>
         <% end %>
       </div>
       
@@ -2263,7 +2299,9 @@ defmodule LumainusWeb.Admin.VastAILive do
           <% else %>
             <%= for log <- Enum.reverse(@provision_logs) do %>
               <div class="flex gap-2">
-                <span class="text-gray-500">{Calendar.strftime(log.timestamp, "%H:%M:%S")}</span>
+                <span class="text-gray-500">
+                  {format_time(log.timestamp, locale: @locale, timezone: @timezone, format: :medium)}
+                </span>
                 <span class={log_level_class(log.level)}>{log_level_icon(log.level)}</span>
                 <span class="text-gray-300">{log.message}</span>
               </div>

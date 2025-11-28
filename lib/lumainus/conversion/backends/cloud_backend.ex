@@ -25,11 +25,17 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
 
   @behaviour Lumainus.Conversion.Backend
 
+  alias Lumainus.Conversion.CloudStatus
   alias Lumainus.Conversion.Infrastructure.HTTP.Client
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ActivityTracker
 
   require Logger
+
+  # Max time to wait for instance to become ready (5 minutes)
+  @provisioning_timeout_ms 300_000
+  # Poll interval when waiting for provisioning
+  @provisioning_poll_ms 5_000
 
   # ============================================================================
   # Backend Callbacks
@@ -37,15 +43,18 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
 
   @impl true
   def enqueue(binary, opts) when is_binary(binary) do
-    ensure_fn = Keyword.get(opts, :ensure_instance_fn, &default_ensure_instance/0)
+    timeout_ms = Keyword.get(opts, :provisioning_timeout_ms, @provisioning_timeout_ms)
 
-    case ensure_fn.() do
+    # Wait for cloud to be ready (may trigger provisioning)
+    case wait_for_ready(timeout_ms, opts) do
       {:ok, endpoint} ->
         record_activity(opts)
         Client.enqueue(binary, opts, base_url: endpoint)
 
-      {:error, :no_instance} ->
-        {:ok, %{"state" => "provisioning"}}
+      {:error, :provisioning_timeout} ->
+        {:error,
+         {:provisioning_timeout,
+          "Cloud GPU provisioning timed out after #{div(timeout_ms, 60_000)} minutes"}}
 
       {:error, reason} ->
         {:error, reason}
@@ -54,16 +63,20 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
 
   @impl true
   def await(job_ref, opts) do
-    get_endpoint_fn = Keyword.get(opts, :get_endpoint_fn, &default_get_endpoint/0)
+    # For await, use shorter timeout since instance should already be provisioned
+    timeout_ms = Keyword.get(opts, :await_provisioning_timeout_ms, 60_000)
 
-    case get_endpoint_fn.() do
+    case wait_for_ready(timeout_ms, opts) do
       {:ok, endpoint} ->
         result = Client.await(job_ref, opts, base_url: endpoint)
         record_activity(opts)
         result
 
-      {:error, :no_instance} ->
-        {:error, :no_instance}
+      {:error, :provisioning_timeout} ->
+        {:error, {:provisioning_timeout, "Cloud GPU not ready for job processing"}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -120,6 +133,61 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
   # Private Functions
   # ============================================================================
 
+  # Wait for cloud instance to become ready, triggering provisioning if needed.
+  # Returns {:ok, endpoint} when ready, {:error, reason} on failure/timeout.
+  defp wait_for_ready(timeout_ms, opts) do
+    ensure_fn = Keyword.get(opts, :ensure_instance_fn, &default_ensure_instance/0)
+    cloud_status_fn = Keyword.get(opts, :cloud_status_fn, &CloudStatus.get/0)
+    poll_ms = Keyword.get(opts, :poll_interval_ms, @provisioning_poll_ms)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+
+    do_wait_for_ready(ensure_fn, cloud_status_fn, poll_ms, deadline)
+  end
+
+  defp do_wait_for_ready(ensure_fn, cloud_status_fn, poll_ms, deadline) do
+    now = System.monotonic_time(:millisecond)
+
+    if now >= deadline do
+      {:error, :provisioning_timeout}
+    else
+      case cloud_status_fn.() do
+        %{availability: :ready, endpoint: endpoint} when is_binary(endpoint) ->
+          Logger.debug("[CloudBackend] Instance ready at #{endpoint}")
+          {:ok, endpoint}
+
+        %{availability: :available} ->
+          # No instance yet - trigger provisioning
+          Logger.info("[CloudBackend] No instance, triggering provisioning...")
+          trigger_provisioning_and_wait(ensure_fn, cloud_status_fn, poll_ms, deadline)
+
+        %{availability: :provisioning} ->
+          # Already provisioning - wait for it
+          Logger.debug("[CloudBackend] Waiting for provisioning...")
+          Process.sleep(poll_ms)
+          do_wait_for_ready(ensure_fn, cloud_status_fn, poll_ms, deadline)
+
+        %{availability: :unavailable, message: message} ->
+          Logger.warning("[CloudBackend] Cloud unavailable: #{message}")
+          {:error, {:cloud_unavailable, message}}
+      end
+    end
+  end
+
+  defp trigger_provisioning_and_wait(ensure_fn, cloud_status_fn, poll_ms, deadline) do
+    case ensure_fn.() do
+      {:ok, endpoint} ->
+        {:ok, endpoint}
+
+      {:error, :no_instance} ->
+        # Provisioning started, wait for it
+        Process.sleep(poll_ms)
+        do_wait_for_ready(ensure_fn, cloud_status_fn, poll_ms, deadline)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp default_ensure_instance do
     if process_running?(InstanceManager) do
       InstanceManager.ensure_instance()
@@ -138,10 +206,15 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
 
   defp default_instance_status do
     if process_running?(InstanceManager) do
-      case InstanceManager.status() do
-        %{status: status} -> status
-        status when is_atom(status) -> status
-        _ -> :none
+      try do
+        # Use short timeout to avoid blocking if InstanceManager is stuck
+        case GenServer.call(InstanceManager, :status, 200) do
+          %{status: status} -> status
+          status when is_atom(status) -> status
+          _ -> :none
+        end
+      catch
+        :exit, _ -> :none
       end
     else
       :none

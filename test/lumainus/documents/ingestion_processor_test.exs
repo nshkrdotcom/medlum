@@ -10,8 +10,15 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
   alias Lumainus.Docling.Settings
   alias Plug.Conn
 
+  alias Lumainus.Conversion.Infrastructure.HealthManager
+
   setup do
     bypass = Bypass.open()
+
+    # Handle health check requests from HealthManager
+    Bypass.stub(bypass, "GET", "/health", fn conn ->
+      Plug.Conn.resp(conn, 200, Jason.encode!(%{"status" => "ok"}))
+    end)
 
     # Configure v2 Settings with bypass URL
     {:ok, _} =
@@ -22,6 +29,11 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
           "enhanced" => ["docker_cpu"]
         }
       })
+
+    # Reload HealthManager to pick up the new Settings
+    HealthManager.reload_backends()
+    # Give HealthManager time to trigger health check
+    Process.sleep(100)
 
     {:ok, bypass: bypass}
   end

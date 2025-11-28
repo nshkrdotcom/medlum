@@ -73,6 +73,9 @@ defmodule Lumainus.Documents.IngestionProcessor do
     # Determine profile from user's backend preference
     profile = profile_from_backend(job.backend)
 
+    # Build user map with cloud_processing_enabled derived from backend choice
+    user_for_policy = build_user_for_policy(upload.uploader, profile)
+
     # Build v2 Service options
     service_opts = [
       filename: upload.filename,
@@ -80,6 +83,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
       profile: profile,
       tenant_id: upload.tenant_id,
       user_id: upload.uploader_id,
+      user: user_for_policy,
       timeout_ms: @default_timeout_ms,
       metadata: %{
         upload_id: upload.id,
@@ -130,6 +134,12 @@ defmodule Lumainus.Documents.IngestionProcessor do
       {:error, :service_unavailable} ->
         {:error, {:docling_failed, "No conversion backends available"}, job}
 
+      {:error, {:provisioning_timeout, message}} ->
+        {:error, {:docling_failed, message}, job}
+
+      {:error, {:cloud_unavailable, message}} ->
+        {:error, {:docling_failed, "Cloud GPU unavailable: #{message}"}, job}
+
       {:error, reason} ->
         {:error, reason, job}
     end
@@ -153,6 +163,32 @@ defmodule Lumainus.Documents.IngestionProcessor do
   end
 
   defp profile_from_backend(_), do: :standard
+
+  # Build a user map for policy checking with cloud_processing_enabled
+  # derived from the profile being requested. If user chose a cloud backend,
+  # they have implicitly enabled cloud processing.
+  defp build_user_for_policy(uploader, profile) do
+    base =
+      case uploader do
+        %{id: _} = user ->
+          %{
+            id: user.id,
+            subscription: Map.get(user, :subscription),
+            feature_flags: Map.get(user, :feature_flags, %{})
+          }
+
+        _ ->
+          %{}
+      end
+
+    # Grant cloud_processing_enabled when requesting :enhanced profile
+    # This reflects the user's explicit choice to use a cloud/GPU backend
+    if profile == :enhanced do
+      Map.put(base, :cloud_processing_enabled, true)
+    else
+      base
+    end
+  end
 
   defp persist_parse(%IngestionJob{} = job, response) do
     {job, _event} =

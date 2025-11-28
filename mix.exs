@@ -44,6 +44,8 @@ defmodule Lumainus.MixProject do
       {:phoenix_ecto, "~> 4.6"},
       {:ecto_sql, "~> 3.12"},
       {:postgrex, ">= 0.0.0"},
+      # Pin db_connection to 2.7.x - version 2.8.x removed DBConnection.Query module
+      {:db_connection, "~> 2.7.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
@@ -67,6 +69,9 @@ defmodule Lumainus.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 0.26"},
+      {:ex_cldr, "~> 2.37"},
+      {:ex_cldr_dates_times, "~> 2.16"},
+      {:tzdata, "~> 1.1"},
       {:jason, "~> 1.2"},
       {:retry, "~> 0.18"},
       {:dns_cluster, "~> 0.2.0"},

@@ -82,6 +82,8 @@ defmodule LumainusWeb do
       # Translation
       use Gettext, backend: LumainusWeb.Gettext
 
+      import LumainusWeb.DateTimeHelpers
+
       # HTML escaping functionality
       import Phoenix.HTML
       # Core UI components

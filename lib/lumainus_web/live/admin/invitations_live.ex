@@ -22,7 +22,7 @@ defmodule LumainusWeb.Admin.InvitationsLive do
               Docling ingestion service
             </p>
             <p class="text-xs text-slate-500 dark:text-slate-400">
-              Last check: {docling_check_timestamp(@docling_health)}
+              Last check: {docling_check_timestamp(@docling_health, @locale, @timezone)}
             </p>
           </div>
           <span class={docling_status_badge_class(@docling_health)}>
@@ -106,7 +106,11 @@ defmodule LumainusWeb.Admin.InvitationsLive do
                   <% end %>
 
                   <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    Created: {Calendar.strftime(invitation.inserted_at, "%B %d, %Y at %I:%M %p")}
+                    Created: {format_datetime(invitation.inserted_at,
+                      locale: @locale,
+                      timezone: @timezone,
+                      format: :long
+                    )}
                     <%= if invitation.created_by do %>
                       by {invitation.created_by.email}
                     <% end %>
@@ -114,7 +118,11 @@ defmodule LumainusWeb.Admin.InvitationsLive do
 
                   <%= if invitation.used_at do %>
                     <p class="text-xs text-gray-500 dark:text-gray-400">
-                      Used: {Calendar.strftime(invitation.used_at, "%B %d, %Y at %I:%M %p")}
+                      Used: {format_datetime(invitation.used_at,
+                        locale: @locale,
+                        timezone: @timezone,
+                        format: :long
+                      )}
                     </p>
                   <% else %>
                     <div class="mt-3">
@@ -266,15 +274,19 @@ defmodule LumainusWeb.Admin.InvitationsLive do
 
   defp docling_status_message(_), do: "No health checks recorded yet."
 
-  defp docling_check_timestamp(%{responded_at: timestamp}) when not is_nil(timestamp) do
-    Calendar.strftime(timestamp, "%b %d, %Y %H:%M UTC")
+  defp docling_check_timestamp(%{responded_at: timestamp}, locale, timezone)
+       when not is_nil(timestamp) do
+    format_datetime(timestamp, locale: locale, timezone: timezone, format: :medium) ||
+      Calendar.strftime(timestamp, "%b %d, %Y %H:%M UTC")
   end
 
-  defp docling_check_timestamp(%{inserted_at: timestamp}) when not is_nil(timestamp) do
-    Calendar.strftime(timestamp, "%b %d, %Y %H:%M UTC")
+  defp docling_check_timestamp(%{inserted_at: timestamp}, locale, timezone)
+       when not is_nil(timestamp) do
+    format_datetime(timestamp, locale: locale, timezone: timezone, format: :medium) ||
+      Calendar.strftime(timestamp, "%b %d, %Y %H:%M UTC")
   end
 
-  defp docling_check_timestamp(_), do: "Never"
+  defp docling_check_timestamp(_, _locale, _timezone), do: "Never"
 
   defp details_description(%{} = details) when map_size(details) > 0 do
     inspect(details)

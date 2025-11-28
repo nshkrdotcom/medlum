@@ -269,7 +269,35 @@ defmodule Lumainus.Documents do
   end
 
   defp do_queue_ingestion(upload, template, opts, requested_backend) do
-    {backend, backend_reason} = resolve_docling_backend(opts)
+    case resolve_docling_backend(opts) do
+      {:error, :cloud_unavailable, reason} ->
+        Logger.warning(
+          "[queue_ingestion] BLOCKED cloud unavailable: upload_id=#{upload.id} " <>
+            "filename=#{upload.filename} reason=#{inspect(reason)}"
+        )
+
+        {:error, :cloud_unavailable, reason}
+
+      {:ok, backend, backend_reason} ->
+        do_queue_ingestion_with_backend(
+          upload,
+          template,
+          opts,
+          requested_backend,
+          backend,
+          backend_reason
+        )
+    end
+  end
+
+  defp do_queue_ingestion_with_backend(
+         upload,
+         template,
+         opts,
+         requested_backend,
+         backend,
+         backend_reason
+       ) do
     backend_string = Atom.to_string(backend)
     max_attempts = IngestionConfig.max_retries()
     deadline = IngestionConfig.calculate_deadline(max_retries: max_attempts)
@@ -817,16 +845,17 @@ defmodule Lumainus.Documents do
                 "instance_status=#{inspect(status_info)}"
             )
 
-            {:cloud, nil}
+            {:ok, :cloud, nil}
 
           {:unavailable, reason} ->
+            # NO SILENT FALLBACK - if user chose cloud and it's unavailable, REJECT
             Logger.warning(
-              "[resolve_docling_backend] FALLBACK requested=#{inspect(raw_requested)} " <>
+              "[resolve_docling_backend] REJECTED requested=#{inspect(raw_requested)} " <>
                 "normalized=:cloud default=#{default_backend} " <>
-                "gpu_status=UNAVAILABLE reason=#{inspect(reason)} final_backend=:local"
+                "gpu_status=UNAVAILABLE reason=#{inspect(reason)}"
             )
 
-            {:local, reason}
+            {:error, :cloud_unavailable, reason}
         end
 
       other ->
@@ -836,17 +865,19 @@ defmodule Lumainus.Documents do
             "gpu_check=SKIPPED final_backend=#{other}"
         )
 
-        {other, nil}
+        {:ok, other, nil}
     end
   end
 
   # Check GPU availability from InstanceManager state - NO HTTP calls
+  # Uses 200ms timeout to avoid blocking if InstanceManager is stuck on SSH
   defp get_gpu_status_for_backend do
     alias Lumainus.Docling.VastAI.InstanceManager
 
     if Process.whereis(InstanceManager) do
       try do
-        status = InstanceManager.status()
+        # Use short timeout - if InstanceManager is blocked on SSH, fail fast
+        status = GenServer.call(InstanceManager, :status, 200)
 
         case status do
           %{status: :running, healthy: false, health_check_error: error} ->
@@ -871,6 +902,7 @@ defmodule Lumainus.Documents do
       rescue
         e -> {:unavailable, "InstanceManager error: #{Exception.message(e)}"}
       catch
+        :exit, {:timeout, _} -> {:unavailable, "InstanceManager blocked (timeout)"}
         :exit, _ -> {:unavailable, "InstanceManager not responding"}
       end
     else
