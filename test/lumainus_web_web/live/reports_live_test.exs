@@ -7,7 +7,7 @@ defmodule LumainusWeb.ReportsLiveTest do
   alias Ecto.Changeset
   alias Lumainus.Accounts.Scope
   alias Lumainus.Documents
-  alias Lumainus.Documents.IngestionJob
+  alias Lumainus.Conversion.Events
   alias Lumainus.Reports.{ReportRun, ReportSectionRun}
   alias Lumainus.{Repo, Reports}
 
@@ -30,34 +30,12 @@ defmodule LumainusWeb.ReportsLiveTest do
     {:ok, upload} =
       Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
 
-    job =
-      %IngestionJob{}
-      |> IngestionJob.changeset(%{
-        tenant_id: scope.tenant_id,
-        upload_id: upload.id,
-        record_set_id: workspace.record_set.id,
-        job_type: "pdf_ingest",
-        status: "pending"
-      })
-      |> Repo.insert!()
-      |> Map.put(:upload, upload)
+    docling_job_id = Ecto.UUID.generate()
+    Documents.persist_docling_job_metadata(upload, docling_job_id, profile: :standard)
 
-    Documents.record_job_stage!(job, "queued",
-      upload_status: "queued",
-      progress: 5,
-      message: "Queued"
-    )
+    {:ok, view, _html} = live(conn, ~p"/reports")
 
-    {:ok, view, html} = live(conn, ~p"/reports")
-
-    assert html =~ "queued"
-    assert html =~ "Queued"
-
-    send(
-      view.pid,
-      {:job_progress, workspace.record_set.id,
-       %{upload_id: upload.id, stage: "docling", progress: 40, last_message: "Docling"}}
-    )
+    Events.broadcast_progress(%{id: docling_job_id}, 40)
 
     html = render(view)
     assert html =~ "Docling"

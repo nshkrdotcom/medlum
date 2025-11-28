@@ -685,7 +685,6 @@ defmodule LumainusWeb.ReportsLive do
       |> assign_new(:patient_modal_open, fn -> false end)
       |> assign_new(:gpu_prompt_dismissed, fn -> false end)
       |> assign_new(:gpu_provisioning, fn -> false end)
-      |> assign_new(:job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:conversion_job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
@@ -702,15 +701,6 @@ defmodule LumainusWeb.ReportsLive do
   def handle_info({:documents_changed, record_set_id}, socket) do
     if socket.assigns.record_set.id == record_set_id do
       {:noreply, load_workspace(socket)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_info({:job_progress, record_set_id, payload}, socket) do
-    if socket.assigns.record_set.id == record_set_id do
-      updated = update_document_progress(socket.assigns.documents, payload)
-      {:noreply, assign(socket, :documents, updated)}
     else
       {:noreply, socket}
     end
@@ -1270,26 +1260,10 @@ defmodule LumainusWeb.ReportsLive do
 
   defp subscribe_to_job_topics(socket) do
     if connected?(socket) do
-      socket
-      |> subscribe_to_ingestion_jobs()
-      |> subscribe_to_conversion_jobs()
+      subscribe_to_conversion_jobs(socket)
     else
       socket
     end
-  end
-
-  defp subscribe_to_ingestion_jobs(socket) do
-    job_ids =
-      socket.assigns.documents
-      |> Enum.map(& &1.ingestion_job_id)
-      |> Enum.filter(&is_binary/1)
-      |> MapSet.new()
-
-    new_ids = MapSet.difference(job_ids, socket.assigns.job_subscriptions)
-
-    Enum.each(new_ids, &Documents.subscribe_to_ingestion_job/1)
-
-    assign(socket, :job_subscriptions, MapSet.union(socket.assigns.job_subscriptions, new_ids))
   end
 
   defp subscribe_to_conversion_jobs(socket) do
@@ -2160,17 +2134,25 @@ defmodule LumainusWeb.ReportsLive do
 
   defp normalize_v2_progress(_progress, current), do: current
 
+  defp backend_label(%{conversion_profile: profile}),
+    do: backend_label(normalize_conversion_profile(profile))
+
   defp backend_label(backend) do
-    case normalize_backend_atom(backend) do
-      :cloud -> "Cloud (GPU)"
-      _ -> "Local"
+    case profile_for_backend(backend) do
+      :enhanced -> "Enhanced (GPU)"
+      _ -> "Standard (Local)"
     end
   end
 
-  defp backend_badge_class(backend, status \\ nil) do
+  defp backend_badge_class(subject, status \\ nil)
+
+  defp backend_badge_class(%{conversion_profile: profile}, status),
+    do: backend_badge_class(normalize_conversion_profile(profile), status)
+
+  defp backend_badge_class(backend, status) do
     base_class =
-      case normalize_backend_atom(backend) do
-        :cloud -> "bg-sky-100 text-sky-700 border border-sky-200"
+      case profile_for_backend(backend) do
+        :enhanced -> "bg-sky-100 text-sky-700 border border-sky-200"
         _ -> "bg-slate-100 text-slate-700 border border-slate-200"
       end
 
@@ -2184,6 +2166,17 @@ defmodule LumainusWeb.ReportsLive do
   defp backend_badge_title("fallback_to_local"), do: "Fast unavailable; fell back to Standard"
   defp backend_badge_title(_), do: "Docling backend"
 
+  defp profile_for_backend(%{conversion_profile: profile}) do
+    normalize_conversion_profile(profile) || :standard
+  end
+
+  defp profile_for_backend(backend) do
+    case normalize_backend_atom(backend) do
+      :cloud -> :enhanced
+      _ -> :standard
+    end
+  end
+
   defp normalize_backend_atom(nil), do: :local
   defp normalize_backend_atom(:local), do: :local
   defp normalize_backend_atom("local"), do: :local
@@ -2193,55 +2186,11 @@ defmodule LumainusWeb.ReportsLive do
   defp normalize_backend_atom("fast"), do: :cloud
   defp normalize_backend_atom(_), do: :local
 
-  defp update_document_progress(documents, payload) do
-    upload_id = Map.get(payload, :upload_id) || Map.get(payload, "upload_id")
-    stage = Map.get(payload, :stage) || Map.get(payload, "stage")
-    progress = Map.get(payload, :progress) || Map.get(payload, "progress")
-    state = Map.get(payload, :state) || Map.get(payload, "state")
-    message = Map.get(payload, :last_message) || Map.get(payload, "last_message")
-    last_error = Map.get(payload, :last_error) || Map.get(payload, "last_error")
-    job_id = Map.get(payload, :job_id) || Map.get(payload, "job_id")
-    timeout_at = Map.get(payload, :timeout_at) || Map.get(payload, "timeout_at")
-    event = Map.get(payload, :event) || Map.get(payload, "event") || %{}
-    progress_payload = Map.get(event, :payload) || Map.get(event, "payload")
-
-    backend =
-      Map.get(payload, :backend) ||
-        Map.get(payload, "backend") ||
-        Map.get(progress_payload || %{}, :backend) ||
-        Map.get(progress_payload || %{}, "backend")
-
-    backend_status =
-      Map.get(payload, :backend_status) ||
-        Map.get(payload, "backend_status") ||
-        Map.get(progress_payload || %{}, :backend_status) ||
-        Map.get(progress_payload || %{}, "backend_status")
-
-    Enum.map(documents, fn doc ->
-      if doc.id == upload_id do
-        current_ingestion_progress = doc.ingestion_progress || 0
-        incoming_ingestion_progress = progress || current_ingestion_progress
-        ingestion_progress = max(current_ingestion_progress, incoming_ingestion_progress)
-
-        doc
-        |> Map.put(:status, state || stage || doc.status)
-        |> Map.put(:ingestion_state, state || doc.ingestion_state)
-        |> Map.put(:ingestion_stage, stage || doc.ingestion_stage)
-        |> Map.put(:ingestion_progress, ingestion_progress)
-        |> Map.put(:ingestion_message, message || doc.ingestion_message)
-        |> Map.put(:ingestion_error, last_error || doc.ingestion_error)
-        |> Map.put(:ingestion_job_id, job_id || doc.ingestion_job_id)
-        |> Map.put(:ingestion_timeout_at, timeout_at || doc.ingestion_timeout_at)
-        |> Map.put(:backend, backend || doc.backend)
-        |> Map.put(:backend_status, backend_status || doc.backend_status)
-        |> maybe_put_progress(progress_payload)
-      else
-        doc
-      end
-    end)
-  end
-
-  defp maybe_put_progress(doc, nil), do: doc
+  defp normalize_conversion_profile(:enhanced), do: :enhanced
+  defp normalize_conversion_profile("enhanced"), do: :enhanced
+  defp normalize_conversion_profile(:standard), do: :standard
+  defp normalize_conversion_profile("standard"), do: :standard
+  defp normalize_conversion_profile(_), do: nil
 
   defp maybe_put_progress(doc, payload) when is_map(payload) do
     existing_progress = doc.progress || %{}
@@ -3317,11 +3266,11 @@ defmodule LumainusWeb.ReportsLive do
                     <span
                       class={[
                         "text-[10px] rounded-full px-2 py-0.5 normal-case tracking-normal border",
-                        backend_badge_class(doc.backend, doc.backend_status)
+                        backend_badge_class(doc, doc.backend_status)
                       ]}
                       title={backend_badge_title(doc.backend_status)}
                     >
-                      {backend_label(doc.backend)}
+                      {backend_label(doc)}
                     </span>
                     <%= if status_label = document_status(doc) do %>
                       <span class="text-[10px] rounded-full border border-slate-200 px-2 py-0.5 normal-case tracking-normal">
@@ -3448,7 +3397,7 @@ defmodule LumainusWeb.ReportsLive do
                 <div>
                   <span>Backend</span>
                   <strong>
-                    {backend_label(@selected_document.backend)}
+                    {backend_label(@selected_document)}
                     <%= if @selected_document.backend_status == "fallback_to_local" do %>
                       <span class="text-amber-600 text-[11px] font-normal ml-1">(fallback)</span>
                     <% end %>
