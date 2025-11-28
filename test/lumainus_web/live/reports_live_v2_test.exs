@@ -1,83 +1,77 @@
 defmodule LumainusWeb.ReportsLiveV2Test do
   @moduledoc """
-  Tests for ReportsLive v2 Conversion Events integration.
+  LiveView tests for v2 Conversion event handling in ReportsLive.
   """
   use LumainusWeb.ConnCase, async: false
 
+  import Phoenix.LiveViewTest
+  import Lumainus.AccountsFixtures
+
+  alias Ecto.Changeset
+  alias Lumainus.Accounts.Scope
   alias Lumainus.Conversion.Events
+  alias Lumainus.Documents
+  alias Lumainus.Reports
+  alias Lumainus.Repo
 
-  describe "v2 conversion event handling" do
-    test "handle_info handles {:conversion_job, :progress, payload}" do
-      # Create a mock socket assign map (unused, just demonstrating pattern)
-      _socket = %Phoenix.LiveView.Socket{
-        assigns: %{
-          conversion_jobs: %{}
-        }
-      }
+  setup %{conn: conn} do
+    user = user_fixture()
+    {:ok, user} = Repo.update(Changeset.change(user, role: "doctor"))
+    scope = Scope.for_user(user)
 
-      job_id = Ecto.UUID.generate()
-      payload = %{job_id: job_id, progress: 50}
+    Reports.bootstrap_workspace!(scope)
+    workspace = Reports.workspace(scope)
+    conn = log_in_user(conn, user)
 
-      # The handler should be able to process this message
-      # This tests the pattern match, not the full LiveView lifecycle
-      message = {:conversion_job, :progress, payload}
+    pdf = "%PDF-1.4 v2 progress"
 
-      assert match?({:conversion_job, :progress, %{job_id: _, progress: _}}, message)
-    end
+    meta = %{
+      filename: "v2-progress.pdf",
+      content_type: "application/pdf",
+      byte_size: byte_size(pdf)
+    }
 
-    test "handle_info handles {:conversion_job, :completed, job}" do
-      job_id = Ecto.UUID.generate()
-      job = %{id: job_id, state: :completed, result: %{"markdown" => "test"}}
+    {:ok, upload} =
+      Documents.create_upload(scope, workspace.patient, workspace.record_set, meta, pdf)
 
-      message = {:conversion_job, :completed, job}
+    docling_job_id = Ecto.UUID.generate()
+    Documents.persist_docling_job_metadata(upload, docling_job_id, profile: :enhanced)
 
-      assert match?({:conversion_job, :completed, %{id: _, state: :completed}}, message)
-    end
+    %{conn: conn, docling_job_id: docling_job_id}
+  end
 
-    test "handle_info handles {:conversion_job, :failed, payload}" do
-      job_id = Ecto.UUID.generate()
-      payload = %{job_id: job_id, reason: :timeout}
+  describe "v2 conversion events" do
+    test "progress and completion events update documents", %{
+      conn: conn,
+      docling_job_id: docling_job_id
+    } do
+      {:ok, view, _html} = live(conn, ~p"/reports")
 
-      message = {:conversion_job, :failed, payload}
+      Events.broadcast_progress(%{id: docling_job_id}, 42)
+      render(view)
 
-      assert match?({:conversion_job, :failed, %{job_id: _, reason: _}}, message)
-    end
+      doc =
+        view_assign(view, :documents)
+        |> Enum.find(&(&1.docling_job_id == docling_job_id))
 
-    test "handle_info handles {:conversion_job, :cancelled, job}" do
-      job_id = Ecto.UUID.generate()
-      job = %{id: job_id, state: :cancelled}
+      assert doc.ingestion_progress == 42
+      assert doc.ingestion_stage == "docling"
+      assert doc.ingestion_state == "running"
+      assert doc.ingestion_message =~ "Docling"
 
-      message = {:conversion_job, :cancelled, job}
+      Events.broadcast_completed(%{id: docling_job_id})
+      render(view)
 
-      assert match?({:conversion_job, :cancelled, %{id: _}}, message)
+      assert view_assign(view, :documents)
+             |> Enum.any?(&(&1.docling_job_id == docling_job_id))
     end
   end
 
-  describe "Events.subscribe/1" do
-    test "subscribes to job events via PubSub" do
-      job_id = Ecto.UUID.generate()
-
-      # Subscribe should succeed
-      assert :ok = Events.subscribe(job_id)
-
-      # Broadcast a message
-      Events.broadcast_progress(%{id: job_id}, 50)
-
-      # Should receive the message
-      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 50}}
-    end
-
-    test "unsubscribe stops receiving events" do
-      job_id = Ecto.UUID.generate()
-
-      assert :ok = Events.subscribe(job_id)
-      assert :ok = Events.unsubscribe(job_id)
-
-      # Broadcast a message
-      Events.broadcast_progress(%{id: job_id}, 50)
-
-      # Should NOT receive the message
-      refute_receive {:conversion_job, :progress, _}, 100
-    end
+  defp view_assign(view, key) do
+    view.pid
+    |> :sys.get_state()
+    |> Map.fetch!(:socket)
+    |> Map.fetch!(:assigns)
+    |> Map.fetch!(key)
   end
 end

@@ -96,7 +96,11 @@ defmodule Lumainus.Documents.IngestionProcessor do
       # Truncate to seconds for database compatibility
       timeout_at = DateTime.truncate(conversion_job.timeout_at, :second)
       {:ok, _linked} = Documents.link_docling_job(job, conversion_job.id)
-      job = %{job | docling_job_id: conversion_job.id}
+
+      updated_upload =
+        Documents.persist_docling_job_metadata(upload, conversion_job.id, profile: profile)
+
+      job = %{job | docling_job_id: conversion_job.id, upload: updated_upload}
 
       backend_name = conversion_job.backend_used || profile
 
@@ -152,11 +156,13 @@ defmodule Lumainus.Documents.IngestionProcessor do
               :local_gpu,
               :native_gpu,
               :vast_ai,
+              :fast,
               :cloud,
               "docker_gpu",
               "local_gpu",
               "native_gpu",
               "vast_ai",
+              "fast",
               "cloud"
             ] do
     :enhanced

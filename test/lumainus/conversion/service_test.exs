@@ -1,6 +1,7 @@
 defmodule Lumainus.Conversion.ServiceTest do
   use Lumainus.DataCase, async: false
 
+  alias Lumainus.Conversion.Events
   alias Lumainus.Conversion.Service
   alias Lumainus.Conversion.Job
   alias Lumainus.Conversion.JobStatus
@@ -8,6 +9,44 @@ defmodule Lumainus.Conversion.ServiceTest do
   alias Lumainus.Repo
 
   import Lumainus.Conversion.Support.TestHelpers
+
+  defmodule SubmitEventBackend do
+    @behaviour Lumainus.Conversion.Backend
+
+    def set_test_pid(pid), do: :persistent_term.put({__MODULE__, :test_pid}, pid)
+    def clear!, do: :persistent_term.erase({__MODULE__, :test_pid})
+
+    @impl true
+    def enqueue(_binary, opts) do
+      caller = self()
+      pid = :persistent_term.get({__MODULE__, :test_pid})
+      send(pid, {:enqueue_called, opts, caller})
+
+      receive do
+        {:continue_enqueue, response} -> response
+      after
+        1_000 -> {:error, :timeout}
+      end
+    end
+
+    @impl true
+    def await(job_ref, _opts), do: {:ok, %{"job_id" => job_ref[:job_id]}}
+
+    @impl true
+    def status(_job_id), do: {:ok, %{"state" => "queued"}}
+
+    @impl true
+    def cancel(_job_id), do: :ok
+
+    @impl true
+    def health, do: {:ok, %{"status" => "healthy"}}
+
+    @impl true
+    def name, do: :docker_cpu
+
+    @impl true
+    def backend_type, do: :local
+  end
 
   @moduletag :capture_log
 
@@ -243,6 +282,123 @@ defmodule Lumainus.Conversion.ServiceTest do
       assert is_list(profiles)
       assert :standard in profiles
       refute :enhanced in profiles
+    end
+  end
+
+  describe "event broadcasting" do
+    test "submit broadcasts :submitted event", %{tracker: tracker} do
+      SubmitEventBackend.set_test_pid(self())
+
+      backend_router = fn _profile ->
+        {:ok,
+         %{
+           name: :docker_cpu,
+           module: SubmitEventBackend,
+           endpoint: "http://localhost",
+           backend_type: :local
+         }}
+      end
+
+      task =
+        Task.async(fn ->
+          Service.submit(sample_pdf(),
+            filename: "event.pdf",
+            job_tracker: tracker,
+            backend_router_fn: backend_router
+          )
+        end)
+
+      assert_receive {:enqueue_called, opts, caller}
+      job_id = Keyword.fetch!(opts, :job_id)
+
+      Events.subscribe(job_id)
+      send(caller, {:continue_enqueue, {:ok, %{"job_id" => job_id, "state" => "queued"}}})
+
+      assert {:ok, job} = Task.await(task, 1_000)
+      assert job.id == job_id
+      assert_receive {:conversion_job, :submitted, %{id: ^job_id}}
+    after
+      SubmitEventBackend.clear!()
+    end
+
+    test "await broadcasts progress and completion", %{tracker: tracker} do
+      bypass = Bypass.open()
+      {:ok, status_state} = Agent.start_link(fn -> 0 end)
+
+      Bypass.expect(bypass, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"POST", "/jobs"} ->
+            conn
+            |> Plug.Conn.put_resp_content_type("application/json")
+            |> Plug.Conn.resp(
+              200,
+              Jason.encode!(%{"job_id" => "backend-job", "state" => "queued"})
+            )
+
+          {"GET", path} ->
+            if String.contains?(path, "/jobs/") and String.ends_with?(path, "/status") do
+              step = Agent.get_and_update(status_state, fn count -> {count, count + 1} end)
+
+              status =
+                case step do
+                  0 ->
+                    %{
+                      "state" => "processing",
+                      "progress" => 30,
+                      "pages_done" => 1,
+                      "pages_total" => 3
+                    }
+
+                  1 ->
+                    %{
+                      "state" => "processing",
+                      "progress" => 80,
+                      "pages_done" => 3,
+                      "pages_total" => 3
+                    }
+
+                  _ ->
+                    %{"state" => "completed", "progress" => 100, "markdown" => "# done"}
+                end
+
+              conn
+              |> Plug.Conn.put_resp_content_type("application/json")
+              |> Plug.Conn.resp(200, Jason.encode!(status))
+            else
+              Plug.Conn.resp(conn, 404, "not found")
+            end
+        end
+      end)
+
+      backend_router = fn _profile ->
+        {:ok,
+         %{
+           name: :docker_cpu,
+           module: Lumainus.Conversion.Backends.LocalBackend,
+           endpoint: bypass_url(bypass),
+           backend_type: :local
+         }}
+      end
+
+      {:ok, job} =
+        Service.submit(sample_pdf(),
+          filename: "await.pdf",
+          job_tracker: tracker,
+          backend_router_fn: backend_router
+        )
+
+      job_id = job.id
+      Events.subscribe(job_id)
+
+      assert {:ok, _result} =
+               Service.await(job_id,
+                 job_tracker: tracker,
+                 on_progress: fn _ -> :ok end
+               )
+
+      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 30}}
+      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 80}}
+      assert_receive {:conversion_job, :completed, %{id: ^job_id}}
     end
   end
 

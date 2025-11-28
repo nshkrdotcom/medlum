@@ -4,6 +4,7 @@ defmodule LumainusWeb.ReportsLive do
   alias Ecto.Changeset
   alias Lumainus.Accounts
   alias Lumainus.Conversion.CloudStatus
+  alias Lumainus.Conversion.Events
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Docling.Settings, as: DoclingSettings
@@ -685,6 +686,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign_new(:gpu_prompt_dismissed, fn -> false end)
       |> assign_new(:gpu_provisioning, fn -> false end)
       |> assign_new(:job_subscriptions, fn -> MapSet.new() end)
+      |> assign_new(:conversion_job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
       |> assign(:health_check_retry_count, 0)
@@ -1182,6 +1184,8 @@ defmodule LumainusWeb.ReportsLive do
       progress_payload = metadata["progress"] || %{}
       backend = metadata["docling_backend"] || metadata["backend"] || "local"
       backend_status = metadata["docling_backend_status"]
+      docling_job_id = metadata["docling_job_id"]
+      conversion_profile = metadata["conversion_profile"]
 
       %{
         id: doc.id,
@@ -1203,10 +1207,12 @@ defmodule LumainusWeb.ReportsLive do
         ingestion_message: ingestion_message,
         ingestion_error: ingestion_error,
         ingestion_job_id: job_id,
+        docling_job_id: docling_job_id,
         ingestion_timeout_at: timeout_at,
         progress: progress_payload,
         backend: backend,
         backend_status: backend_status,
+        conversion_profile: conversion_profile,
         uploaded_at: doc.inserted_at,
         ingested_at: doc.ingested_at,
         byte_size: doc.byte_size,
@@ -1264,20 +1270,44 @@ defmodule LumainusWeb.ReportsLive do
 
   defp subscribe_to_job_topics(socket) do
     if connected?(socket) do
-      job_ids =
-        socket.assigns.documents
-        |> Enum.map(& &1.ingestion_job_id)
-        |> Enum.filter(&is_binary/1)
-        |> MapSet.new()
-
-      new_ids = MapSet.difference(job_ids, socket.assigns.job_subscriptions)
-
-      Enum.each(new_ids, &Documents.subscribe_to_ingestion_job/1)
-
-      assign(socket, :job_subscriptions, MapSet.union(socket.assigns.job_subscriptions, new_ids))
+      socket
+      |> subscribe_to_ingestion_jobs()
+      |> subscribe_to_conversion_jobs()
     else
       socket
     end
+  end
+
+  defp subscribe_to_ingestion_jobs(socket) do
+    job_ids =
+      socket.assigns.documents
+      |> Enum.map(& &1.ingestion_job_id)
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    new_ids = MapSet.difference(job_ids, socket.assigns.job_subscriptions)
+
+    Enum.each(new_ids, &Documents.subscribe_to_ingestion_job/1)
+
+    assign(socket, :job_subscriptions, MapSet.union(socket.assigns.job_subscriptions, new_ids))
+  end
+
+  defp subscribe_to_conversion_jobs(socket) do
+    job_ids =
+      socket.assigns.documents
+      |> Enum.map(& &1.docling_job_id)
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    new_ids = MapSet.difference(job_ids, socket.assigns.conversion_job_subscriptions)
+
+    Enum.each(new_ids, &Events.subscribe/1)
+
+    assign(
+      socket,
+      :conversion_job_subscriptions,
+      MapSet.union(socket.assigns.conversion_job_subscriptions, new_ids)
+    )
   end
 
   defp maybe_subscribe_record_set(socket, record_set_id) do
@@ -2067,10 +2097,37 @@ defmodule LumainusWeb.ReportsLive do
   # v2 Conversion Helpers
   # =============================================================================
 
-  defp update_v2_conversion_progress(documents, _job_id, _progress) do
-    # For now, just return documents unchanged - the full integration
-    # would update the document metadata based on the conversion job
-    documents
+  defp update_v2_conversion_progress(documents, job_id, progress) do
+    Enum.map(documents, fn doc ->
+      if docling_job_match?(doc.docling_job_id, job_id) do
+        current_progress = doc.ingestion_progress || 0
+        normalized_progress = normalize_v2_progress(progress, current_progress)
+        new_state = if normalized_progress >= 100, do: "completed", else: "running"
+        stage = doc.ingestion_stage || "docling"
+
+        payload = %{
+          "overall" => normalized_progress,
+          "stage" => stage,
+          "stage_name" => stage,
+          "stage_progress" => normalized_progress,
+          "pages_done" => Map.get(doc.progress || %{}, "pages_done"),
+          "pages_total" => Map.get(doc.progress || %{}, "pages_total")
+        }
+
+        doc
+        |> Map.put(:status, new_state)
+        |> Map.put(:ingestion_state, new_state)
+        |> Map.put(:ingestion_stage, stage)
+        |> Map.put(:ingestion_progress, normalized_progress)
+        |> Map.put(
+          :ingestion_message,
+          doc.ingestion_message || "Docling conversion in progress"
+        )
+        |> maybe_put_progress(payload)
+      else
+        doc
+      end
+    end)
   end
 
   defp format_v2_error(:service_unavailable), do: "No conversion backends available"
@@ -2078,6 +2135,30 @@ defmodule LumainusWeb.ReportsLive do
   defp format_v2_error(:invalid_content_type), do: "Only PDF files are supported"
   defp format_v2_error(:timeout), do: "Conversion timed out"
   defp format_v2_error(reason), do: inspect(reason)
+
+  defp docling_job_match?(nil, _job_id), do: false
+
+  defp docling_job_match?(docling_job_id, job_id) do
+    to_string(docling_job_id) == to_string(job_id)
+  end
+
+  defp normalize_v2_progress(nil, current), do: current
+
+  defp normalize_v2_progress(progress, current) when is_float(progress) do
+    progress
+    |> Float.round()
+    |> trunc()
+    |> normalize_v2_progress(current)
+  end
+
+  defp normalize_v2_progress(progress, current) when is_integer(progress) do
+    progress
+    |> max(current)
+    |> max(0)
+    |> min(100)
+  end
+
+  defp normalize_v2_progress(_progress, current), do: current
 
   defp backend_label(backend) do
     case normalize_backend_atom(backend) do

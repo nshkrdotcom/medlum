@@ -36,7 +36,7 @@ defmodule Lumainus.Conversion.Service do
      `backend_endpoint`, and optionally `instance_id`.
   """
 
-  alias Lumainus.Conversion.{Job, JobStatus, Policy, ProcessingProfile}
+  alias Lumainus.Conversion.{Events, Job, JobStatus, Policy, ProcessingProfile}
   alias Lumainus.Conversion.Application.JobTracker
   alias Lumainus.Conversion.Infrastructure.BackendRouter
   alias Lumainus.Conversion.Infrastructure.Telemetry.Emitter
@@ -79,6 +79,7 @@ defmodule Lumainus.Conversion.Service do
          {:ok, backend} <- router_fn.(profile),
          {:ok, job} <- create_and_persist_job(binary, opts, profile, backend, tracker),
          {:ok, _response} <- enqueue_to_backend(job, binary, backend) do
+      Events.broadcast_submitted(job)
       Emitter.emit_job_submitted(job)
       {:ok, job}
     end
@@ -128,7 +129,9 @@ defmodule Lumainus.Conversion.Service do
 
       wrapped_progress = fn backend_status ->
         normalized = JobStatus.normalize_state(backend_status["state"])
-        progress = backend_status["progress"] || 0
+        progress = normalize_progress(backend_status["progress"])
+
+        Events.broadcast_progress(job, progress)
 
         if rem(progress, 10) == 0 do
           Emitter.emit_job_progress(job, progress)
@@ -153,23 +156,33 @@ defmodule Lumainus.Conversion.Service do
              endpoint: job.backend_endpoint
            ) do
         {:ok, result} ->
-          JobTracker.update(tracker, job_id, %{state: :completed, result: result})
-          Emitter.emit_job_completed(job)
+          {:ok, updated_job} =
+            JobTracker.update(tracker, job_id, %{state: :completed, result: result})
+
+          Events.broadcast_completed(updated_job)
+          Emitter.emit_job_completed(updated_job)
           {:ok, result}
 
         {:error, :timeout} ->
-          JobTracker.update(tracker, job_id, %{state: :timeout})
-          Emitter.emit_job_failed(job, :timeout)
+          {:ok, updated_job} = JobTracker.update(tracker, job_id, %{state: :timeout})
+          Events.broadcast_failed(updated_job, :timeout)
+          Emitter.emit_job_failed(updated_job, :timeout)
           {:error, :timeout}
 
         {:error, {:job_failed, reason}} ->
-          JobTracker.update(tracker, job_id, %{state: :failed, last_error: inspect(reason)})
-          Emitter.emit_job_failed(job, :docling_failed)
+          {:ok, updated_job} =
+            JobTracker.update(tracker, job_id, %{state: :failed, last_error: inspect(reason)})
+
+          Events.broadcast_failed(updated_job, reason)
+          Emitter.emit_job_failed(updated_job, :docling_failed)
           {:error, {:failed, reason}}
 
         {:error, reason} ->
-          JobTracker.update(tracker, job_id, %{state: :failed, last_error: inspect(reason)})
-          Emitter.emit_job_failed(job, :unknown)
+          {:ok, updated_job} =
+            JobTracker.update(tracker, job_id, %{state: :failed, last_error: inspect(reason)})
+
+          Events.broadcast_failed(updated_job, reason)
+          Emitter.emit_job_failed(updated_job, :unknown)
           {:error, reason}
       end
     end
@@ -185,8 +198,9 @@ defmodule Lumainus.Conversion.Service do
     with {:ok, job} <- JobTracker.get(tracker, job_id),
          backend_module = backend_module_for(job.backend_used),
          :ok <- backend_module.cancel(job_id, endpoint: job.backend_endpoint) do
-      JobTracker.update(tracker, job_id, %{state: :cancelled})
-      Emitter.emit_job_cancelled(job)
+      {:ok, updated_job} = JobTracker.update(tracker, job_id, %{state: :cancelled})
+      Events.broadcast_cancelled(updated_job)
+      Emitter.emit_job_cancelled(updated_job)
       :ok
     end
   end
@@ -289,5 +303,26 @@ defmodule Lumainus.Conversion.Service do
         instance_id: job.instance_id
       }
     }
+  end
+
+  defp normalize_progress(nil), do: 0
+
+  defp normalize_progress(progress) when is_float(progress) do
+    progress
+    |> Float.round()
+    |> trunc()
+    |> clamp_progress()
+  end
+
+  defp normalize_progress(progress) when is_integer(progress) do
+    clamp_progress(progress)
+  end
+
+  defp normalize_progress(_), do: 0
+
+  defp clamp_progress(value) do
+    value
+    |> max(0)
+    |> min(100)
   end
 end

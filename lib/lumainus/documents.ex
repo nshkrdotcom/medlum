@@ -759,6 +759,25 @@ defmodule Lumainus.Documents do
   end
 
   @doc """
+  Persist the Docling v2 job identifier (and optional profile) on the upload metadata.
+
+  Stores the `docling_job_id` so downstream consumers (e.g., LiveViews) can
+  correlate v2 Conversion events with documents. Optionally records the
+  `conversion_profile` (as a string) for provenance.
+  """
+  def persist_docling_job_metadata(%DocumentUpload{} = upload, docling_job_id, opts \\ []) do
+    profile = Keyword.get(opts, :profile)
+    status = upload.status || "pending"
+
+    attrs = %{
+      docling_job_id: docling_job_id,
+      conversion_profile: profile && Atom.to_string(profile)
+    }
+
+    update_upload_status(upload, status, attrs, broadcast: true)
+  end
+
+  @doc """
   Archives a completed or failed job.
   """
   def archive_job(%IngestionJob{} = job) do
@@ -959,6 +978,14 @@ defmodule Lumainus.Documents do
       (upload.metadata || %{})
       |> Map.put("status", status)
       |> maybe_put("docling_backend", Map.get(attrs, :backend) || Map.get(attrs, "backend"))
+      |> maybe_put(
+        "docling_job_id",
+        Map.get(attrs, :docling_job_id) || Map.get(attrs, "docling_job_id")
+      )
+      |> maybe_put(
+        "conversion_profile",
+        Map.get(attrs, :conversion_profile) || Map.get(attrs, "conversion_profile")
+      )
       |> maybe_put("ingestion_state", Map.get(attrs, :state))
       |> maybe_put("ingestion_stage", Map.get(attrs, :stage))
       |> maybe_put("ingestion_progress", Map.get(attrs, :progress))
