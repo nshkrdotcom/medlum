@@ -362,6 +362,8 @@ defmodule Lumainus.Reports do
   defp latest_section_runs_map([], _record_set_id), do: %{}
 
   defp latest_section_runs_map(section_ids, record_set_id) do
+    t0 = System.monotonic_time(:millisecond)
+
     ids =
       try do
         Enum.to_list(section_ids)
@@ -387,6 +389,8 @@ defmodule Lumainus.Reports do
       |> select([t], t.id)
       |> Repo.all()
 
+    t_ids = System.monotonic_time(:millisecond)
+
     runs =
       ReportSectionRun
       |> where([sr], sr.id in ^latest_ids)
@@ -403,12 +407,23 @@ defmodule Lumainus.Reports do
       })
       |> Repo.all()
 
-    runs
-    |> preload_latest_runs()
+    t_runs = System.monotonic_time(:millisecond)
+
+    preloaded = preload_latest_runs(runs)
+    t_preload = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[Reports.latest_section_runs_map] ids=#{length(ids)} latest_ids=#{length(latest_ids)} runs=#{length(preloaded)} " <>
+        "ids_query=#{t_ids - t0}ms runs_query=#{t_runs - t_ids}ms preload=#{t_preload - t_runs}ms total=#{t_preload - t0}ms"
+    )
+
+    preloaded
     |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
   end
 
   defp preload_latest_runs(runs) do
+    t0 = System.monotonic_time(:millisecond)
+
     doc_query =
       from(d in DocumentUpload,
         select: %DocumentUpload{
@@ -424,7 +439,24 @@ defmodule Lumainus.Reports do
         preload: [document: ^doc_query]
       )
 
-    Repo.preload(runs, [:llm_invocation, citations: citations_query])
+    preloaded = Repo.preload(runs, [:llm_invocation, citations: citations_query])
+    t1 = System.monotonic_time(:millisecond)
+
+    citation_count =
+      Enum.reduce(preloaded, 0, fn run, acc -> acc + length(run.citations || []) end)
+
+    doc_ids =
+      preloaded
+      |> Enum.flat_map(fn run -> Enum.map(run.citations || [], & &1.document_id) end)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+      |> MapSet.size()
+
+    Logger.info(
+      "[Reports.preload_latest_runs] runs=#{length(preloaded)} citations=#{citation_count} docs=#{doc_ids} time=#{t1 - t0}ms"
+    )
+
+    preloaded
   end
 
   defp maybe_filter_patients_for_user(query, nil), do: query
