@@ -379,12 +379,11 @@ defmodule Lumainus.Reports do
       [sr, r],
       sr.section_template_id in ^ids and r.record_set_id == ^record_set_id
     )
+    |> distinct([sr, _r], sr.section_template_id)
     |> order_by([sr], desc: sr.inserted_at)
     |> preload([sr, _r], [:llm_invocation, citations: [:document]])
     |> Repo.all()
-    |> Enum.reduce(%{}, fn run, acc ->
-      Map.put_new(acc, run.section_template_id, run)
-    end)
+    |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
   end
 
   defp maybe_filter_patients_for_user(query, nil), do: query
