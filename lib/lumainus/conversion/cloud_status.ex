@@ -160,11 +160,11 @@ defmodule Lumainus.Conversion.CloudStatus do
       %{status: :none} ->
         if cloud_enabled?() do
           %{
-            availability: :available,
+            availability: :unavailable,
             endpoint: nil,
-            message: "Cloud GPU available",
-            detail: "Will provision on first use (~3-5 min)",
-            can_accept_jobs: true,
+            message: "Cloud GPU not provisioned",
+            detail: "Provisioning is admin-only right now",
+            can_accept_jobs: false,
             instance_info: nil
           }
         else
@@ -195,7 +195,7 @@ defmodule Lumainus.Conversion.CloudStatus do
           availability: :unavailable,
           endpoint: nil,
           message: "Cloud GPU unavailable",
-          detail: "Unknown status",
+          detail: other[:message] || "Unknown status",
           can_accept_jobs: false,
           instance_info: other
         }

@@ -45,6 +45,22 @@ defmodule Lumainus.Documents do
     )
   end
 
+  @doc """
+  Notify that a conversion job has started for an upload, allowing LiveViews to
+  subscribe to conversion events immediately without waiting for a full reload.
+
+  This is critical for progress tracking: the LiveView needs to subscribe to
+  conversion job events BEFORE await() starts broadcasting progress updates.
+  """
+  def notify_conversion_job_started(record_set_id, upload_id, conversion_job_id)
+      when is_binary(record_set_id) and is_binary(upload_id) and is_binary(conversion_job_id) do
+    PubSub.broadcast(
+      LumainusWeb.PubSub,
+      topic(record_set_id),
+      {:conversion_job_started, record_set_id, upload_id, conversion_job_id}
+    )
+  end
+
   def notify_job_progress(%IngestionJob{} = job, event \\ nil) do
     timeout_at =
       job.timeout_at ||
@@ -774,6 +790,12 @@ defmodule Lumainus.Documents do
       conversion_profile: profile && Atom.to_string(profile)
     }
 
+    # Broadcast conversion job started event FIRST so LiveViews can subscribe
+    # before the ConversionService.await() starts broadcasting progress events.
+    # This is critical because load_workspace takes 2-3 seconds and progress
+    # events would be missed during that time.
+    notify_conversion_job_started(upload.record_set_id, upload.id, docling_job_id)
+
     update_upload_status(upload, status, attrs, broadcast: true)
   end
 
@@ -848,33 +870,28 @@ defmodule Lumainus.Documents do
     # Use InstanceManager state instead of HTTP health check
     # This is INSTANT - no HTTP calls, no delays
     # InstanceManager maintains health state via periodic background checks
-    alias Lumainus.Docling.VastAI.InstanceManager
-
     case requested do
       :cloud ->
-        # Check InstanceManager state - instant, no HTTP
-        gpu_status = get_gpu_status_for_backend()
+        cloud_status = Lumainus.Conversion.CloudStatus.get()
 
-        case gpu_status do
-          {:available, status_info} ->
-            Logger.info(
-              "[resolve_docling_backend] requested=#{inspect(raw_requested)} " <>
-                "normalized=:cloud default=#{default_backend} " <>
-                "gpu_status=AVAILABLE final_backend=:cloud " <>
-                "instance_status=#{inspect(status_info)}"
-            )
+        if cloud_status.can_accept_jobs do
+          Logger.info(
+            "[resolve_docling_backend] requested=#{inspect(raw_requested)} normalized=:cloud " <>
+              "default=#{default_backend} availability=#{cloud_status.availability} " <>
+              "detail=#{inspect(cloud_status.detail)}"
+          )
 
-            {:ok, :cloud, nil}
+          {:ok, :cloud, nil}
+        else
+          reason = cloud_status.detail || cloud_status.message || "Cloud GPU unavailable"
 
-          {:unavailable, reason} ->
-            # NO SILENT FALLBACK - if user chose cloud and it's unavailable, REJECT
-            Logger.warning(
-              "[resolve_docling_backend] REJECTED requested=#{inspect(raw_requested)} " <>
-                "normalized=:cloud default=#{default_backend} " <>
-                "gpu_status=UNAVAILABLE reason=#{inspect(reason)}"
-            )
+          Logger.warning(
+            "[resolve_docling_backend] REJECTED requested=#{inspect(raw_requested)} " <>
+              "normalized=:cloud default=#{default_backend} availability=#{cloud_status.availability} " <>
+              "reason=#{inspect(reason)}"
+          )
 
-            {:error, :cloud_unavailable, reason}
+          {:error, :cloud_unavailable, reason}
         end
 
       other ->
@@ -885,47 +902,6 @@ defmodule Lumainus.Documents do
         )
 
         {:ok, other, nil}
-    end
-  end
-
-  # Check GPU availability from InstanceManager state - NO HTTP calls
-  # Uses 200ms timeout to avoid blocking if InstanceManager is stuck on SSH
-  defp get_gpu_status_for_backend do
-    alias Lumainus.Docling.VastAI.InstanceManager
-
-    if Process.whereis(InstanceManager) do
-      try do
-        # Use short timeout - if InstanceManager is blocked on SSH, fail fast
-        status = GenServer.call(InstanceManager, :status, 200)
-
-        case status do
-          %{status: :running, healthy: false, health_check_error: error} ->
-            {:unavailable, error || "GPU service unhealthy"}
-
-          %{status: :running, healthy: healthy} when healthy != false ->
-            # Running and either healthy (true) or not yet checked (nil)
-            {:available, %{status: :running, healthy: healthy}}
-
-          %{status: :loading} ->
-            {:unavailable, "GPU instance still loading"}
-
-          %{status: :stopped} ->
-            {:unavailable, "GPU instance stopped"}
-
-          %{status: :none} ->
-            {:unavailable, "No GPU instance"}
-
-          _ ->
-            {:unavailable, "GPU status unknown"}
-        end
-      rescue
-        e -> {:unavailable, "InstanceManager error: #{Exception.message(e)}"}
-      catch
-        :exit, {:timeout, _} -> {:unavailable, "InstanceManager blocked (timeout)"}
-        :exit, _ -> {:unavailable, "InstanceManager not responding"}
-      end
-    else
-      {:unavailable, "InstanceManager not running"}
     end
   end
 

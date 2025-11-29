@@ -4,6 +4,7 @@ defmodule LumainusWeb.ReportsLive do
   alias Ecto.Changeset
   alias Lumainus.Accounts
   alias Lumainus.Conversion.CloudStatus
+  alias Lumainus.Conversion.Service, as: ConversionService
   alias Lumainus.Conversion.Events
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ProvisioningState
@@ -182,8 +183,9 @@ defmodule LumainusWeb.ReportsLive do
            put_flash(
              socket,
              :error,
-             "Cloud (GPU) is unavailable right now. Using Local until it recovers."
-           )}
+             "Cloud (GPU) is unavailable (admin-only provisioning). Switched to Standard."
+           )
+           |> assign(:docling_backend, :local)}
 
         true ->
           case Accounts.update_docling_backend(socket.assigns.current_scope.user, backend_atom) do
@@ -591,14 +593,6 @@ defmodule LumainusWeb.ReportsLive do
           # Provisioning - jobs will wait automatically
           {true, "GPU instance provisioning..."}
 
-        %{status: :no_instance, cloud_status: %{availability: :available}} ->
-          # No instance but will auto-provision on first use
-          {true, "GPU will provision on first use"}
-
-        %{status: :no_instance} ->
-          # No instance, not available for auto-provision
-          {false, "No GPU instance"}
-
         %{status: :unavailable, health_check_error: error} ->
           {false, error || "GPU unavailable"}
 
@@ -674,6 +668,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:docling_backend, selected_backend)
       |> assign(:fast_available?, fast_available?)
       |> assign(:fast_unavailable_reason, format_backend_reason(fast_reason))
+      |> maybe_disable_fast(fast_available?)
       |> assign(:gpu_instance_status, gpu_instance_status)
       |> assign(:can_manage_gpu?, can_manage_gpu?)
       |> assign(:profile_form, profile_form(workspace.patient))
@@ -682,6 +677,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:document_modal_document, nil)
       |> assign(:document_modal_open, false)
       |> assign(:document_modal_tab, "summary")
+      |> assign_new(:upload_blocked_reason, fn -> nil end)
       |> assign_new(:patient_modal_open, fn -> false end)
       |> assign_new(:gpu_prompt_dismissed, fn -> false end)
       |> assign_new(:gpu_provisioning, fn -> false end)
@@ -706,12 +702,52 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
+  # Handle conversion job started event - subscribe immediately without full reload
+  # This is critical: load_workspace takes 2-3 seconds and progress events would
+  # be missed during that time. By subscribing immediately, we catch all events.
+  def handle_info({:conversion_job_started, record_set_id, upload_id, conversion_job_id}, socket) do
+    if socket.assigns.record_set.id == record_set_id do
+      Logger.debug(
+        "[ReportsLive] conversion_job_started: upload=#{upload_id} job_id=#{conversion_job_id}"
+      )
+
+      # Subscribe to the conversion job immediately
+      if not MapSet.member?(socket.assigns.conversion_job_subscriptions, conversion_job_id) do
+        Events.subscribe(conversion_job_id)
+      end
+
+      # Update the document with the new job ID without full reload
+      updated_docs =
+        Enum.map(socket.assigns.documents, fn doc ->
+          if doc.id == upload_id do
+            %{doc | docling_job_id: conversion_job_id}
+          else
+            doc
+          end
+        end)
+
+      socket =
+        socket
+        |> assign(:documents, updated_docs)
+        |> assign(
+          :conversion_job_subscriptions,
+          MapSet.put(socket.assigns.conversion_job_subscriptions, conversion_job_id)
+        )
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # =============================================================================
   # v2 Conversion Events Handlers
   # =============================================================================
 
   def handle_info({:conversion_job, :progress, %{job_id: job_id, progress: progress}}, socket) do
-    Logger.debug("[ReportsLive] v2 progress event: job_id=#{job_id} progress=#{progress}")
+    Logger.debug(
+      "[ReportsLive] RECEIVED progress event: job_id=#{job_id} progress=#{progress} pid=#{inspect(self())} subscriptions=#{inspect(MapSet.to_list(socket.assigns.conversion_job_subscriptions))}"
+    )
 
     # Update any document that has this conversion_job_id in its metadata
     updated_docs = update_v2_conversion_progress(socket.assigns.documents, job_id, progress)
@@ -1015,10 +1051,15 @@ defmodule LumainusWeb.ReportsLive do
             "[ReportsLive] UPLOAD BLOCKED - cloud unavailable: #{entry.client_name} reason=#{reason}"
           )
 
+          message =
+            "Cloud GPU unavailable (#{reason}). Start a GPU instance or switch to Standard and re-upload."
+
           # Cancel the upload entry to clean up
           {:noreply,
            socket
+           |> assign(:docling_backend, :local)
            |> cancel_upload(:documents, entry.ref)
+           |> assign(:upload_blocked_reason, message)
            |> put_flash(
              :error,
              "Cannot upload: Cloud GPU is not available (#{reason}). Start a GPU instance or switch to Local mode."
@@ -1032,11 +1073,11 @@ defmodule LumainusWeb.ReportsLive do
   defp handle_upload_progress(_name, _entry, socket), do: {:noreply, socket}
 
   defp entry_processed(socket, {:ok, {:success, payload}}) do
-    handle_consumed_entry(payload, socket)
+    handle_consumed_entry(payload, socket |> assign(:upload_blocked_reason, nil))
   end
 
   defp entry_processed(socket, {:success, payload}) do
-    handle_consumed_entry(payload, socket)
+    handle_consumed_entry(payload, socket |> assign(:upload_blocked_reason, nil))
   end
 
   defp entry_processed(socket, {:ok, {:error, reason}}) do
@@ -1165,7 +1206,7 @@ defmodule LumainusWeb.ReportsLive do
       date = metadata["date"] || Calendar.strftime(doc.inserted_at, "%Y-%m-%d")
       ingestion_state = metadata["ingestion_state"]
       ingestion_stage = metadata["ingestion_stage"]
-      ingestion_progress = metadata["ingestion_progress"] || 0
+      ingestion_progress = (metadata["ingestion_progress"] || 0) / 1.0
       ingestion_message = metadata["ingestion_message"]
       ingestion_error = metadata["ingestion_error"]
       job_id = metadata["ingestion_job_id"]
@@ -1258,6 +1299,14 @@ defmodule LumainusWeb.ReportsLive do
 
   defp document_modal_tabs, do: @document_modal_tabs
 
+  defp maybe_disable_fast(socket, fast_available?) do
+    if fast_available? do
+      socket
+    else
+      assign(socket, :docling_backend, :local)
+    end
+  end
+
   defp subscribe_to_job_topics(socket) do
     if connected?(socket) do
       subscribe_to_conversion_jobs(socket)
@@ -1274,6 +1323,10 @@ defmodule LumainusWeb.ReportsLive do
       |> MapSet.new()
 
     new_ids = MapSet.difference(job_ids, socket.assigns.conversion_job_subscriptions)
+
+    Logger.debug(
+      "[ReportsLive] subscribe_to_conversion_jobs: all_job_ids=#{inspect(MapSet.to_list(job_ids))} new_ids=#{inspect(MapSet.to_list(new_ids))} existing=#{inspect(MapSet.to_list(socket.assigns.conversion_job_subscriptions))}"
+    )
 
     Enum.each(new_ids, &Events.subscribe/1)
 
@@ -1320,6 +1373,7 @@ defmodule LumainusWeb.ReportsLive do
   # is running - the CloudBackend will wait for provisioning automatically.
   defp preflight_backend_check(socket) do
     backend = socket.assigns.docling_backend
+    profile = profile_for_backend(backend)
 
     case backend do
       :cloud ->
@@ -1330,7 +1384,9 @@ defmodule LumainusWeb.ReportsLive do
         case cloud_status do
           %{can_accept_jobs: true} ->
             # Cloud can accept jobs (ready, available, or provisioning)
-            :ok
+            if ConversionService.available?(profile),
+              do: :ok,
+              else: {:error, "No conversion backends available"}
 
           %{can_accept_jobs: false, message: message, detail: detail} ->
             {:error, "#{message}: #{detail}"}
@@ -1342,9 +1398,6 @@ defmodule LumainusWeb.ReportsLive do
                 :ok
 
               %{status: :loading} ->
-                :ok
-
-              %{status: :no_instance} ->
                 :ok
 
               %{status: :unavailable, health_check_error: error} ->
@@ -1360,7 +1413,11 @@ defmodule LumainusWeb.ReportsLive do
 
       # Local backends don't need preflight check
       _ ->
-        :ok
+        if ConversionService.available?(profile) do
+          :ok
+        else
+          {:error, "No conversion backends available"}
+        end
     end
   end
 
@@ -1396,23 +1453,13 @@ defmodule LumainusWeb.ReportsLive do
           cloud_status: cloud_status
         }
 
-      %{availability: :available} ->
-        %{
-          status: :no_instance,
-          endpoint: nil,
-          instance_id: nil,
-          healthy: nil,
-          health_check_error: nil,
-          cloud_status: cloud_status
-        }
-
       %{availability: :unavailable, message: message} ->
         %{
           status: :unavailable,
           endpoint: nil,
           instance_id: nil,
           healthy: false,
-          health_check_error: message,
+          health_check_error: message || cloud_status[:detail],
           cloud_status: cloud_status
         }
 
@@ -2074,7 +2121,7 @@ defmodule LumainusWeb.ReportsLive do
   defp update_v2_conversion_progress(documents, job_id, progress) do
     Enum.map(documents, fn doc ->
       if docling_job_match?(doc.docling_job_id, job_id) do
-        current_progress = doc.ingestion_progress || 0
+        current_progress = (doc.ingestion_progress || 0) / 1.0
         normalized_progress = normalize_v2_progress(progress, current_progress)
         new_state = if normalized_progress >= 100, do: "completed", else: "running"
         stage = doc.ingestion_stage || "docling"
@@ -2118,21 +2165,29 @@ defmodule LumainusWeb.ReportsLive do
 
   defp normalize_v2_progress(nil, current), do: current
 
-  defp normalize_v2_progress(progress, current) when is_float(progress) do
+  defp normalize_v2_progress(progress, _current) when is_float(progress) do
+    # Keep 2 decimal places for smooth progress updates
     progress
-    |> Float.round()
-    |> trunc()
-    |> normalize_v2_progress(current)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(2)
   end
 
-  defp normalize_v2_progress(progress, current) when is_integer(progress) do
-    progress
-    |> max(current)
-    |> max(0)
-    |> min(100)
+  defp normalize_v2_progress(progress, _current) when is_integer(progress) do
+    # Convert integers to floats with 2 decimal places
+    (progress / 1)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(2)
   end
 
   defp normalize_v2_progress(_progress, current), do: current
+
+  # Show progress bar when document is NOT fully parsed/completed
+  defp show_progress_bar?(doc) do
+    # Simple: if status is "parsed" or stage is "completed", hide. Otherwise show.
+    not (doc.status == "parsed" or doc.ingestion_stage == "completed")
+  end
 
   defp backend_label(%{conversion_profile: profile}),
     do: backend_label(normalize_conversion_profile(profile))
@@ -2194,8 +2249,8 @@ defmodule LumainusWeb.ReportsLive do
 
   defp maybe_put_progress(doc, payload) when is_map(payload) do
     existing_progress = doc.progress || %{}
-    current_overall = existing_progress["overall"] || doc.ingestion_progress || 0
-    current_stage_progress = existing_progress["stage_progress"] || 0
+    current_overall = (existing_progress["overall"] || doc.ingestion_progress || 0) / 1.0
+    current_stage_progress = (existing_progress["stage_progress"] || 0) / 1.0
     current_pages_done = existing_progress["pages_done"] || 0
     current_pages_total = existing_progress["pages_total"]
 
@@ -3248,6 +3303,12 @@ defmodule LumainusWeb.ReportsLive do
                 <span>{entry.progress}%</span>
               </div>
             <% end %>
+            <%= if @upload_blocked_reason do %>
+              <div class="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                <span aria-hidden="true">⚠️</span>
+                <span>{@upload_blocked_reason}</span>
+              </div>
+            <% end %>
             <input type="hidden" name="noop" value="" />
           </form>
           <div class="document-list">
@@ -3286,18 +3347,20 @@ defmodule LumainusWeb.ReportsLive do
                 <div style="font-size: 12px; color: #475569; margin-top: 4px;">
                   {doc.summary}
                 </div>
-                <%= if doc.ingestion_stage && doc.ingestion_stage != "completed" do %>
+                <%= if show_progress_bar?(doc) do %>
                   <div style="margin-top: 8px;">
-                    <%= if map_size(doc.progress) > 0 && doc.progress["stages"] && map_size(doc.progress["stages"]) > 0 do %>
+                    <%= if is_map(doc.progress) && map_size(doc.progress) > 0 && doc.progress["stages"] && is_map(doc.progress["stages"]) && map_size(doc.progress["stages"]) > 0 do %>
                       <.progress_stages progress={doc.progress} compact={true} />
                     <% else %>
                       <div style="height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
-                        <div style={"height: 6px; background: #3b82f6; border-radius: 999px; width: #{doc.ingestion_progress || 0}%; transition: width 200ms ease;"}>
+                        <div style={"height: 6px; background: #3b82f6; border-radius: 999px; width: #{(doc.ingestion_progress || 0) / 1.0}%; transition: width 200ms ease;"}>
                         </div>
                       </div>
                       <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 4px;">
-                        <span>{String.capitalize(doc.ingestion_stage)}</span>
-                        <span>{doc.ingestion_progress || 0}%</span>
+                        <span>{String.capitalize(doc.ingestion_stage || "processing")}</span>
+                        <span>
+                          {:erlang.float_to_binary((doc.ingestion_progress || 0) / 1, decimals: 2)}%
+                        </span>
                       </div>
                     <% end %>
                     <%= if doc.ingestion_message do %>

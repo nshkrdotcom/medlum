@@ -70,6 +70,10 @@ defmodule Lumainus.Documents.IngestionProcessor do
   defp docling_convert(%IngestionJob{} = job) do
     upload = job.upload
 
+    Logger.info(
+      "[docling_convert] Starting for job=#{job.id} upload=#{upload.id} raw_blob_size=#{if upload.raw_blob, do: byte_size(upload.raw_blob), else: "nil"}"
+    )
+
     # Determine profile from user's backend preference
     profile = profile_from_backend(job.backend)
 
@@ -92,7 +96,11 @@ defmodule Lumainus.Documents.IngestionProcessor do
     ]
 
     # Submit to v2 Conversion Service
-    with {:ok, conversion_job} <- ConversionService.submit(upload.raw_blob, service_opts) do
+    Logger.info("[docling_convert] Submitting to ConversionService...")
+    submit_result = ConversionService.submit(upload.raw_blob, service_opts)
+    Logger.info("[docling_convert] Submit result: #{inspect(submit_result, limit: 200)}")
+
+    with {:ok, conversion_job} <- submit_result do
       # Truncate to seconds for database compatibility
       timeout_at = DateTime.truncate(conversion_job.timeout_at, :second)
       {:ok, _linked} = Documents.link_docling_job(job, conversion_job.id)
@@ -591,12 +599,14 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
       message = base_message <> worker_info
 
+      # Don't broadcast progress updates - they cause full workspace reloads
+      # which overwrite in-memory progress. The v2 conversion events handle UI updates.
       Documents.record_job_stage!(job, "docling",
         progress: overall,
         message: message,
         payload: payload,
         upload_status: "processing",
-        broadcast: true
+        broadcast: false
       )
 
       Process.put(state_key, %{

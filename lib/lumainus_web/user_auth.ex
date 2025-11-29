@@ -9,7 +9,7 @@ defmodule LumainusWeb.UserAuth do
 
   # Make the remember me cookie valid for 14 days. This should match
   # the session validity setting in UserToken.
-  @max_cookie_age_in_days 14
+  @max_cookie_age_in_days 30
   @remember_me_cookie "_lumainus_web_user_remember_me"
   @remember_me_options [
     sign: true,
@@ -24,7 +24,7 @@ defmodule LumainusWeb.UserAuth do
   # it will result in less time before a session token expires for a user to get issued a new
   # token. This can be set to a value greater than `@max_cookie_age_in_days` to disable
   # the reissuing of tokens completely.
-  @session_reissue_age_in_days 7
+  @session_reissue_age_in_days 15
 
   @doc """
   Logs the user in.

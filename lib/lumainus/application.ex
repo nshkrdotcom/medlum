@@ -8,7 +8,8 @@ defmodule Lumainus.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
+    # Core infrastructure
+    base_children = [
       LumainusWeb.Telemetry,
       Lumainus.Repo,
       {Oban, Application.fetch_env!(:lumainus, Oban)},
@@ -20,11 +21,28 @@ defmodule Lumainus.Application do
       {Task.Supervisor, name: Lumainus.TaskSupervisor},
       # Conversion system (v2)
       {Registry, keys: :unique, name: Lumainus.Conversion.Registry},
-      Lumainus.Conversion.Application.JobTracker,
-      Lumainus.Conversion.Infrastructure.HealthManager,
-      # Start to serve requests, typically the last entry
+      Lumainus.Conversion.Application.JobTracker
+    ]
+
+    # Docker auto-management MUST start before HealthManager (blocks until container healthy)
+    docker_children =
+      if docker_auto_manage_enabled?() do
+        [Lumainus.Docling.DockerManager]
+      else
+        []
+      end
+
+    # Health manager starts after Docker is ready
+    health_children = [
+      Lumainus.Conversion.Infrastructure.HealthManager
+    ]
+
+    # Web endpoint last
+    endpoint_children = [
       LumainusWeb.Endpoint
     ]
+
+    children = base_children ++ docker_children ++ health_children ++ endpoint_children
 
     children =
       if Application.get_env(:lumainus, :disable_ingestion_health_checker, false) do
@@ -67,5 +85,10 @@ defmodule Lumainus.Application do
       nil -> false
       config -> Keyword.has_key?(config, :api_key)
     end
+  end
+
+  defp docker_auto_manage_enabled? do
+    config = Application.get_env(:lumainus, :docling, [])
+    Keyword.get(config, :docker_auto_manage, true)
   end
 end

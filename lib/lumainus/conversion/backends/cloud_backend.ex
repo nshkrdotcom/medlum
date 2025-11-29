@@ -57,7 +57,7 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
           "Cloud GPU provisioning timed out after #{div(timeout_ms, 60_000)} minutes"}}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, normalize_error(reason)}
     end
   end
 
@@ -76,7 +76,7 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
         {:error, {:provisioning_timeout, "Cloud GPU not ready for job processing"}}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, normalize_error(reason)}
     end
   end
 
@@ -184,7 +184,7 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
         do_wait_for_ready(ensure_fn, cloud_status_fn, poll_ms, deadline)
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, normalize_error(reason)}
     end
   end
 
@@ -251,4 +251,12 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
       pid -> Process.alive?(pid)
     end
   end
+
+  defp normalize_error({:cloud_unavailable, msg}), do: {:cloud_unavailable, msg}
+
+  defp normalize_error(:no_instance_provision_required),
+    do: {:cloud_unavailable, "Provisioning is admin-only"}
+
+  defp normalize_error({:error, reason}), do: normalize_error(reason)
+  defp normalize_error(reason), do: reason
 end

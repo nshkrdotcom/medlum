@@ -133,7 +133,8 @@ defmodule Lumainus.Conversion.Service do
 
         Events.broadcast_progress(job, progress)
 
-        if rem(progress, 10) == 0 do
+        # Emit telemetry at 10% intervals (check integer part)
+        if rem(trunc(progress), 10) == 0 do
           Emitter.emit_job_progress(job, progress)
         end
 
@@ -305,24 +306,22 @@ defmodule Lumainus.Conversion.Service do
     }
   end
 
-  defp normalize_progress(nil), do: 0
+  defp normalize_progress(nil), do: 0.0
 
   defp normalize_progress(progress) when is_float(progress) do
     progress
-    |> Float.round()
-    |> trunc()
-    |> clamp_progress()
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(2)
   end
 
   defp normalize_progress(progress) when is_integer(progress) do
-    clamp_progress(progress)
+    # Convert integer to float with 2 decimal places
+    (progress * 1.0)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(2)
   end
 
-  defp normalize_progress(_), do: 0
-
-  defp clamp_progress(value) do
-    value
-    |> max(0)
-    |> min(100)
-  end
+  defp normalize_progress(_), do: 0.0
 end

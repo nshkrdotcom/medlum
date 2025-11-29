@@ -48,7 +48,7 @@ defmodule Lumainus.Conversion.JobStatus do
   @type t :: %__MODULE__{
           job_id: String.t(),
           state: state(),
-          progress: non_neg_integer(),
+          progress: float(),
           message: String.t() | nil,
           pages_total: non_neg_integer() | nil,
           pages_done: non_neg_integer(),

@@ -68,6 +68,8 @@ config :lumainus, :docling,
   # Test options
   prefer_sse: false,
   suppress_logs: true,
-  prefer_env_overrides: true
+  prefer_env_overrides: true,
+  # Disable Docker auto-management in tests
+  docker_auto_manage: false
 
 config :lumainus, :disable_ingestion_health_checker, true

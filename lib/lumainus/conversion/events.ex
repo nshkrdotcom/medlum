@@ -41,6 +41,8 @@ defmodule Lumainus.Conversion.Events do
 
   alias Phoenix.PubSub
 
+  require Logger
+
   @pubsub LumainusWeb.PubSub
   @topic_prefix "conversion:job:"
 
@@ -55,7 +57,9 @@ defmodule Lumainus.Conversion.Events do
   """
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(job_id) when is_binary(job_id) do
-    PubSub.subscribe(@pubsub, topic(job_id))
+    topic = topic(job_id)
+    Logger.debug("[Events] subscribe job_id=#{job_id} topic=#{topic} pid=#{inspect(self())}")
+    PubSub.subscribe(@pubsub, topic)
   end
 
   @doc """
@@ -81,8 +85,12 @@ defmodule Lumainus.Conversion.Events do
   @doc """
   Broadcast job progress update.
   """
-  @spec broadcast_progress(map(), integer()) :: :ok | {:error, term()}
-  def broadcast_progress(%{id: job_id}, progress) when is_integer(progress) do
+  @spec broadcast_progress(map(), number()) :: :ok | {:error, term()}
+  def broadcast_progress(%{id: job_id}, progress) when is_number(progress) do
+    Logger.debug(
+      "[Events] broadcast_progress job_id=#{job_id} progress=#{progress} topic=#{topic(job_id)}"
+    )
+
     broadcast(job_id, {:conversion_job, :progress, %{job_id: job_id, progress: progress}})
   end
 

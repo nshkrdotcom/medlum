@@ -54,7 +54,10 @@ config :lumainus, :docling,
   docker_gpu_url: "http://127.0.0.1:8043",
   cloud_url: System.get_env("DOCLING_CLOUD_URL"),
   timeout_ms: 1_200_000,
-  poll_interval_ms: 250
+  poll_interval_ms: 250,
+  # Docker auto-management: starts container on Phoenix boot, stops on shutdown
+  docker_auto_manage: true,
+  docker_service: "docling-cpu"
 
 # Vast.ai Auto-Shutdown Configuration
 # ====================================

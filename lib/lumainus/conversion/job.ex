@@ -92,7 +92,7 @@ defmodule Lumainus.Conversion.Job do
 
     # State tracking
     field(:state, Ecto.Enum, values: @states, default: :queued)
-    field(:progress, :integer, default: 0)
+    field(:progress, :float, default: 0.0)
     field(:pages_total, :integer)
     field(:pages_done, :integer, default: 0)
     field(:last_error, :string)

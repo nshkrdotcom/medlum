@@ -168,25 +168,37 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.Client do
 
   defp poll_status(job_id, base_url, deadline, poll_ms, on_status) do
     now = System.monotonic_time(:millisecond)
+    remaining = deadline - now
 
     if now > deadline do
+      Logger.warning("[HTTP.Client] poll_status timeout for job=#{job_id}")
       {:error, :timeout}
     else
       case job_status(job_id, base_url: base_url) do
         {:ok, %{"state" => "completed"} = status} ->
+          Logger.info("[HTTP.Client] poll_status job=#{job_id} state=completed")
           on_status.(status)
           {:ok, status}
 
         {:ok, %{"state" => "failed"} = status} ->
+          Logger.info("[HTTP.Client] poll_status job=#{job_id} state=failed")
           on_status.(status)
           {:error, {:job_failed, status}}
 
         {:ok, status} ->
+          progress = status["progress"]
+          state = status["state"]
+
+          Logger.debug(
+            "[HTTP.Client] poll_status job=#{job_id} state=#{state} progress=#{progress}"
+          )
+
           on_status.(status)
           Process.sleep(poll_ms)
           poll_status(job_id, base_url, deadline, poll_ms, on_status)
 
-        {:error, _} = error ->
+        {:error, reason} = error ->
+          Logger.warning("[HTTP.Client] poll_status job=#{job_id} error=#{inspect(reason)}")
           error
       end
     end

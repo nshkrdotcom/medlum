@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -87,10 +87,10 @@ def _push_event(job: ConversionJob, event: Dict[str, Any]) -> None:
             continue
 
 
-def _progress_from_pages(pages_done: int, pages_total: Optional[int]) -> int:
+def _progress_from_pages(pages_done: int, pages_total: Optional[int]) -> float:
     if pages_total and pages_total > 0:
-        return min(99, max(5, int((pages_done / pages_total) * 90) + 5))
-    return min(95, 5 + pages_done * 5)
+        return round((pages_done / pages_total) * 100.0, 2)
+    return 0.0
 
 
 def _format_sse(event: Dict[str, Any]) -> str:
@@ -132,7 +132,7 @@ class ConversionJob:
     output_markdown: bool
     cleanup_path: Optional[str] = None
     state: str = "queued"
-    progress: int = 0
+    progress: float = 0.0
     pages_done: int = 0
     pages_failed: int = 0
     pages_total: Optional[int] = None
@@ -188,7 +188,7 @@ async def _worker_loop(worker_id: int) -> None:
     while True:
         job: ConversionJob = await JOB_QUEUE.get()
         job.state = "running"
-        job.progress = 50
+        job.progress = 0.0
         job.started_at = time.perf_counter()
         job.timeout_at = job.timeout_at or (job.started_at + _conversion_timeout)
         job.worker_id = worker_id
@@ -227,7 +227,7 @@ async def _worker_loop(worker_id: int) -> None:
                 result.pop("markdown", None)
             job.result = result
             job.state = "completed"
-            job.progress = 100
+            job.progress = 100.0
             job.finished_at = _now()
             _push_event(
                 job,
@@ -243,7 +243,7 @@ async def _worker_loop(worker_id: int) -> None:
             job.last_error = "Docling conversion timed out"
             job.error_status = 504
             job.state = "failed"
-            job.progress = 100
+            job.progress = 100.0
             job.finished_at = _now()
             logger.error("Worker %s timed out job %s", worker_id, job.id)
             _push_event(
@@ -257,7 +257,7 @@ async def _worker_loop(worker_id: int) -> None:
             job.last_error = str(err)
             job.error_status = 500
             job.state = "failed"
-            job.progress = 100
+            job.progress = 100.0
             job.finished_at = _now()
             logger.exception("Worker %s failed job %s", worker_id, job.id)
             _push_event(
@@ -288,7 +288,7 @@ def _page_progress_cb(job: ConversionJob):
         job.pages_done = page_number
         job.pages_total = pages_total or job.pages_total
         new_progress = _progress_from_pages(page_number, job.pages_total)
-        job.progress = max(job.progress or 0, new_progress)
+        job.progress = max(job.progress or 0.0, new_progress)
         _push_event(
             job,
             {
@@ -319,7 +319,7 @@ def _docling_progress_cb(job: ConversionJob):
         if "pages_failed" in event:
             job.pages_failed = event.get("pages_failed")
         if "progress" in event:
-            job.progress = event["progress"]
+            job.progress = round(float(event["progress"]), 2)
 
         # Map Docling events to our event format
         mapped_type = {
@@ -491,8 +491,10 @@ async def _enqueue_job(
     *,
     cleanup_path: Optional[str] = None,
     wait: bool = False,
+    client_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    job_id = str(uuid4())
+    # Use client-provided job_id if given, otherwise generate one
+    job_id = client_job_id if client_job_id else str(uuid4())
     loop = asyncio.get_running_loop()
 
     job = ConversionJob(
@@ -534,6 +536,7 @@ async def _schedule_conversion(
     output_markdown: bool,
     *,
     wait: bool,
+    client_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not source_url and file is None:
         raise HTTPException(
@@ -564,6 +567,7 @@ async def _schedule_conversion(
         output_markdown,
         cleanup_path=temp_path,
         wait=wait,
+        client_job_id=client_job_id,
     )
 
 
@@ -607,21 +611,29 @@ async def queue_job(
         default=None,
         description="Public URL to a PDF. Provide this or upload a file.",
     ),
-    output_markdown: bool = Query(
-        default=True,
+    output_markdown: str = Form(
+        default="true",
         description="Whether to include the merged Markdown output in the result.",
     ),
-    wait: bool = Query(
-        default=False,
+    wait: str = Form(
+        default="false",
         description="If true, block until the Docling job finishes and return the result.",
+    ),
+    job_id: Optional[str] = Form(
+        default=None,
+        description="Client-provided job ID. If not provided, server generates one.",
     ),
     file: Optional[UploadFile] = File(
         default=None,
         description="PDF upload. Ignored if source_url is provided.",
     ),
 ) -> JSONResponse:
+    # Parse string booleans from form data
+    output_markdown_bool = output_markdown.lower() == "true"
+    wait_bool = wait.lower() == "true"
+
     job_response = await _schedule_conversion(
-        source_url, file, output_markdown, wait=wait
+        source_url, file, output_markdown_bool, wait=wait_bool, client_job_id=job_id
     )
     return JSONResponse(content=job_response)
 

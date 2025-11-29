@@ -36,6 +36,9 @@ services:
       - PORT=${DOCLING_PORT_CPU:-8042}
       - HOST=0.0.0.0
       - CUDA_VISIBLE_DEVICES=  # Disable GPU
+    volumes:
+      # Mount local code for development (overrides image code)
+      - ./docling_service/app:/app/service/app:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${DOCLING_PORT_CPU:-8042}/health"]
       interval: 30s

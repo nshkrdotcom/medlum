@@ -32,7 +32,8 @@ defmodule Lumainus.Reports do
     tenant_id = tenant_id_from_scope(scope)
 
     Repo.transaction(fn ->
-      patient = ensure_patient_for_scope!(scope, tenant_id)
+      profile_query = profile_query_without_metadata()
+      patient = ensure_patient_for_scope!(scope, tenant_id, profile_query)
       ensure_template!(tenant_id)
       patient
     end)
@@ -40,16 +41,18 @@ defmodule Lumainus.Reports do
 
   def workspace(%Scope{} = scope, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
-
     patient = patient_for_scope!(scope, tenant_id, opts)
     record_set = record_set_for(patient, opts)
+    template = default_template!(tenant_id)
+    documents = list_documents(scope, record_set)
+    sections = list_sections_with_runs(scope, record_set)
 
     %{
       patient: patient,
       record_set: record_set,
-      template: default_template!(tenant_id),
-      documents: list_documents(scope, record_set),
-      sections: list_sections_with_runs(scope, record_set)
+      template: template,
+      documents: documents,
+      sections: sections
     }
   end
 
@@ -125,6 +128,7 @@ defmodule Lumainus.Reports do
 
   @doc """
   List documents for a record set, excluding raw_blob to avoid loading multi-MB PDFs.
+  Does NOT preload parses/chunks - use get_document_with_chunks/1 for that.
   """
   def list_documents(%Scope{} = scope, record_set) do
     # Select all fields EXCEPT raw_blob to avoid loading multi-MB PDF binaries
@@ -138,6 +142,18 @@ defmodule Lumainus.Reports do
     |> order_by([d], desc: d.inserted_at)
     |> select([d], struct(d, ^fields))
     |> Repo.all()
+
+    # NOTE: parses/chunks NOT preloaded for speed - load on demand via get_document_with_chunks/1
+  end
+
+  @doc """
+  Get a document with its parses and chunks preloaded.
+  Use this when you need the actual content chunks.
+  """
+  def get_document_with_chunks(document_id) when is_binary(document_id) do
+    DocumentUpload
+    |> where([d], d.id == ^document_id)
+    |> Repo.one()
     |> Repo.preload(parses: :chunks)
   end
 
@@ -399,17 +415,28 @@ defmodule Lumainus.Reports do
   defp run_topic(record_set_id), do: "#{@run_topic_prefix}:#{record_set_id}"
 
   defp patient_for_scope!(%Scope{} = scope, tenant_id, opts) do
+    # Exclude structured_metadata from profile - can be huge (contains full document text)
+    profile_query = profile_query_without_metadata()
+
     case opts[:patient_id] do
       nil ->
-        ensure_patient_for_scope!(scope, tenant_id)
+        ensure_patient_for_scope!(scope, tenant_id, profile_query)
 
       patient_id ->
         Patient
         |> where([p], p.tenant_id == ^tenant_id and p.id == ^patient_id)
         |> maybe_filter_patients_for_user(scope.user)
-        |> preload(:current_profile)
+        |> preload(current_profile: ^profile_query)
         |> Repo.one!()
     end
+  end
+
+  defp profile_query_without_metadata do
+    profile_fields =
+      Lumainus.Clinical.PatientProfile.__schema__(:fields)
+      |> Enum.reject(&(&1 == :structured_metadata))
+
+    from(pp in Lumainus.Clinical.PatientProfile, select: struct(pp, ^profile_fields))
   end
 
   defp record_set_for(patient, opts) do
@@ -425,9 +452,10 @@ defmodule Lumainus.Reports do
     end
   end
 
-  defp ensure_patient_for_scope!(%Scope{user: nil}, tenant_id), do: ensure_patient!(tenant_id)
+  defp ensure_patient_for_scope!(%Scope{user: nil}, tenant_id, _profile_query),
+    do: ensure_patient!(tenant_id)
 
-  defp ensure_patient_for_scope!(%Scope{user: user}, tenant_id) do
+  defp ensure_patient_for_scope!(%Scope{user: user}, tenant_id, profile_query) do
     Patient
     |> where([p], p.tenant_id == ^tenant_id and p.created_by_user_id == ^user.id)
     |> order_by([p], asc: p.inserted_at)
@@ -444,7 +472,7 @@ defmodule Lumainus.Reports do
         end
 
       patient ->
-        Repo.preload(patient, :current_profile)
+        Repo.preload(patient, current_profile: profile_query)
     end
   end
 

@@ -71,8 +71,8 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   @doc "Emit job progress (sampled at 10% intervals)."
   def emit_job_progress(job, progress) do
-    # Sample: only emit every 10%
-    if rem(progress, @progress_sample_rate) == 0 do
+    # Sample: only emit every 10% (use trunc for float progress)
+    if rem(trunc(progress), @progress_sample_rate) == 0 do
       :telemetry.execute(
         [:lumainus, :conversion, :job, :progress],
         %{progress: progress},
