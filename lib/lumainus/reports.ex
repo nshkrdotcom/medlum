@@ -17,6 +17,7 @@ defmodule Lumainus.Reports do
   alias Lumainus.Reports.{
     Report,
     ReportRun,
+    ReportSectionCitation,
     ReportSectionRun,
     ReportSectionTemplate,
     ReportTemplate
@@ -381,7 +382,23 @@ defmodule Lumainus.Reports do
     )
     |> distinct([sr, _r], sr.section_template_id)
     |> order_by([sr], desc: sr.inserted_at)
-    |> preload([sr, _r], [:llm_invocation, citations: [:document]])
+    |> preload([sr, _r], [
+      :llm_invocation,
+      citations:
+        ^from(c in ReportSectionCitation,
+          preload: [
+            document:
+              ^from(d in DocumentUpload,
+                select: %DocumentUpload{
+                  id: d.id,
+                  filename: d.filename,
+                  byte_size: d.byte_size,
+                  metadata: d.metadata
+                }
+              )
+          ]
+        )
+    ])
     |> Repo.all()
     |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
   end
