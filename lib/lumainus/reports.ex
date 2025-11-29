@@ -384,6 +384,16 @@ defmodule Lumainus.Reports do
     )
     |> distinct([sr, _r], sr.section_template_id)
     |> order_by([sr], desc: sr.inserted_at)
+    |> select([sr], %ReportSectionRun{
+      id: sr.id,
+      section_template_id: sr.section_template_id,
+      status: sr.status,
+      output_markdown: sr.output_markdown,
+      inline_citations: sr.inline_citations,
+      inserted_at: sr.inserted_at,
+      updated_at: sr.updated_at,
+      llm_invocation_id: sr.llm_invocation_id
+    })
     |> preload([sr, _r], [
       :llm_invocation,
       citations:
