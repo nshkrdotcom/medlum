@@ -105,6 +105,7 @@ defmodule Lumainus.Documents do
   def list_documents(%Scope{} = scope, record_set, opts \\ []) do
     include_summary? = Keyword.get(opts, :include_summary?, false)
     summary_limit = Keyword.get(opts, :summary_limit, @document_summary_preview_bytes)
+    t0 = System.monotonic_time(:millisecond)
 
     DocumentUpload
     |> where([d], d.tenant_id == ^scope.tenant_id)
@@ -167,6 +168,15 @@ defmodule Lumainus.Documents do
         )
     })
     |> Repo.all()
+    |> tap(fn docs ->
+      t1 = System.monotonic_time(:millisecond)
+
+      if Mix.env() == :dev do
+        Logger.info(
+          "[list_documents][dev] record_set=#{record_set.id} count=#{length(docs)} total_bytes=#{Enum.reduce(docs, 0, fn d, acc -> acc + (d.byte_size || 0) end)} duration_ms=#{t1 - t0}"
+        )
+      end
+    end)
   end
 
   @doc """
