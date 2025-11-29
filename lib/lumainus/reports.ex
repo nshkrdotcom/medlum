@@ -392,27 +392,31 @@ defmodule Lumainus.Reports do
       inline_citations: sr.inline_citations,
       inserted_at: sr.inserted_at,
       updated_at: sr.updated_at,
-      llm_invocation_id: sr.llm_invocation_id
+      llm_invocation_id: sr.llm_invocation_id,
+      report_run_id: sr.report_run_id
     })
-    |> preload([sr, _r], [
-      :llm_invocation,
-      citations:
-        ^from(c in ReportSectionCitation,
-          preload: [
-            document:
-              ^from(d in DocumentUpload,
-                select: %DocumentUpload{
-                  id: d.id,
-                  filename: d.filename,
-                  byte_size: d.byte_size,
-                  metadata: d.metadata
-                }
-              )
-          ]
-        )
-    ])
     |> Repo.all()
+    |> preload_latest_runs()
     |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
+  end
+
+  defp preload_latest_runs(runs) do
+    doc_query =
+      from(d in DocumentUpload,
+        select: %DocumentUpload{
+          id: d.id,
+          filename: d.filename,
+          byte_size: d.byte_size,
+          metadata: d.metadata
+        }
+      )
+
+    citations_query =
+      from(c in ReportSectionCitation,
+        preload: [document: ^doc_query]
+      )
+
+    Repo.preload(runs, [:llm_invocation, citations: citations_query])
   end
 
   defp attach_repo_query_logger do
