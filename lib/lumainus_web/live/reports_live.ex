@@ -674,7 +674,11 @@ defmodule LumainusWeb.ReportsLive do
         "latest_runs=#{t8 - t7}ms " <>
         "recent_runs=#{t9 - t8}ms " <>
         "patients=#{t10 - t9}ms " <>
-        "total=#{t10 - timings.start}ms"
+        "total=#{t10 - timings.start}ms " <>
+        "docs=#{length(documents)} " <>
+        "doc_bytes=#{Enum.reduce(documents, 0, fn d, acc -> acc + (d.byte_size || 0) end)} " <>
+        "sections=#{length(sections)} " <>
+        "section_output_bytes=#{Enum.reduce(sections, 0, fn %{last_run: run}, acc -> acc + ((run && run.output_markdown && byte_size(run.output_markdown)) || 0) end)}"
     )
 
     socket =
