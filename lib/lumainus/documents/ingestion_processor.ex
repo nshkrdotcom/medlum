@@ -403,7 +403,10 @@ defmodule Lumainus.Documents.IngestionProcessor do
   defp persist_chunks(_parse, _markdown), do: :ok
 
   defp fetch_markdown(response) when is_map(response) do
-    case Map.get(response, "markdown") do
+    # SSE stream puts result in "result" key, direct API returns it at top level
+    result = Map.get(response, "result", response)
+
+    case Map.get(result, "markdown") do
       nil -> ""
       value when is_binary(value) -> value
       other -> to_string(other)

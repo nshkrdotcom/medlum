@@ -128,14 +128,14 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
         on_status.(event)
         await_loop(job_id, pid, on_status, timeout_ms)
 
-      {:sse_done, ^job_id, :completed} ->
-        {:ok, %{"state" => "completed"}}
+      {:sse_done, ^job_id, :completed, result} ->
+        {:ok, result}
 
-      {:sse_done, ^job_id, :failed} ->
-        {:error, {:job_failed, %{"state" => "failed"}}}
+      {:sse_done, ^job_id, :failed, result} ->
+        {:error, {:job_failed, result}}
 
-      {:sse_done, ^job_id, :cancelled} ->
-        {:error, {:job_cancelled, %{"state" => "cancelled"}}}
+      {:sse_done, ^job_id, :cancelled, result} ->
+        {:error, {:job_cancelled, result}}
     after
       timeout_ms ->
         Logger.warning("[SSEStream] await timeout for job=#{job_id}")
@@ -240,7 +240,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
         send(acc.caller, {:sse_event, acc.job_id, event})
 
         if terminal_state?(event) do
-          send(acc.caller, {:sse_done, acc.job_id, terminal_result(event)})
+          send(acc.caller, {:sse_done, acc.job_id, terminal_result(event), event})
           # Mark for stop
           Map.put(acc, :should_stop, true)
         else

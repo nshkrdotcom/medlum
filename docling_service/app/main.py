@@ -237,6 +237,7 @@ async def _worker_loop(worker_id: int) -> None:
                     "elapsed_ms": int((job.finished_at - job.started_at) * 1000)
                     if job.started_at
                     else None,
+                    "result": job.result,
                 },
             )
         except asyncio.TimeoutError:
