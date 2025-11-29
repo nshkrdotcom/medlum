@@ -576,10 +576,6 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp load_workspace(socket, opts \\ []) do
-    load_start = System.monotonic_time(:millisecond)
-    timings = %{start: System.monotonic_time(:millisecond)}
-    mem_before_total = :erlang.memory(:total)
-
     scope = socket.assigns.current_scope
     has_patient_override = Keyword.has_key?(opts, :patient_id)
 
@@ -593,31 +589,17 @@ defmodule LumainusWeb.ReportsLive do
     patient_id =
       Keyword.get(opts, :patient_id) || (socket.assigns[:patient] && socket.assigns.patient.id)
 
-    t0 = System.monotonic_time(:millisecond)
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
-    t1 = System.monotonic_time(:millisecond)
-
-    Logger.info(
-      "[ReportsLive.load_workspace] workspace_call=#{t1 - t0}ms patient=#{workspace.patient.id} record_set=#{workspace.record_set.id} docs=#{length(workspace.documents)} sections=#{length(workspace.sections)} opts=#{inspect(opts)}"
-    )
-
-    # Per-component timing to isolate slow steps
-    doc_start = System.monotonic_time(:millisecond)
     documents = format_documents(workspace.documents)
-    doc_end = System.monotonic_time(:millisecond)
 
-    sect_start = System.monotonic_time(:millisecond)
     sections = format_sections(workspace.sections)
-    sect_end = System.monotonic_time(:millisecond)
 
     # TODO: Integrate with v2 HealthManager
     docling_health = nil
-    health_end = System.monotonic_time(:millisecond)
 
     # INSTANT: Get GPU status from InstanceManager state machine (no HTTP)
     # InstanceManager maintains health state via periodic background checks
     gpu_instance_status = check_gpu_instance_status_fast()
-    gpu_end = System.monotonic_time(:millisecond)
 
     # Derive fast_available? from CloudStatus via gpu_instance_status
     # No "Checking..." delays - trust CloudStatus as single source of truth
@@ -666,45 +648,10 @@ defmodule LumainusWeb.ReportsLive do
       |> Enum.map(& &1.section.id)
       |> MapSet.new()
 
-    t6 = System.monotonic_time(:millisecond)
     record_sets = RecordSets.list_for_patient(workspace.patient)
-    t7 = System.monotonic_time(:millisecond)
-
     record_set_latest_runs = Reports.latest_runs_for_record_sets(scope, record_sets)
-    t8 = System.monotonic_time(:millisecond)
-
     recent_runs = Reports.list_runs_for_record_set(scope, workspace.record_set, limit: 5)
-    t9 = System.monotonic_time(:millisecond)
-
     patients = Reports.list_patients_for_scope(scope)
-    t10 = System.monotonic_time(:millisecond)
-
-    # Log all timings
-    Logger.info(
-      "[load_workspace] TIMING " <>
-        "workspace=#{t1 - t0}ms " <>
-        "format_docs=#{doc_end - doc_start}ms " <>
-        "format_sections=#{sect_end - sect_start}ms " <>
-        "docling_health=#{health_end - sect_end}ms " <>
-        "gpu_status=#{gpu_end - health_end}ms " <>
-        "record_sets=#{t7 - t6}ms " <>
-        "latest_runs=#{t8 - t7}ms " <>
-        "recent_runs=#{t9 - t8}ms " <>
-        "patients=#{t10 - t9}ms " <>
-        "total=#{t10 - timings.start}ms " <>
-        "docs=#{length(documents)} " <>
-        "doc_bytes=#{Enum.reduce(documents, 0, fn d, acc -> acc + (d.byte_size || 0) end)} " <>
-        "sections=#{length(sections)} " <>
-        "section_output_bytes=#{Enum.reduce(sections, 0, fn %{last_run: run}, acc -> acc + ((run && run.output_markdown && byte_size(run.output_markdown)) || 0) end)}"
-    )
-
-    maybe_log_memory_delta(mem_before_total)
-
-    maybe_log_dev_debug(documents, sections, %{
-      workspace: t1 - t0,
-      format_docs: doc_end - doc_start,
-      format_sections: sect_end - sect_start
-    })
 
     socket =
       socket
@@ -745,11 +692,6 @@ defmodule LumainusWeb.ReportsLive do
     |> maybe_subscribe_record_set(workspace.record_set.id)
     |> maybe_subscribe_report_runs(workspace.record_set.id)
     |> subscribe_to_job_topics()
-    |> tap(fn _ ->
-      Logger.info(
-        "[ReportsLive.load_workspace] finished total=#{System.monotonic_time(:millisecond) - load_start}ms"
-      )
-    end)
   end
 
   @impl true
@@ -1372,47 +1314,6 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp document_modal_tabs, do: @document_modal_tabs
-
-  defp maybe_log_memory_delta(mem_before_total) do
-    mem_after_total = :erlang.memory(:total)
-    delta = mem_after_total - mem_before_total
-
-    if Mix.env() == :dev do
-      Logger.info(
-        "[load_workspace] MEM total_before=#{mem_before_total} total_after=#{mem_after_total} delta=#{delta} top_procs=#{inspect(top_processes_by_memory(5))}"
-      )
-    end
-  end
-
-  defp top_processes_by_memory(limit) do
-    Process.list()
-    |> Enum.map(fn pid ->
-      mem =
-        case Process.info(pid, :memory) do
-          {:memory, bytes} -> bytes
-          _ -> 0
-        end
-
-      {pid, mem, Process.info(pid, :current_function)}
-    end)
-    |> Enum.sort_by(fn {_pid, mem, _fun} -> -mem end)
-    |> Enum.take(limit)
-  end
-
-  defp maybe_log_dev_debug(documents, sections, timings) do
-    if Mix.env() == :dev do
-      total_doc_bytes = Enum.reduce(documents, 0, fn d, acc -> acc + (d.byte_size || 0) end)
-
-      max_doc =
-        documents
-        |> Enum.map(fn d -> {d.id, d.byte_size || 0} end)
-        |> Enum.max_by(fn {_id, bytes} -> bytes end, fn -> {nil, 0} end)
-
-      Logger.info(
-        "[load_workspace][dev] docs=#{length(documents)} total_doc_bytes=#{total_doc_bytes} max_doc=#{inspect(max_doc)} sections=#{length(sections)} timings=#{inspect(timings)}"
-      )
-    end
-  end
 
   defp maybe_disable_fast(socket, fast_available?) do
     if fast_available? do

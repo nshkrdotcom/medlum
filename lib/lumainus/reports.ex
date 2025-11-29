@@ -441,30 +441,7 @@ defmodule Lumainus.Reports do
         }
       )
 
-    t_llm_0 = System.monotonic_time(:millisecond)
-    runs_with_llm = Repo.preload(runs, llm_invocation: llm_shallow_query)
-    t_llm_1 = System.monotonic_time(:millisecond)
-
-    t_cit_0 = System.monotonic_time(:millisecond)
-    preloaded = Repo.preload(runs_with_llm, citations: citations_query)
-    t_cit_1 = System.monotonic_time(:millisecond)
-
-    citation_count =
-      Enum.reduce(preloaded, 0, fn run, acc -> acc + length(run.citations || []) end)
-
-    doc_ids =
-      preloaded
-      |> Enum.flat_map(fn run -> Enum.map(run.citations || [], & &1.document_id) end)
-      |> Enum.reject(&is_nil/1)
-      |> MapSet.new()
-      |> MapSet.size()
-
-    Logger.info(
-      "[Reports.preload_latest_runs] runs=#{length(preloaded)} citations=#{citation_count} docs=#{doc_ids} " <>
-        "time_llm=#{t_llm_1 - t_llm_0}ms time_citations=#{t_cit_1 - t_cit_0}ms total=#{t_cit_1 - t_llm_0}ms"
-    )
-
-    preloaded
+    Repo.preload(runs, llm_invocation: llm_shallow_query, citations: citations_query)
   end
 
   defp maybe_filter_patients_for_user(query, nil), do: query
