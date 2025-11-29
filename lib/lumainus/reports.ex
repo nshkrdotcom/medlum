@@ -362,8 +362,6 @@ defmodule Lumainus.Reports do
   defp latest_section_runs_map([], _record_set_id), do: %{}
 
   defp latest_section_runs_map(section_ids, record_set_id) do
-    t0 = System.monotonic_time(:millisecond)
-
     ids =
       try do
         Enum.to_list(section_ids)
@@ -389,8 +387,6 @@ defmodule Lumainus.Reports do
       |> select([t], t.id)
       |> Repo.all()
 
-    t_ids = System.monotonic_time(:millisecond)
-
     runs =
       ReportSectionRun
       |> where([sr], sr.id in ^latest_ids)
@@ -407,18 +403,11 @@ defmodule Lumainus.Reports do
       })
       |> Repo.all()
 
-    t_runs = System.monotonic_time(:millisecond)
-
-    preloaded = preload_latest_runs(runs)
-    t_preload = System.monotonic_time(:millisecond)
-
-    preloaded
+    preload_latest_runs(runs)
     |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
   end
 
   defp preload_latest_runs(runs) do
-    t0 = System.monotonic_time(:millisecond)
-
     doc_query =
       from(d in DocumentUpload,
         select: %DocumentUpload{
@@ -434,8 +423,31 @@ defmodule Lumainus.Reports do
         preload: [document: ^doc_query]
       )
 
-    preloaded = Repo.preload(runs, [:llm_invocation, citations: citations_query])
-    t1 = System.monotonic_time(:millisecond)
+    t_llm_0 = System.monotonic_time(:millisecond)
+    runs_with_llm = Repo.preload(runs, [:llm_invocation])
+    t_llm_1 = System.monotonic_time(:millisecond)
+
+    prompt_bytes =
+      runs_with_llm
+      |> Enum.reduce(0, fn run, acc ->
+        case run.llm_invocation do
+          nil -> acc
+          inv -> acc + byte_size(inv.prompt_text || "")
+        end
+      end)
+
+    response_bytes =
+      runs_with_llm
+      |> Enum.reduce(0, fn run, acc ->
+        case run.llm_invocation do
+          nil -> acc
+          inv -> acc + byte_size(inv.response_text || "")
+        end
+      end)
+
+    t_cit_0 = System.monotonic_time(:millisecond)
+    preloaded = Repo.preload(runs_with_llm, citations: citations_query)
+    t_cit_1 = System.monotonic_time(:millisecond)
 
     citation_count =
       Enum.reduce(preloaded, 0, fn run, acc -> acc + length(run.citations || []) end)
@@ -448,7 +460,9 @@ defmodule Lumainus.Reports do
       |> MapSet.size()
 
     Logger.info(
-      "[Reports.preload_latest_runs] runs=#{length(preloaded)} citations=#{citation_count} docs=#{doc_ids} time=#{t1 - t0}ms"
+      "[Reports.preload_latest_runs] runs=#{length(preloaded)} citations=#{citation_count} docs=#{doc_ids} " <>
+        "time_llm=#{t_llm_1 - t_llm_0}ms time_citations=#{t_cit_1 - t_cit_0}ms total=#{t_cit_1 - t_llm_0}ms " <>
+        "prompt_bytes=#{prompt_bytes} response_bytes=#{response_bytes}"
     )
 
     preloaded
