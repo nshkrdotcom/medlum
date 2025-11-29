@@ -96,6 +96,53 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
 
   def cancel(_), do: :ok
 
+  @doc """
+  Await job completion via SSE (blocking).
+
+  Same interface as HTTP polling but uses SSE for real-time updates.
+  Returns `{:ok, final_status}` or `{:error, reason}`.
+  """
+  @spec await(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def await(job_id, opts) do
+    base_url = Keyword.fetch!(opts, :base_url)
+    timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
+    on_status = Keyword.get(opts, :on_status, fn _ -> :ok end)
+
+    {:ok, pid} =
+      subscribe(job_id,
+        base_url: base_url,
+        timeout_ms: timeout_ms,
+        link?: false
+      )
+
+    try do
+      await_loop(job_id, pid, on_status, timeout_ms)
+    after
+      cancel(pid)
+    end
+  end
+
+  defp await_loop(job_id, pid, on_status, timeout_ms) do
+    receive do
+      {:sse_event, ^job_id, event} ->
+        on_status.(event)
+        await_loop(job_id, pid, on_status, timeout_ms)
+
+      {:sse_done, ^job_id, :completed} ->
+        {:ok, %{"state" => "completed"}}
+
+      {:sse_done, ^job_id, :failed} ->
+        {:error, {:job_failed, %{"state" => "failed"}}}
+
+      {:sse_done, ^job_id, :cancelled} ->
+        {:error, {:job_cancelled, %{"state" => "cancelled"}}}
+    after
+      timeout_ms ->
+        Logger.warning("[SSEStream] await timeout for job=#{job_id}")
+        {:error, :timeout}
+    end
+  end
+
   # ============================================================================
   # Server Callbacks
   # ============================================================================
@@ -136,7 +183,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
 
   @impl true
   def handle_info(:connect, state) do
-    url = "#{state.base_url}/jobs/#{state.job_id}/events"
+    url = "#{state.base_url}/jobs/#{state.job_id}/stream"
 
     case start_sse_connection(url, state.timeout_ms, state.finch_name) do
       {:ok, task_pid} ->

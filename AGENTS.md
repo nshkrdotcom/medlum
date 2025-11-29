@@ -1,6 +1,6 @@
 # AI Agents Guide - Lumainus Project
 
-**Last Updated:** November 24, 2025 (5-backend Docling architecture)
+**Last Updated:** November 28, 2025 (SSE streaming, DockerManager auto-restart)
 **Project:** Lumainus - Traceable AI Intelligence Platform
 **Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
 
@@ -733,7 +733,7 @@ For ongoing Docling ingestion work:
 
 ---
 
-## Docling 5-Backend Architecture (Updated 2025-11-24)
+## Docling 5-Backend Architecture (Updated 2025-11-28)
 
 ### Port Assignments (Standardized)
 
@@ -819,3 +819,148 @@ Run `mix ecto.migrate` to apply the expansion migration.
 - **Tests**: Use Bypass mocks; set `prefer_env_overrides: true` in test config
 - **URL safety**: Must use `https://` unless localhost/127.0.0.1
 - **Progress latency debugging**: Enable `[docling-progress-debug]` logging by setting `config :lumainus, :docling, debug_progress_log: true`
+
+---
+
+## SSE Streaming Architecture (Updated 2025-11-28)
+
+### Communication Flow
+
+```
+Python (docling_service)
+    └── GET /jobs/{job_id}/stream (SSE endpoint)
+            │
+            ▼
+Elixir (SSEStream.await)
+    └── Opens SSE connection via Finch
+    └── Blocks waiting for events
+    └── Calls on_status callback for each event
+    └── Returns {:ok, status} or {:error, reason} on terminal state
+            │
+            ▼
+Backends (LocalBackend/CloudBackend)
+    └── Use SSEStream.await for real-time progress
+```
+
+**NO HTTP polling.** All progress updates come via Server-Sent Events.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `lib/lumainus/conversion/infrastructure/http/sse_stream.ex` | SSE client with reconnection, heartbeat |
+| `lib/lumainus/conversion/infrastructure/http/client.ex` | HTTP client (enqueue, status, health, cancel) |
+| `lib/lumainus/conversion/backends/local_backend.ex` | Local backend using SSEStream.await |
+| `lib/lumainus/conversion/backends/cloud_backend.ex` | Cloud backend using SSEStream.await |
+| `docling_service/app/main.py` | FastAPI service with SSE endpoint |
+
+### SSEStream Features
+
+- **Automatic reconnection** with exponential backoff: [1s, 2s, 5s, 10s, 30s]
+- **Heartbeat monitoring** (default 60s timeout)
+- **JSON event parsing** with terminal state detection
+- **Blocking await** interface for synchronous callers
+
+### Progress Calculation
+
+Progress is calculated in `main.py` from pages, NOT passed through from docling:
+
+```python
+# docling_service/app/main.py - _docling_progress_cb
+if job.pages_total and job.pages_total > 0:
+    calculated = round((job.pages_done / job.pages_total) * 100.0, 2)
+    job.progress = min(max(calculated, 0.0), 100.0)
+```
+
+This ensures:
+- Progress is always 0-100 scale with 2 decimal places
+- Progress never exceeds 100%
+- Progress is derived from reliable page counts, not docling's internal (unreliable) progress field
+
+---
+
+## DockerManager Auto-Start (Updated 2025-11-28)
+
+### Behavior
+
+When `mix phx.server` starts, `DockerManager` GenServer automatically runs:
+
+```bash
+docker compose up -d --force-recreate docling-cpu
+```
+
+The `--force-recreate` flag ensures:
+- Container is recreated even if already running
+- Volume-mounted changes (like `main.py`) are picked up immediately
+- No manual Docker restart needed after code changes
+
+### Key Code
+
+`lib/lumainus/docling/docker_manager.ex`:
+- **Starts on Phoenix boot** via Application supervisor
+- **Stops container on Phoenix shutdown**
+- **Monitors health** and restarts if container dies
+- **Uses --force-recreate** for startup (lines 148-156, 197-205)
+
+### Implication for Development
+
+**Just restart Phoenix.** Docker container restarts automatically with latest volume-mounted code.
+
+---
+
+## Forked Docling Library (Updated 2025-11-28)
+
+### Location
+
+The project includes a forked version of the Docling library:
+
+```
+lumainus/
+├── docling/                    # Forked docling library
+│   └── docling/
+│       └── pipeline/
+│           ├── base_pipeline.py
+│           └── standard_pdf_pipeline.py
+└── docling_service/           # FastAPI wrapper service
+    └── app/
+        └── main.py            # Volume-mounted, changes apply immediately
+```
+
+### What's Volume-Mounted vs Baked
+
+| Component | Location | How Changes Apply |
+|-----------|----------|-------------------|
+| `docling_service/app/` | Volume-mounted | Immediate on container restart |
+| `docling/` (forked library) | Baked into Docker image | Requires image rebuild |
+
+### Rebuilding the Base Image
+
+If you change files in `docling/docling/pipeline/`:
+
+```bash
+./scripts/docling-gpu.sh build-base   # ~10 minutes
+```
+
+This rebuilds `ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest` with the forked docling code.
+
+### Dockerfile Structure
+
+`docling_service/Dockerfile.gpu-base` (lines 28-30):
+```dockerfile
+COPY docling /app/docling
+RUN pip install -e /app/docling
+```
+
+---
+
+## Database: Progress as Float (2025-11-28)
+
+Migration `20251129021313_change_conversion_jobs_progress_to_float.exs`:
+
+```elixir
+alter table(:conversion_jobs) do
+  modify(:progress, :float, default: 0.0)
+end
+```
+
+Progress is now stored as FLOAT with 2 decimal places (e.g., 45.67% not 45%).

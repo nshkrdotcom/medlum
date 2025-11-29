@@ -84,20 +84,6 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.Client do
     end
   end
 
-  @doc """
-  Await job completion (blocking poll).
-  """
-  @spec await(map(), keyword(), keyword()) :: {:ok, map()} | {:error, term()}
-  def await(job_ref, opts, http_opts) do
-    base_url = Keyword.fetch!(http_opts, :base_url)
-    timeout_ms = Keyword.get(opts, :timeout_ms, job_ref[:timeout_ms] || 300_000)
-    on_status = Keyword.get(opts, :on_status, fn _ -> :ok end)
-    poll_ms = Keyword.get(opts, :poll_interval_ms, 250)
-
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    poll_status(job_ref[:job_id], base_url, deadline, poll_ms, on_status)
-  end
-
   # ============================================================================
   # Private Implementation
   # ============================================================================
@@ -163,44 +149,6 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.Client do
       [{:job_id, job_id} | fields]
     else
       fields
-    end
-  end
-
-  defp poll_status(job_id, base_url, deadline, poll_ms, on_status) do
-    now = System.monotonic_time(:millisecond)
-    remaining = deadline - now
-
-    if now > deadline do
-      Logger.warning("[HTTP.Client] poll_status timeout for job=#{job_id}")
-      {:error, :timeout}
-    else
-      case job_status(job_id, base_url: base_url) do
-        {:ok, %{"state" => "completed"} = status} ->
-          Logger.info("[HTTP.Client] poll_status job=#{job_id} state=completed")
-          on_status.(status)
-          {:ok, status}
-
-        {:ok, %{"state" => "failed"} = status} ->
-          Logger.info("[HTTP.Client] poll_status job=#{job_id} state=failed")
-          on_status.(status)
-          {:error, {:job_failed, status}}
-
-        {:ok, status} ->
-          progress = status["progress"]
-          state = status["state"]
-
-          Logger.debug(
-            "[HTTP.Client] poll_status job=#{job_id} state=#{state} progress=#{progress}"
-          )
-
-          on_status.(status)
-          Process.sleep(poll_ms)
-          poll_status(job_id, base_url, deadline, poll_ms, on_status)
-
-        {:error, reason} = error ->
-          Logger.warning("[HTTP.Client] poll_status job=#{job_id} error=#{inspect(reason)}")
-          error
-      end
     end
   end
 

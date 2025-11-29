@@ -30,6 +30,7 @@ defmodule Lumainus.Conversion.Backends.LocalBackend do
   @behaviour Lumainus.Conversion.Backend
 
   alias Lumainus.Conversion.Infrastructure.HTTP.Client
+  alias Lumainus.Conversion.Infrastructure.HTTP.SSEStream
 
   require Logger
 
@@ -47,8 +48,15 @@ defmodule Lumainus.Conversion.Backends.LocalBackend do
   @impl true
   def await(job_ref, opts) do
     endpoint = get_endpoint_from_job_ref(job_ref, opts)
+    job_id = job_ref[:job_id]
+    timeout_ms = Keyword.get(opts, :timeout_ms, job_ref[:timeout_ms] || 300_000)
+    on_status = Keyword.get(opts, :on_status, fn _ -> :ok end)
 
-    Client.await(job_ref, opts, base_url: endpoint)
+    SSEStream.await(job_id,
+      base_url: endpoint,
+      timeout_ms: timeout_ms,
+      on_status: on_status
+    )
   end
 
   @impl true

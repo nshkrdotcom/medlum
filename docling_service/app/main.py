@@ -318,8 +318,11 @@ def _docling_progress_cb(job: ConversionJob):
             job.pages_total = event["pages_total"]
         if "pages_failed" in event:
             job.pages_failed = event.get("pages_failed")
-        if "progress" in event:
-            job.progress = round(float(event["progress"]), 2)
+
+        # Always calculate progress from pages (ignore docling's progress field - unreliable)
+        if job.pages_total and job.pages_total > 0:
+            calculated = round((job.pages_done / job.pages_total) * 100.0, 2)
+            job.progress = min(max(calculated, 0.0), 100.0)
 
         # Map Docling events to our event format
         mapped_type = {

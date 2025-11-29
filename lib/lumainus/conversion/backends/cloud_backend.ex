@@ -27,6 +27,7 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
 
   alias Lumainus.Conversion.CloudStatus
   alias Lumainus.Conversion.Infrastructure.HTTP.Client
+  alias Lumainus.Conversion.Infrastructure.HTTP.SSEStream
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ActivityTracker
 
@@ -64,11 +65,21 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
   @impl true
   def await(job_ref, opts) do
     # For await, use shorter timeout since instance should already be provisioned
-    timeout_ms = Keyword.get(opts, :await_provisioning_timeout_ms, 60_000)
+    provisioning_timeout = Keyword.get(opts, :await_provisioning_timeout_ms, 60_000)
 
-    case wait_for_ready(timeout_ms, opts) do
+    case wait_for_ready(provisioning_timeout, opts) do
       {:ok, endpoint} ->
-        result = Client.await(job_ref, opts, base_url: endpoint)
+        job_id = job_ref[:job_id]
+        timeout_ms = Keyword.get(opts, :timeout_ms, job_ref[:timeout_ms] || 300_000)
+        on_status = Keyword.get(opts, :on_status, fn _ -> :ok end)
+
+        result =
+          SSEStream.await(job_id,
+            base_url: endpoint,
+            timeout_ms: timeout_ms,
+            on_status: on_status
+          )
+
         record_activity(opts)
         result
 
