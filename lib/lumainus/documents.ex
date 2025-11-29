@@ -28,6 +28,8 @@ defmodule Lumainus.Documents do
 
   @topic_prefix "record-set"
   @job_topic_prefix "ingestion-job"
+  @document_summary_preview_bytes 1_000
+  @document_content_preview_bytes 200_000
 
   def subscribe_to_record_set(record_set_id) when is_binary(record_set_id) do
     PubSub.subscribe(LumainusWeb.PubSub, topic(record_set_id))
@@ -92,6 +94,146 @@ defmodule Lumainus.Documents do
       job_topic(job.id),
       {:job_progress, job.record_set_id, payload}
     )
+  end
+
+  @doc """
+  List document uploads for a record set without pulling large blobs or verbose metadata.
+
+  Only lightweight metadata needed for the UI is returned. Pass `include_summary?: true`
+  to include a truncated summary in the metadata payload (omitted by default).
+  """
+  def list_documents(%Scope{} = scope, record_set, opts \\ []) do
+    include_summary? = Keyword.get(opts, :include_summary?, false)
+    summary_limit = Keyword.get(opts, :summary_limit, @document_summary_preview_bytes)
+
+    DocumentUpload
+    |> where([d], d.tenant_id == ^scope.tenant_id)
+    |> where([d], d.record_set_id == ^record_set.id)
+    |> order_by([d], desc: d.inserted_at)
+    |> select([d], struct(d, ^document_listing_fields()))
+    |> select_merge([d], %{
+      metadata:
+        fragment(
+          """
+          jsonb_strip_nulls(
+            jsonb_build_object(
+              'label', (?->>'label'),
+              'summary', ?,
+              'provider', (?->>'provider'),
+              'date', (?->>'date'),
+              'ingestion_state', (?->>'ingestion_state'),
+              'ingestion_stage', (?->>'ingestion_stage'),
+              'ingestion_progress', NULLIF((?->>'ingestion_progress'), '')::double precision,
+              'ingestion_message', (?->>'ingestion_message'),
+              'ingestion_error', (?->>'ingestion_error'),
+              'ingestion_job_id', (?->>'ingestion_job_id'),
+              'ingestion_timeout_at', (?->>'ingestion_timeout_at'),
+              'progress', (?->'progress'),
+              'docling_backend', (?->>'docling_backend'),
+              'docling_backend_status', (?->>'docling_backend_status'),
+              'docling_job_id', (?->>'docling_job_id'),
+              'conversion_profile', (?->>'conversion_profile'),
+              'backend', coalesce(?->>'backend', ?->>'docling_backend'),
+              'status', (?->>'status'),
+              'mock_id', (?->>'mock_id')
+            )
+          )
+          """,
+          d.metadata,
+          fragment(
+            "CASE WHEN ? THEN left(coalesce(?->>'summary', ''), ?) ELSE NULL END",
+            ^include_summary?,
+            d.metadata,
+            ^summary_limit
+          ),
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata,
+          d.metadata
+        )
+    })
+    |> Repo.all()
+  end
+
+  @doc """
+  Lazily load document content for modal/detail views with strict truncation.
+
+  By default, both cleaned text and raw blobs are capped to #{@document_content_preview_bytes} bytes
+  to prevent multi-MB assigns. Use `include_raw?: false` when raw payloads are not needed.
+  """
+  def get_document_content(document_id, opts \\ []) when is_binary(document_id) do
+    cleaned_limit = Keyword.get(opts, :cleaned_limit, @document_content_preview_bytes)
+    raw_limit = Keyword.get(opts, :raw_limit, @document_content_preview_bytes)
+    summary_limit = Keyword.get(opts, :summary_limit, @document_summary_preview_bytes)
+    include_raw? = Keyword.get(opts, :include_raw?, true)
+
+    upload_query =
+      DocumentUpload
+      |> where([d], d.id == ^document_id)
+
+    upload =
+      upload_query
+      |> select([d], %{
+        raw_content:
+          fragment(
+            "CASE WHEN ? THEN substring(coalesce(?, '\\x'::bytea) for ?) ELSE NULL::bytea END",
+            ^include_raw?,
+            d.raw_blob,
+            ^raw_limit
+          ),
+        raw_size:
+          fragment(
+            "CASE WHEN ? THEN octet_length(coalesce(?, '\\x'::bytea)) ELSE 0::int END",
+            ^include_raw?,
+            d.raw_blob
+          ),
+        summary: fragment("left(coalesce(?->>'summary', ''), ?)", d.metadata, ^summary_limit),
+        summary_size: fragment("octet_length(coalesce(?->>'summary', ''))", d.metadata)
+      })
+      |> Repo.one()
+
+    parse =
+      DocumentParse
+      |> where([p], p.upload_id == ^document_id)
+      |> order_by([p], desc: p.extracted_at)
+      |> limit(1)
+      |> select([p], %{
+        cleaned_content:
+          fragment("substring(coalesce(?, '') for ?)", p.parsed_text, ^cleaned_limit),
+        cleaned_size: fragment("octet_length(coalesce(?, ''))", p.parsed_text)
+      })
+      |> Repo.one()
+
+    %{
+      cleaned_content: parse && parse.cleaned_content,
+      cleaned_truncated?: parse && parse.cleaned_size > cleaned_limit,
+      cleaned_limit: cleaned_limit,
+      raw_content: upload && upload.raw_content,
+      raw_truncated?: include_raw? && upload && upload.raw_size > raw_limit,
+      raw_limit: if(include_raw?, do: raw_limit, else: nil),
+      summary: upload && upload.summary,
+      summary_truncated?: upload && upload.summary_size > summary_limit,
+      summary_limit: summary_limit
+    }
+  end
+
+  defp document_listing_fields do
+    DocumentUpload.__schema__(:fields)
+    |> Enum.reject(&(&1 == :raw_blob))
   end
 
   def create_upload(

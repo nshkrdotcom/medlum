@@ -29,6 +29,10 @@ defmodule LumainusWeb.ReportsLive do
     %{id: "raw", label: "Raw PDF text"}
   ]
   @document_modal_tab_ids Enum.map(@document_modal_tabs, & &1.id)
+  @document_summary_preview_bytes 1_000
+  @document_sidebar_preview_bytes 50_000
+  @document_modal_content_bytes 200_000
+  @document_modal_summary_bytes 4_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -126,12 +130,24 @@ defmodule LumainusWeb.ReportsLive do
         Logger.debug("Found document: #{inspect(doc.label)}")
 
         # Lazy-load document content only when modal opens
-        content = Reports.get_document_content(doc.id)
+        content =
+          Reports.get_document_content(doc.id,
+            cleaned_limit: @document_modal_content_bytes,
+            raw_limit: @document_modal_content_bytes,
+            summary_limit: @document_modal_summary_bytes
+          )
 
         doc_with_content =
           doc
+          |> Map.put(:summary, content.summary || doc.summary)
+          |> Map.put(:summary_truncated?, content.summary_truncated? || doc.summary_truncated?)
+          |> Map.put(:summary_limit, content.summary_limit || @document_modal_summary_bytes)
           |> Map.put(:cleaned_content, content.cleaned_content)
+          |> Map.put(:cleaned_truncated?, content.cleaned_truncated? || false)
+          |> Map.put(:cleaned_limit, content.cleaned_limit || @document_modal_content_bytes)
           |> Map.put(:raw_content, content.raw_content)
+          |> Map.put(:raw_truncated?, content.raw_truncated? || false)
+          |> Map.put(:raw_limit, content.raw_limit || @document_modal_content_bytes)
 
         {:noreply,
          socket
@@ -1235,7 +1251,15 @@ defmodule LumainusWeb.ReportsLive do
     |> Enum.map(fn {doc, index} ->
       metadata = doc.metadata || %{}
       label = metadata["label"] || Path.rootname(doc.filename)
-      summary = metadata["summary"] || "Awaiting ingestion"
+
+      summary_text =
+        metadata["summary"] ||
+          metadata["ingestion_message"] ||
+          "Open document to load summary"
+
+      {summary, summary_truncated?} =
+        truncate_with_flag(summary_text, @document_summary_preview_bytes)
+
       provider = metadata["provider"] || "Unknown source"
       date = metadata["date"] || Calendar.strftime(doc.inserted_at, "%Y-%m-%d")
       ingestion_state = metadata["ingestion_state"]
@@ -1259,11 +1283,13 @@ defmodule LumainusWeb.ReportsLive do
         mock_id: metadata["mock_id"],
         label: label,
         summary: summary,
+        summary_truncated?: summary_truncated?,
         provider: provider,
         date: date,
         kind: doc.document_kind,
         # Lazy-load content only when modal opens (avoid MB+ data in socket)
         cleaned_content: nil,
+        cleaned_truncated?: false,
         raw_content: nil,
         status: status,
         ingestion_state: ingestion_state || status,
@@ -2209,11 +2235,22 @@ defmodule LumainusWeb.ReportsLive do
         doc
 
       true ->
-        content = Reports.get_document_content(doc.id)
+        content =
+          Reports.get_document_content(doc.id,
+            cleaned_limit: @document_sidebar_preview_bytes,
+            summary_limit: @document_summary_preview_bytes,
+            include_raw?: false
+          )
 
         doc
+        |> Map.put(:summary, content.summary || doc.summary)
+        |> Map.put(:summary_truncated?, content.summary_truncated? || doc.summary_truncated?)
         |> Map.put(:cleaned_content, content.cleaned_content)
-        |> Map.put(:raw_content, content.raw_content)
+        |> Map.put(
+          :cleaned_truncated?,
+          content.cleaned_truncated? || doc.cleaned_truncated? || false
+        )
+        |> Map.put(:cleaned_limit, content.cleaned_limit || @document_sidebar_preview_bytes)
     end
   end
 
@@ -2369,6 +2406,16 @@ defmodule LumainusWeb.ReportsLive do
         Integer.to_string(bytes) <> " B"
     end
   end
+
+  defp truncate_with_flag(nil, _limit), do: {nil, false}
+
+  defp truncate_with_flag(value, limit) when is_integer(limit) and limit > 0 do
+    text = to_string(value)
+    truncated = String.slice(text, 0, limit)
+    {truncated, byte_size(text) > byte_size(truncated)}
+  end
+
+  defp truncate_with_flag(value, _limit), do: {value, false}
 
   defp format_run(nil), do: nil
 
@@ -3646,6 +3693,12 @@ defmodule LumainusWeb.ReportsLive do
                 <% end %>
               </div>
 
+              <%= if @selected_document.cleaned_truncated? do %>
+                <div class="text-[11px] text-amber-600">
+                  Showing first {format_byte_size(@selected_document.cleaned_limit)} of cleaned
+                  markdown. Open the document for full context.
+                </div>
+              <% end %>
               <div style="font-size: 12px; color: #475569; white-space: pre-line; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #fdfefe;">
                 {@selected_document.cleaned_content ||
                   "This PDF is still being ingested. It will appear here when markdown is ready."}
@@ -3801,13 +3854,30 @@ defmodule LumainusWeb.ReportsLive do
             <%= case @document_modal_tab do %>
               <% "summary" -> %>
                 <div style="font-size: 14px; color: #475569;">
+                  <%= if @document_modal_document.summary_truncated? do %>
+                    <div class="text-xs text-amber-600 mb-2">
+                      Preview truncated to {format_byte_size(@document_modal_document.summary_limit)}.
+                    </div>
+                  <% end %>
                   {@document_modal_document.summary ||
                     "Summary not available yet. Once the ingestion pipeline completes, an overview of this PDF will appear here."}
                 </div>
               <% "cleaned" -> %>
+                <%= if @document_modal_document.cleaned_truncated? do %>
+                  <div class="text-xs text-amber-600 mb-2">
+                    Showing first {format_byte_size(@document_modal_document.cleaned_limit)} of
+                    cleaned markdown.
+                  </div>
+                <% end %>
                 <pre>{@document_modal_document.cleaned_content ||
     "Cleaned markdown will be available when ingestion completes."}</pre>
               <% "raw" -> %>
+                <%= if @document_modal_document.raw_truncated? do %>
+                  <div class="text-xs text-amber-600 mb-2">
+                    Showing first {format_byte_size(@document_modal_document.raw_limit)} of raw PDF
+                    content.
+                  </div>
+                <% end %>
                 <pre>{@document_modal_document.raw_content ||
     "Raw PDF text stream not available yet for this upload."}</pre>
               <% _ -> %>

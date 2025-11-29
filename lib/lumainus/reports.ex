@@ -9,6 +9,7 @@ defmodule Lumainus.Reports do
   alias Ecto.UUID
   alias Lumainus.Accounts.Scope
   alias Lumainus.Clinical.{Patient, PatientProfile, RecordSets}
+  alias Lumainus.Documents
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
   alias Lumainus.Reports.SectionRunWorker
@@ -44,7 +45,7 @@ defmodule Lumainus.Reports do
     patient = patient_for_scope!(scope, tenant_id, opts)
     record_set = record_set_for(patient, opts)
     template = default_template!(tenant_id)
-    documents = list_documents(scope, record_set)
+    documents = list_documents(scope, record_set, include_summary?: false)
     sections = list_sections_with_runs(scope, record_set)
 
     %{
@@ -128,22 +129,14 @@ defmodule Lumainus.Reports do
 
   @doc """
   List documents for a record set, excluding raw_blob to avoid loading multi-MB PDFs.
+  Metadata is trimmed to the small subset needed for the UI.
   Does NOT preload parses/chunks - use get_document_with_chunks/1 for that.
+
+  Options:
+    * `:include_summary?` - when true, include the stored summary in metadata (defaults to false)
   """
-  def list_documents(%Scope{} = scope, record_set) do
-    # Select all fields EXCEPT raw_blob to avoid loading multi-MB PDF binaries
-    fields =
-      DocumentUpload.__schema__(:fields)
-      |> Enum.reject(&(&1 == :raw_blob))
-
-    DocumentUpload
-    |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
-    |> where([d], d.record_set_id == ^record_set.id)
-    |> order_by([d], desc: d.inserted_at)
-    |> select([d], struct(d, ^fields))
-    |> Repo.all()
-
-    # NOTE: parses/chunks NOT preloaded for speed - load on demand via get_document_with_chunks/1
+  def list_documents(%Scope{} = scope, record_set, opts \\ []) do
+    Documents.list_documents(scope, record_set, opts)
   end
 
   @doc """
@@ -177,27 +170,10 @@ defmodule Lumainus.Reports do
 
   @doc """
   Load document content (raw_blob and parsed_text) for a specific document.
-  Used for lazy-loading when opening the document modal.
+  Content is truncated for safety; see Lumainus.Documents.get_document_content/2.
   """
-  def get_document_content(document_id) when is_binary(document_id) do
-    upload =
-      DocumentUpload
-      |> where([d], d.id == ^document_id)
-      |> select([d], %{raw_blob: d.raw_blob})
-      |> Repo.one()
-
-    parse =
-      Lumainus.Documents.DocumentParse
-      |> where([p], p.upload_id == ^document_id)
-      |> order_by([p], desc: p.extracted_at)
-      |> limit(1)
-      |> select([p], %{parsed_text: p.parsed_text})
-      |> Repo.one()
-
-    %{
-      raw_content: upload && upload.raw_blob,
-      cleaned_content: parse && parse.parsed_text
-    }
+  def get_document_content(document_id, opts \\ []) when is_binary(document_id) do
+    Documents.get_document_content(document_id, opts)
   end
 
   defp document_ids_for(%Scope{} = scope, record_set) do
