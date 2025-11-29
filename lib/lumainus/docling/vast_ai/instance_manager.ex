@@ -687,7 +687,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
       {:ok, instance_id, ip} when is_binary(ip) and ip != "" ->
         if state.instance_id == instance_id and state.endpoint do
-          # Already tracking this instance
+          # Already tracking this instance; ensure DB state is in sync
+          maybe_persist_cloud_url(state.endpoint)
           {:reply, {:ok, :unchanged}, state}
         else
           # Found a running instance - adopt it
@@ -695,13 +696,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
           Logger.info("[InstanceManager] Adopting running instance #{instance_id} at #{endpoint}")
 
           # Update cloud_url for health checks
-          case DoclingSettings.update_cloud_url(endpoint) do
-            {:ok, _} ->
-              Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
-
-            {:error, reason} ->
-              Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
-          end
+          maybe_persist_cloud_url(endpoint)
 
           GPU.log(:lifecycle, :instance_adopted, "Adopted existing Vast.ai instance",
             instance_id: instance_id,
@@ -1226,6 +1221,22 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   end
 
   defp do_health_check(_), do: {:error, :no_endpoint}
+
+  defp maybe_persist_cloud_url(endpoint) when is_binary(endpoint) and endpoint != "" do
+    with {:ok, setting} <- DoclingSettings.fetch_or_init() do
+      if is_nil(setting.cloud_url) or setting.cloud_url == "" do
+        case DoclingSettings.update_cloud_url(endpoint) do
+          {:ok, _} ->
+            Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
+
+          {:error, reason} ->
+            Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
+        end
+      end
+    end
+  end
+
+  defp maybe_persist_cloud_url(_), do: :ok
 
   # Check Vast.ai for any instances (running, stopped, or loading)
   # Returns:
