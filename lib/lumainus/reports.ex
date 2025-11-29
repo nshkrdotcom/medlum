@@ -412,11 +412,6 @@ defmodule Lumainus.Reports do
     preloaded = preload_latest_runs(runs)
     t_preload = System.monotonic_time(:millisecond)
 
-    Logger.info(
-      "[Reports.latest_section_runs_map] ids=#{length(ids)} latest_ids=#{length(latest_ids)} runs=#{length(preloaded)} " <>
-        "ids_query=#{t_ids - t0}ms runs_query=#{t_runs - t_ids}ms preload=#{t_preload - t_runs}ms total=#{t_preload - t0}ms"
-    )
-
     preloaded
     |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
   end
