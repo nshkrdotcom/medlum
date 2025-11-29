@@ -1,6 +1,6 @@
 # AI Agents Guide - Lumainus Project
 
-**Last Updated:** November 28, 2025 (SSE streaming, DockerManager auto-restart)
+**Last Updated:** November 29, 2025 (Reports latest-run preload optimization, test migration timeout fix)
 **Project:** Lumainus - Traceable AI Intelligence Platform
 **Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
 
@@ -90,6 +90,7 @@ lumainus/
 - `lib/lumainus_web/user_auth.ex` wires the plugs (`fetch_current_scope_for_user/2`, `require_*_role/2`, etc.) and handles remember-me cookies + session reissue logic; all LiveView mounts rely on the `current_scope` assign from this module.
 - Authentication-facing LiveViews live in `lib/lumainus_web/live/user_live/` (login, registration, settings) and already follow `Layouts.app`; admin tooling resides in `lib/lumainus_web/live/admin/invitations_live.ex` and exercises `Lumainus.Accounts` end-to-end.
 - `/reports` (`lib/lumainus_web/live/reports_live.ex`) now pulls from the real ingestion pipeline (PDF uploads + GeminiEx-powered markdown generation via the LLM facade). Use the `/prompts` editor to tweak prompts for each section or for the ingestion step.
+- `/reports` performance: the bottleneck was preloading `llm_invocations.prompt_text/response_text` (~48MB for 13 runs). Latest section runs now preload a **shallow** LlmInvocation (id/provider/model/status/usage/req_duration_ms only). Do not add prompt/response/response_object to these preloads, and avoid reinstating ad hoc timing logs.
 - Tailwind 4 lives in `assets/css/app.css` with the `@import "tailwindcss" source(none)` + `@source` directives; DaisyUI themes are registered inline so new components should stay compatible with this file rather than adding ad-hoc CSS frameworks.
 - Tests are split between `test/lumainus_web` (contexts) and `test/lumainus_web_web/{controllers,live}` (router/auth/LiveView exercises). Add regression coverage next to whichever module you touch (ex: LiveView tests in `test/lumainus_web_web/live/*_test.exs`).
 - Conversion resilience uses the Hex `retry` library—do not reimplement backoff/jitter; only wrap idempotent operations (health/status/SSE reconnect).
@@ -598,6 +599,7 @@ open http://localhost:4000/dev/mailbox
 - For Bypass-based HTTP/SSE tests, ensure expectations are consumed (choose `stub` vs `expect` appropriately) and clean up streams/processes via `on_exit`.
 - Use the Hex `retry` library for backoff/jitter—do not implement custom sleep loops.
 - Start required pools (e.g., Finch) inside tests when isolating; keep them supervised and unlinked to avoid registry leaks.
+- CI note: test Repo uses `ownership_timeout: 300_000` and `migration_lock: nil` to prevent migration lock timeouts on shared runners. Retain these unless you also adjust CI database setup.
 
 ---
 

@@ -16,6 +16,7 @@ Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 - **Tidewave Integration** - AI-powered development assistance
 - **Clinical Summary UI** - `/reports` LiveView with provenance badges backed by the persisted ingestion pipeline (Gemini structured outputs + PDF uploads)
 - **Dual Docling Backends** - Standard (local CPU) and Fast (remote GPU) per-user toggle with health-aware fallback and ingestion cost logging
+- **Traceable LLM Runs** - Latest section runs preload only shallow LLM invocation metadata (id/provider/model/status/usage) to avoid pulling large prompt/response blobs in `/reports`
 
 ## Prerequisites
 
@@ -117,6 +118,8 @@ From here you can:
 ```bash
 mix test
 ```
+
+CI note: the test repo sets `ownership_timeout: 300_000` and `migration_lock: nil` to keep migrations from timing out on shared runners.
 
 ### Running with IEx
 
@@ -410,6 +413,10 @@ Invitations are created through the admin panel. The system automatically:
 3. Provides invitation link for admin to share
 
 ## Troubleshooting
+
+### `/reports` page is slow
+- Confirm you are not preloading `llm_invocations.prompt_text`/`response_text`/`response_object` in list/latest runs; keep the shallow preload used in `Reports.latest_section_runs_map/2`.
+- The main cost previously was loading a ~48MB prompt_text blob for 13 latest runs; keep heavy fields out of `/reports` queries.
 
 ### Database Connection Issues
 
