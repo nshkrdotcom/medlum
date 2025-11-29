@@ -521,6 +521,33 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp run_sections(socket, section_ids) do
+    ids = Enum.map(section_ids, &to_string/1)
+    socket = lock_sections(socket, ids)
+    send(self(), {:perform_section_runs, ids})
+    {:noreply, socket}
+  end
+
+  defp lock_sections(socket, section_ids) do
+    lock_set = MapSet.new(section_ids)
+
+    updated_sections =
+      Enum.map(socket.assigns.sections, fn entry ->
+        if MapSet.member?(lock_set, to_string(entry.section.id)) do
+          %{entry | status: lock_status(entry.status)}
+        else
+          entry
+        end
+      end)
+
+    socket
+    |> assign(:running_sections, MapSet.union(socket.assigns.running_sections, lock_set))
+    |> assign(:sections, updated_sections)
+  end
+
+  defp lock_status(status) when status in ["running", "queued"], do: status
+  defp lock_status(_status), do: "queued"
+
+  defp perform_section_runs(socket, section_ids) do
     scope = socket.assigns.current_scope
 
     case Reports.run_sections(
@@ -531,13 +558,12 @@ defmodule LumainusWeb.ReportsLive do
            section_ids
          ) do
       {:ok, _run} ->
-        {:noreply, load_workspace(socket)}
+        load_workspace(socket)
 
       {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Report generation failed: #{inspect(reason)}")
-         |> load_workspace()}
+        socket
+        |> put_flash(:error, "Report generation failed: #{inspect(reason)}")
+        |> load_workspace()
     end
   end
 
@@ -690,6 +716,11 @@ defmodule LumainusWeb.ReportsLive do
     |> maybe_subscribe_record_set(workspace.record_set.id)
     |> maybe_subscribe_report_runs(workspace.record_set.id)
     |> subscribe_to_job_topics()
+  end
+
+  @impl true
+  def handle_info({:perform_section_runs, section_ids}, socket) do
+    {:noreply, perform_section_runs(socket, section_ids)}
   end
 
   @impl true

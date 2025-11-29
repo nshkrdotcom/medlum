@@ -1,6 +1,8 @@
 defmodule Lumainus.Conversion.JobStatusTest do
   use Lumainus.Conversion.TestCase
 
+  import ExUnit.CaptureLog
+
   alias Lumainus.Conversion.Job
   alias Lumainus.Conversion.JobStatus
 
@@ -185,9 +187,14 @@ defmodule Lumainus.Conversion.JobStatusTest do
     end
 
     test "treats unknown strings as :processing" do
-      assert JobStatus.normalize_state("unknown_state") == :processing
-      assert JobStatus.normalize_state("weird") == :processing
-      assert JobStatus.normalize_state("") == :processing
+      log =
+        capture_log(fn ->
+          assert JobStatus.normalize_state("unknown_state") == :processing
+          assert JobStatus.normalize_state("weird") == :processing
+          assert JobStatus.normalize_state("") == :processing
+        end)
+
+      assert log =~ "[JobStatus] Unknown state"
     end
 
     test "handles atom inputs" do

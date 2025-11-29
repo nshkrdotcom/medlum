@@ -1,6 +1,8 @@
 defmodule Lumainus.Docling.VastAI.AutoShutdownTest do
   use Lumainus.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Lumainus.Conversion.Job
   alias Lumainus.Docling.VastAI.AutoShutdown
   alias Lumainus.Docling.VastAI.ActivityTracker
@@ -99,26 +101,29 @@ defmodule Lumainus.Docling.VastAI.AutoShutdownTest do
   end
 
   test "schedules pending shutdown then stops after window when still idle" do
-    instance = %{
-      "id" => 1,
-      "actual_status" => "running",
-      "start_date" => System.system_time(:second) - 3600
-    }
+    _ =
+      capture_log(fn ->
+        instance = %{
+          "id" => 1,
+          "actual_status" => "running",
+          "start_date" => System.system_time(:second) - 3600
+        }
 
-    StubInstances.set_instances([instance])
-    set_first_seen(instance["id"], 60)
-    seed_idle_minutes(10)
+        StubInstances.set_instances([instance])
+        set_first_seen(instance["id"], 60)
+        seed_idle_minutes(10)
 
-    assert {:ok, :pending_shutdown, 1} = AutoShutdown.check_and_shutdown()
-    assert_pending_set()
-    assert [] == StubVastAI.stopped()
+        assert {:ok, :pending_shutdown, 1} = AutoShutdown.check_and_shutdown()
+        assert_pending_set()
+        assert [] == StubVastAI.stopped()
 
-    # Pending timer should expire and stop instance
-    Process.sleep(1_500)
-    state_after = :sys.get_state(AutoShutdown)
-    assert state_after.pending_shutdown == nil
-    assert {:ok, :stopped, 1} = state_after.last_result
-    assert [1] == StubVastAI.stopped()
+        # Pending timer should expire and stop instance
+        Process.sleep(1_500)
+        state_after = :sys.get_state(AutoShutdown)
+        assert state_after.pending_shutdown == nil
+        assert {:ok, :stopped, 1} = state_after.last_result
+        assert [1] == StubVastAI.stopped()
+      end)
   end
 
   test "pending shutdown is cancelled by activity and does not stop" do
