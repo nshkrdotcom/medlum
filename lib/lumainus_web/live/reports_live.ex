@@ -585,6 +585,7 @@ defmodule LumainusWeb.ReportsLive do
 
   defp load_workspace(socket, opts \\ []) do
     timings = %{start: System.monotonic_time(:millisecond)}
+    mem_before_total = :erlang.memory(:total)
 
     scope = socket.assigns.current_scope
     has_patient_override = Keyword.has_key?(opts, :patient_id)
@@ -603,20 +604,23 @@ defmodule LumainusWeb.ReportsLive do
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
     t1 = System.monotonic_time(:millisecond)
 
+    # Per-component timing to isolate slow steps
+    doc_start = System.monotonic_time(:millisecond)
     documents = format_documents(workspace.documents)
-    t2 = System.monotonic_time(:millisecond)
+    doc_end = System.monotonic_time(:millisecond)
 
+    sect_start = System.monotonic_time(:millisecond)
     sections = format_sections(workspace.sections)
-    t3 = System.monotonic_time(:millisecond)
+    sect_end = System.monotonic_time(:millisecond)
 
     # TODO: Integrate with v2 HealthManager
     docling_health = nil
-    t4 = System.monotonic_time(:millisecond)
+    health_end = System.monotonic_time(:millisecond)
 
     # INSTANT: Get GPU status from InstanceManager state machine (no HTTP)
     # InstanceManager maintains health state via periodic background checks
     gpu_instance_status = check_gpu_instance_status_fast()
-    t5 = System.monotonic_time(:millisecond)
+    gpu_end = System.monotonic_time(:millisecond)
 
     # Derive fast_available? from CloudStatus via gpu_instance_status
     # No "Checking..." delays - trust CloudStatus as single source of truth
@@ -682,10 +686,10 @@ defmodule LumainusWeb.ReportsLive do
     Logger.info(
       "[load_workspace] TIMING " <>
         "workspace=#{t1 - t0}ms " <>
-        "format_docs=#{t2 - t1}ms " <>
-        "format_sections=#{t3 - t2}ms " <>
-        "docling_health=#{t4 - t3}ms " <>
-        "gpu_status=#{t5 - t4}ms " <>
+        "format_docs=#{doc_end - doc_start}ms " <>
+        "format_sections=#{sect_end - sect_start}ms " <>
+        "docling_health=#{health_end - sect_end}ms " <>
+        "gpu_status=#{gpu_end - health_end}ms " <>
         "record_sets=#{t7 - t6}ms " <>
         "latest_runs=#{t8 - t7}ms " <>
         "recent_runs=#{t9 - t8}ms " <>
@@ -696,6 +700,14 @@ defmodule LumainusWeb.ReportsLive do
         "sections=#{length(sections)} " <>
         "section_output_bytes=#{Enum.reduce(sections, 0, fn %{last_run: run}, acc -> acc + ((run && run.output_markdown && byte_size(run.output_markdown)) || 0) end)}"
     )
+
+    maybe_log_memory_delta(mem_before_total)
+
+    maybe_log_dev_debug(documents, sections, %{
+      workspace: t1 - t0,
+      format_docs: doc_end - doc_start,
+      format_sections: sect_end - sect_start
+    })
 
     socket =
       socket
@@ -1358,6 +1370,47 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp document_modal_tabs, do: @document_modal_tabs
+
+  defp maybe_log_memory_delta(mem_before_total) do
+    mem_after_total = :erlang.memory(:total)
+    delta = mem_after_total - mem_before_total
+
+    if Mix.env() == :dev do
+      Logger.info(
+        "[load_workspace] MEM total_before=#{mem_before_total} total_after=#{mem_after_total} delta=#{delta} top_procs=#{inspect(top_processes_by_memory(5))}"
+      )
+    end
+  end
+
+  defp top_processes_by_memory(limit) do
+    Process.list()
+    |> Enum.map(fn pid ->
+      mem =
+        case Process.info(pid, :memory) do
+          {:memory, bytes} -> bytes
+          _ -> 0
+        end
+
+      {pid, mem, Process.info(pid, :current_function)}
+    end)
+    |> Enum.sort_by(fn {_pid, mem, _fun} -> -mem end)
+    |> Enum.take(limit)
+  end
+
+  defp maybe_log_dev_debug(documents, sections, timings) do
+    if Mix.env() == :dev do
+      total_doc_bytes = Enum.reduce(documents, 0, fn d, acc -> acc + (d.byte_size || 0) end)
+
+      max_doc =
+        documents
+        |> Enum.map(fn d -> {d.id, d.byte_size || 0} end)
+        |> Enum.max_by(fn {_id, bytes} -> bytes end, fn -> {nil, 0} end)
+
+      Logger.info(
+        "[load_workspace][dev] docs=#{length(documents)} total_doc_bytes=#{total_doc_bytes} max_doc=#{inspect(max_doc)} sections=#{length(sections)} timings=#{inspect(timings)}"
+      )
+    end
+  end
 
   defp maybe_disable_fast(socket, fast_available?) do
     if fast_available? do
