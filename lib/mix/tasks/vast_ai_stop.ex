@@ -25,7 +25,7 @@ defmodule Mix.Tasks.VastAi.Stop do
 
   @shortdoc "Stop a running Vast.ai GPU instance (preserves it)"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -34,7 +34,7 @@ defmodule Mix.Tasks.VastAi.Stop do
       )
 
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     specific_id = Keyword.get(opts, :id)
 

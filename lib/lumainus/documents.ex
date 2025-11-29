@@ -937,11 +937,9 @@ defmodule Lumainus.Documents do
     _ -> nil
   end
 
-  defp backend_status(nil), do: "available"
-  defp backend_status(_reason), do: "fallback_to_local"
+  defp backend_status(_reason), do: "available"
 
-  defp format_backend_reason(nil), do: nil
-  defp format_backend_reason(reason), do: inspect(reason)
+  defp format_backend_reason(_reason), do: nil
 
   defp sha256(binary) do
     :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
@@ -991,15 +989,9 @@ defmodule Lumainus.Documents do
   defp put_optional(map, _key, nil), do: map
   defp put_optional(map, key, value) when is_atom(key), do: Map.put(map, key, value)
 
-  defp maybe_put_or_drop(map, key, nil) when is_binary(key), do: Map.delete(map, key)
+  defp maybe_put_or_drop(map, key, nil), do: Map.delete(map, to_string(key))
 
-  defp maybe_put_or_drop(map, key, nil) when is_atom(key),
-    do: Map.delete(map, Atom.to_string(key))
-
-  defp maybe_put_or_drop(map, key, value) when is_binary(key), do: Map.put(map, key, value)
-
-  defp maybe_put_or_drop(map, key, value) when is_atom(key),
-    do: Map.put(map, Atom.to_string(key), value)
+  defp maybe_put_or_drop(map, key, value), do: Map.put(map, to_string(key), value)
 
   defp maybe_put_progress_payload(map, nil), do: map
 
@@ -1042,15 +1034,11 @@ defmodule Lumainus.Documents do
 
   # User backend preference helpers (replacing v1 Docling functions)
   defp user_backend_default do
-    case Settings.fetch_or_init() do
-      {:ok, settings} ->
-        case settings.default_mode do
-          "cloud" -> :cloud
-          _ -> :local
-        end
+    {:ok, settings} = Settings.fetch_or_init()
 
-      _ ->
-        :local
+    case settings.default_mode do
+      "cloud" -> :cloud
+      _ -> :local
     end
   end
 

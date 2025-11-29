@@ -66,8 +66,6 @@ defmodule LumainusWeb.Api.JobController do
     stage in ["completed", "failed"]
   end
 
-  defp job_payload(nil), do: nil
-
   defp job_payload(job) do
     %{
       id: job.id,

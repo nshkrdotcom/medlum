@@ -26,7 +26,7 @@ defmodule Mix.Tasks.VastAi.Start do
 
   @shortdoc "Start a stopped Vast.ai GPU instance"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -35,7 +35,7 @@ defmodule Mix.Tasks.VastAi.Start do
       )
 
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     specific_id = Keyword.get(opts, :id)
     should_wait = Keyword.get(opts, :wait, true)
@@ -181,12 +181,28 @@ defmodule Mix.Tasks.VastAi.Start do
 
   defp build_endpoint(ip) do
     # Try to use HTTPS via Cloudflare if configured
-    fqdn = Lumainus.Cloudflare.cloud_fqdn()
+    fqdn =
+      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") ||
+         Lumainus.Cloudflare.cloud_fqdn())
+      |> normalize_fqdn()
 
-    if fqdn && String.trim(fqdn) != "" do
+    if fqdn do
       "https://#{fqdn}"
     else
       "http://#{ip}:#{Lumainus.VastAI.cloud_port()}"
+    end
+  end
+
+  defp normalize_fqdn(fqdn) do
+    case fqdn do
+      nil ->
+        nil
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
     end
   end
 end

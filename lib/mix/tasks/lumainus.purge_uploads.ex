@@ -11,8 +11,9 @@ defmodule Mix.Tasks.Lumainus.PurgeUploads do
 
   @shortdoc "Deletes all document uploads and related ingestion artifacts"
 
+  @impl true
   def run(_args) do
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     {deleted, _} =
       Lumainus.Documents.DocumentUpload

@@ -22,7 +22,7 @@ defmodule Mix.Tasks.VastAi.Status do
 
   @shortdoc "Show Vast.ai GPU instance status"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -31,7 +31,7 @@ defmodule Mix.Tasks.VastAi.Status do
       )
 
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     json_output = Keyword.get(opts, :json, false)
     verbose = Keyword.get(opts, :verbose, false)

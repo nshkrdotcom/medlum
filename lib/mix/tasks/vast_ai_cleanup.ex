@@ -34,7 +34,7 @@ defmodule Mix.Tasks.VastAi.Cleanup do
 
   @shortdoc "Check and destroy idle Vast.ai GPU instances"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -43,7 +43,7 @@ defmodule Mix.Tasks.VastAi.Cleanup do
       )
 
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     dry_run = Keyword.get(opts, :dry_run, false)
     force = Keyword.get(opts, :force, false)

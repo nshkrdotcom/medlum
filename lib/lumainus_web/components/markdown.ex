@@ -78,6 +78,4 @@ defmodule LumainusWeb.Markdown do
       end
     )
   end
-
-  defp process_provenance_links(content), do: content
 end

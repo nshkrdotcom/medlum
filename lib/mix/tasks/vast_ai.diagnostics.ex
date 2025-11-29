@@ -54,10 +54,10 @@ defmodule Mix.Tasks.VastAi.Diagnostics do
     json: :boolean
   ]
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
 
@@ -190,10 +190,6 @@ defmodule Mix.Tasks.VastAi.Diagnostics do
     end)
 
     IO.puts("\n" <> String.duplicate("=", 60))
-  end
-
-  defp output_human(result, _verbose) do
-    IO.puts(inspect(result, pretty: true))
   end
 
   defp print_check(name, {:ok, result}, verbose) do

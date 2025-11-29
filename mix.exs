@@ -11,6 +11,10 @@ defmodule Lumainus.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      dialyzer: [
+        plt_file: {:no_warn, "_build/plts/dialyzer.plt"},
+        plt_add_apps: [:mix]
+      ],
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -53,6 +57,7 @@ defmodule Lumainus.MixProject do
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:heroicons,
        github: "tailwindlabs/heroicons",
        tag: "v2.2.0",

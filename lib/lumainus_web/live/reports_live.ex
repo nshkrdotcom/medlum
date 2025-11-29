@@ -411,9 +411,6 @@ defmodule LumainusWeb.ReportsLive do
 
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Document no longer exists.")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Unable to delete: #{inspect(reason)}")}
     end
   end
 
@@ -611,7 +608,7 @@ defmodule LumainusWeb.ReportsLive do
         preferred_backend = Accounts.docling_backend_for_user(scope.user)
         # Only fall back to local if fast is explicitly unavailable (false)
         # When fast_available? is nil (Checking), allow cloud backend
-        if preferred_backend == :fast and fast_available? == false,
+        if preferred_backend == :cloud and fast_available? == false,
           do: :local,
           else: preferred_backend
       else
@@ -1405,9 +1402,6 @@ defmodule LumainusWeb.ReportsLive do
 
               %{status: :unknown, health_check_error: error} ->
                 {:error, error || "GPU status unknown"}
-
-              _ ->
-                {:error, "Cloud GPU unavailable"}
             end
         end
 
@@ -1453,13 +1447,13 @@ defmodule LumainusWeb.ReportsLive do
           cloud_status: cloud_status
         }
 
-      %{availability: :unavailable, message: message} ->
+      %{availability: :unavailable, message: _message} ->
         %{
           status: :unavailable,
           endpoint: nil,
           instance_id: nil,
           healthy: false,
-          health_check_error: message || cloud_status[:detail],
+          health_check_error: cloud_status[:detail],
           cloud_status: cloud_status
         }
 
@@ -1519,7 +1513,10 @@ defmodule LumainusWeb.ReportsLive do
     vast_api_key = System.get_env("VAST_API_KEY")
     cf_token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
     cf_zone = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
-    cf_fqdn = Cloudflare.cloud_fqdn()
+
+    cf_fqdn =
+      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      |> normalize_fqdn()
 
     ProvisioningState.add_log(
       :info,
@@ -1755,12 +1752,15 @@ defmodule LumainusWeb.ReportsLive do
     ProvisioningState.add_log(:info, "Checking Cloudflare configuration...")
 
     # Log Cloudflare config
-    fqdn = Cloudflare.cloud_fqdn()
+    fqdn =
+      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      |> normalize_fqdn()
+
     zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
     token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
 
     missing_cloudflare? =
-      String.trim(fqdn) == "" or zone_id in [nil, ""] or token in [nil, ""]
+      is_nil(fqdn) or zone_id in [nil, ""] or token in [nil, ""]
 
     ProvisioningState.add_log(:info, "  - Target FQDN: #{fqdn || "NOT SET"}")
 
@@ -2282,7 +2282,18 @@ defmodule LumainusWeb.ReportsLive do
     Map.put(doc, :progress, progress)
   end
 
-  defp maybe_put_progress(doc, _), do: doc
+  defp normalize_fqdn(fqdn) do
+    case fqdn do
+      nil ->
+        nil
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+    end
+  end
 
   defp format_byte_size(nil), do: "—"
 

@@ -32,7 +32,7 @@ defmodule Mix.Tasks.VastAi.Provision do
 
   @shortdoc "Provision a new Vast.ai GPU instance (ADMIN)"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -46,7 +46,7 @@ defmodule Mix.Tasks.VastAi.Provision do
       )
 
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     max_price = Keyword.get(opts, :max_price, 0.18)
     disk_gb = Keyword.get(opts, :disk, 20)
@@ -149,7 +149,7 @@ defmodule Mix.Tasks.VastAi.Provision do
                  disk_gb: disk_gb,
                  label: label
                ) do
-            {:ok, instance_id, endpoint} ->
+            {:ok, instance_id, endpoint, _tunnel_id} ->
               Mix.shell().info("")
               Mix.shell().info("=== PROVISIONING SUCCESSFUL ===")
               Mix.shell().info("")
@@ -161,12 +161,6 @@ defmodule Mix.Tasks.VastAi.Provision do
 
               # Register with InstanceManager
               InstanceManager.set_endpoint(instance_id, endpoint)
-
-            {:ok, instance_id} ->
-              # Fallback without HTTPS
-              Mix.shell().info("")
-              Mix.shell().info("Instance #{instance_id} created but HTTPS setup may have failed.")
-              Mix.shell().info("Check the admin page for status.")
 
             {:error, reason} ->
               Mix.shell().error("")

@@ -220,7 +220,6 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   end
 
   defp normalize_latency(:infinity), do: 999_999_999
-  defp normalize_latency(nil), do: 999_999_999
   defp normalize_latency(ms) when is_integer(ms), do: ms
 
   defp select_best([]), do: {:error, :service_unavailable}

@@ -125,8 +125,6 @@ defmodule LumainusWeb.Api.UploadController do
     |> Repo.get_by(tenant_id: tenant_id, sha256: digest)
   end
 
-  defp upload_payload(nil), do: nil
-
   defp upload_payload(upload) do
     %{
       id: upload.id,

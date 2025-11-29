@@ -10,9 +10,9 @@ defmodule Mix.Tasks.Docling.Retry do
 
   @shortdoc "Retry a failed Docling ingestion job"
 
-  @impl Mix.Task
+  @impl true
   def run([job_id]) do
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     with {:ok, %{job: job}} <- Documents.fetch_ingestion_job(job_id),
          {:ok, template} <- fetch_template(job) do
@@ -29,9 +29,6 @@ defmodule Mix.Tasks.Docling.Retry do
 
       {:error, :template_required} ->
         IO.puts("Template not found for job #{job_id}")
-
-      {:error, reason} ->
-        IO.puts("Unable to retry #{job_id}: #{inspect(reason)}")
     end
   end
 

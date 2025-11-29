@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -26,6 +28,13 @@ logging.basicConfig(
     format="[%(asctime)s] %(levelname)s in %(name)s: %(message)s",
 )
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    for idx in range(_worker_count):
+        asyncio.create_task(_worker_loop(idx + 1))
+    logger.info("Started %s Docling worker(s)", _worker_count)
+    yield
+
 app = FastAPI(
     title="Docling Ingestion Service",
     version="0.2.0",
@@ -33,6 +42,7 @@ app = FastAPI(
         "Private REST endpoint that converts PDFs to Markdown and basic layout"
         " metadata using Docling. Backed by a small in-process worker pool."
     ),
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -171,13 +181,6 @@ def _job_status(job: ConversionJob) -> Dict[str, Any]:
         "device": job.device,
         "result": job.result if job.state == "completed" else None,
     }
-
-
-@app.on_event("startup")
-async def _start_workers() -> None:
-    for idx in range(_worker_count):
-        asyncio.create_task(_worker_loop(idx + 1))
-    logger.info("Started %s Docling worker(s)", _worker_count)
 
 
 async def _worker_loop(worker_id: int) -> None:
@@ -661,11 +664,18 @@ async def job_stream(job_id: str) -> StreamingResponse:
 
     async def event_generator():
         try:
+            # Replay historical events
             for event in job.events:
                 yield _format_sse(event)
+
+            # Stream new events with heartbeat
             while True:
-                event = await queue.get()
-                yield _format_sse(event)
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield _format_sse(event)
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep connection alive
+                    yield _format_sse({"type": "heartbeat", "timestamp": time.time()})
         finally:
             _unsubscribe(job, queue)
 

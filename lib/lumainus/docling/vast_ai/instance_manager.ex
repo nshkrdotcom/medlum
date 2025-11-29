@@ -1348,7 +1348,12 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   end
 
   defp skip_vast_ai_discovery?(config) do
-    Keyword.get(config, :skip_discovery, false) or Mix.env() == :test
+    Keyword.get(config, :skip_discovery, false) or test_env?()
+  end
+
+  defp test_env? do
+    Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) and
+      apply(Mix, :env, []) == :test
   end
 
   defp api_opts(config) do
@@ -1413,9 +1418,12 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   defp recover_endpoint(ip) do
     # Try to use the HTTPS endpoint via Cloudflare if configured,
     # otherwise fall back to direct HTTP
-    fqdn = Lumainus.Cloudflare.cloud_fqdn()
+    fqdn =
+      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") ||
+         Lumainus.Cloudflare.cloud_fqdn())
+      |> normalize_fqdn()
 
-    if fqdn && String.trim(fqdn) != "" do
+    if fqdn do
       # Use HTTPS via Cloudflare (assumes DNS is already pointing to this IP)
       "https://#{fqdn}"
     else
@@ -1482,5 +1490,18 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     config = vast_ai_config()
     minutes = Keyword.get(config, :idle_timeout_minutes, 15)
     minutes * 60 * 1000
+  end
+
+  defp normalize_fqdn(fqdn) do
+    case fqdn do
+      nil ->
+        nil
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+    end
   end
 end

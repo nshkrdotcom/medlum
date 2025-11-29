@@ -291,15 +291,11 @@ defmodule Lumainus.Accounts do
 
   # User backend preference helpers
   defp user_backend_default do
-    case Settings.fetch_or_init() do
-      {:ok, settings} ->
-        case settings.default_mode do
-          "cloud" -> :cloud
-          _ -> :local
-        end
+    {:ok, settings} = Settings.fetch_or_init()
 
-      _ ->
-        :local
+    case settings.default_mode do
+      "cloud" -> :cloud
+      _ -> :local
     end
   end
 

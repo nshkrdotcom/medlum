@@ -51,7 +51,7 @@ defmodule Lumainus.Conversion.Job do
           backend_endpoint: String.t() | nil,
           instance_id: integer() | nil,
           state: atom(),
-          progress: non_neg_integer(),
+          progress: float(),
           pages_total: non_neg_integer() | nil,
           pages_done: non_neg_integer(),
           last_error: String.t() | nil,

@@ -270,12 +270,12 @@ defmodule Lumainus.Docling.DockerManager do
     do_wait_for_healthy_with_progress(timeout_ms, 0, 0)
   end
 
-  defp do_wait_for_healthy_with_progress(timeout_ms, elapsed, last_report)
+  defp do_wait_for_healthy_with_progress(timeout_ms, elapsed, _last_report)
        when elapsed >= timeout_ms do
     {:error, :timeout}
   end
 
-  defp do_wait_for_healthy_with_progress(timeout_ms, elapsed, _last_report) do
+  defp do_wait_for_healthy_with_progress(timeout_ms, elapsed, last_report) do
     # Report every 5 seconds
     if elapsed - last_report >= 5_000 and elapsed > 0 do
       seconds = div(elapsed, 1000)

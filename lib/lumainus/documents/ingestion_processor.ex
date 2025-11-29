@@ -216,7 +216,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
     upload = job.upload
 
     markdown = response |> fetch_markdown() |> cleanse_markdown()
-    trimmed = String.trim(markdown || "")
+    trimmed = String.trim(markdown)
     digest = parsed_digest(trimmed)
     dedup_target = dedup_candidate?(trimmed)
     duplicate_of = dedup_target && find_duplicate_parse(upload.tenant_id, digest)
@@ -357,7 +357,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
     )
   end
 
-  defp short_summary(markdown) when is_binary(markdown) do
+  defp short_summary(markdown) do
     markdown
     |> String.split("\n")
     |> Enum.reject(&(&1 == ""))
@@ -369,8 +369,6 @@ defmodule Lumainus.Documents.IngestionProcessor do
       text -> text
     end
   end
-
-  defp short_summary(_), do: "Awaiting summarization"
 
   defp persist_chunks(parse, markdown) when is_binary(markdown) do
     markdown
@@ -400,9 +398,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
     :ok
   end
 
-  defp persist_chunks(_parse, _markdown), do: :ok
-
-  defp fetch_markdown(response) when is_map(response) do
+  defp fetch_markdown(response) do
     # SSE stream puts result in "result" key, direct API returns it at top level
     result = Map.get(response, "result", response)
 
@@ -413,8 +409,6 @@ defmodule Lumainus.Documents.IngestionProcessor do
     end
   end
 
-  defp fetch_markdown(_), do: ""
-
   defp cleanse_markdown(content) do
     content
     |> String.replace(~r/<!--\s*image\s*-->/i, "")
@@ -423,17 +417,15 @@ defmodule Lumainus.Documents.IngestionProcessor do
   end
 
   defp parsed_digest(""), do: nil
-  defp parsed_digest(nil), do: nil
 
-  defp parsed_digest(content) do
-    :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+  defp parsed_digest(content) when is_binary(content) do
+    :crypto.hash(:sha256, content)
+    |> Base.encode16(case: :lower)
   end
 
-  defp dedup_candidate?(content) when is_binary(content) do
+  defp dedup_candidate?(content) do
     String.length(content) >= @duplicate_min_length
   end
-
-  defp dedup_candidate?(_), do: false
 
   defp find_duplicate_parse(_tenant_id, nil), do: nil
 
@@ -498,9 +490,8 @@ defmodule Lumainus.Documents.IngestionProcessor do
     }
   end
 
-  defp duration_ms(%{started_at: %DateTime{} = started_at}, finished_at) do
-    end_time = finished_at || DateTime.utc_now(:second)
-    max(DateTime.diff(end_time, started_at, :millisecond), 0)
+  defp duration_ms(%{started_at: %DateTime{} = started_at}, %DateTime{} = finished_at) do
+    max(DateTime.diff(finished_at, started_at, :millisecond), 0)
   end
 
   defp duration_ms(_job, _finished_at), do: nil

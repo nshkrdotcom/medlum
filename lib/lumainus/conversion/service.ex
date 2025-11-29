@@ -145,7 +145,15 @@ defmodule Lumainus.Conversion.Service do
           pages_total: backend_status["pages_total"]
         })
 
-        status = JobStatus.from_job(Map.merge(job, %{state: normalized, progress: progress}))
+        job_for_status = %Job{
+          job
+          | state: normalized,
+            progress: progress,
+            pages_done: backend_status["pages_done"] || job.pages_done,
+            pages_total: backend_status["pages_total"] || job.pages_total
+        }
+
+        status = JobStatus.from_job(job_for_status)
         on_progress.(status)
       end
 

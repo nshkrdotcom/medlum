@@ -96,15 +96,11 @@ defmodule Lumainus.LLM do
 
   defp decode_object(text, _schema), do: default_object(text)
 
-  defp default_object(text) do
-    cond do
-      is_binary(text) and text != "" ->
-        %{"markdown" => text}
-
-      true ->
-        %{}
-    end
+  defp default_object(text) when is_binary(text) and text != "" do
+    %{"markdown" => text}
   end
+
+  defp default_object(_text), do: %{}
 
   defp usage_map(%GenerateContentResponse{usage_metadata: usage}) when is_map(usage) do
     %{

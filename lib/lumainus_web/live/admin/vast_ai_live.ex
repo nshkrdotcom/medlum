@@ -795,12 +795,6 @@ defmodule LumainusWeb.Admin.VastAILive do
           "Destroyed Vast.ai instance #{instance_id} and cleaned up tunnel #{tunnel.tunnel_id}"
         )
 
-      :ok ->
-        ProvisioningState.add_log(
-          :success,
-          "Destroyed Vast.ai instance #{instance_id} and cleaned up tunnel #{tunnel.tunnel_id}"
-        )
-
       {:error, reason} ->
         ProvisioningState.add_log(
           :warning,
@@ -1071,18 +1065,30 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   defp compute_dns_status do
-    fqdn = Cloudflare.cloud_fqdn()
+    fqdn =
+      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      |> normalize_fqdn()
+
     zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
     token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
 
     {dns_state, resolved_ips} =
-      case resolve_dns_ips(fqdn) do
-        {:ok, ips} -> {:ok, ips}
-        {:error, reason} -> {reason, []}
+      case fqdn do
+        nil ->
+          {:no_fqdn_configured, []}
+
+        _ ->
+          case resolve_dns_ips(fqdn) do
+            {:ok, ips} -> {:ok, ips}
+            {:error, reason} -> {reason, []}
+          end
       end
 
     cname_lookup =
       cond do
+        is_nil(fqdn) ->
+          {:error, :no_fqdn_configured}
+
         zone_id not in [nil, ""] and token not in [nil, ""] ->
           fetch_cname_via_api(fqdn, zone_id, token)
 
@@ -1123,10 +1129,6 @@ defmodule LumainusWeb.Admin.VastAILive do
     }
   end
 
-  defp resolve_dns_ips(fqdn) when fqdn in [nil, ""] do
-    {:error, :no_fqdn_configured}
-  end
-
   defp resolve_dns_ips(fqdn) do
     try do
       case :inet_res.lookup(String.to_charlist(fqdn), :in, :a) do
@@ -1139,8 +1141,6 @@ defmodule LumainusWeb.Admin.VastAILive do
       :exit, reason -> {:error, reason}
     end
   end
-
-  defp resolve_cname(fqdn) when fqdn in [nil, ""], do: {:error, :no_fqdn_configured}
 
   defp resolve_cname(fqdn) do
     try do
@@ -1348,12 +1348,27 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   defp build_cloud_endpoint(ip) do
     # Prefer Cloudflare tunnel endpoint; fall back to direct IP if FQDN missing
-    fqdn = Cloudflare.cloud_fqdn()
+    fqdn =
+      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      |> normalize_fqdn()
 
-    if fqdn && String.trim(fqdn) != "" do
+    if fqdn do
       "https://#{fqdn}"
     else
       "http://#{ip}:#{cloud_port()}"
+    end
+  end
+
+  defp normalize_fqdn(fqdn) do
+    case fqdn do
+      nil ->
+        nil
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
     end
   end
 

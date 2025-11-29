@@ -136,6 +136,9 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
 
       {:sse_done, ^job_id, :cancelled, result} ->
         {:error, {:job_cancelled, result}}
+
+      {:sse_done, ^job_id, :not_found, result} ->
+        {:error, {:job_not_found, result}}
     after
       timeout_ms ->
         Logger.warning("[SSEStream] await timeout for job=#{job_id}")
@@ -211,6 +214,20 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
   def handle_info({:sse_status, status}, state) when status in 200..299 do
     # Good status, connection established
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:sse_status, status}, state) when status in [404, 410] do
+    Logger.warning("[SSEStream] Job not found (#{status}), stopping for job #{state.job_id}")
+    Emitter.emit_sse_error(state.job_id, {:http_error, status})
+    cancel_heartbeat(state.heartbeat_ref)
+
+    send(
+      state.caller,
+      {:sse_done, state.job_id, :not_found, %{"error" => "job_not_found", "status" => status}}
+    )
+
+    {:stop, :normal, state}
   end
 
   @impl true
@@ -361,20 +378,11 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
           {:ok, _} ->
             send(parent, {:sse_closed, :normal})
 
-          {:error, %Mint.TransportError{reason: :closed}} ->
-            send(parent, {:sse_closed, :connection_closed})
-
           {:error, %Mint.TransportError{reason: :closed}, _state} ->
             send(parent, {:sse_closed, :connection_closed})
 
-          {:error, %Mint.TransportError{reason: reason}} ->
-            send(parent, {:sse_error, {:transport_error, reason}})
-
           {:error, %Mint.TransportError{reason: reason}, _state} ->
             send(parent, {:sse_error, {:transport_error, reason}})
-
-          {:error, reason} ->
-            send(parent, {:sse_error, reason})
 
           {:error, reason, _state} ->
             send(parent, {:sse_error, reason})
@@ -393,6 +401,8 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
   end
 
   defp schedule_reconnect(state) do
+    cancel_heartbeat(state.heartbeat_ref)
+
     delay = Enum.at(@reconnect_delays, state.reconnect_index, List.last(@reconnect_delays))
     new_index = min(state.reconnect_index + 1, length(@reconnect_delays) - 1)
 
@@ -482,6 +492,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
     end
   end
 
+  defp terminal_state?(%{"type" => "heartbeat"}), do: false
   defp terminal_state?(%{"state" => "completed"}), do: true
   defp terminal_state?(%{"state" => "failed"}), do: true
   defp terminal_state?(%{"state" => "cancelled"}), do: true

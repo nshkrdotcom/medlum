@@ -518,8 +518,6 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
   defp format_fallback_detail(detail), do: inspect(detail, pretty: true, limit: 200)
 
-  defp format_attempts(nil), do: nil
-
   defp format_attempts(attempts) when is_list(attempts) do
     attempts
     |> Enum.map(fn

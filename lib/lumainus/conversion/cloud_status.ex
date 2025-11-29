@@ -137,12 +137,26 @@ defmodule Lumainus.Conversion.CloudStatus do
           instance_info: info
         }
 
-      %{status: :running, healthy: false} = info ->
+      %{status: :running, healthy: nil} = info ->
+        detail = info[:health_check_error] || "Instance running, waiting for first health check"
+
         %{
           availability: :provisioning,
           endpoint: endpoint,
           message: "Cloud GPU starting up",
-          detail: "Instance running, waiting for health check",
+          detail: detail,
+          can_accept_jobs: true,
+          instance_info: info
+        }
+
+      %{status: :running, healthy: false} = info ->
+        detail = info[:health_check_error] || "Instance running, waiting for health check"
+
+        %{
+          availability: :provisioning,
+          endpoint: endpoint,
+          message: "Cloud GPU starting up",
+          detail: detail,
           can_accept_jobs: true,
           instance_info: info
         }
@@ -185,6 +199,16 @@ defmodule Lumainus.Conversion.CloudStatus do
           message: "Cloud GPU error",
           detail: format_error(error),
           can_accept_jobs: false,
+          instance_info: info
+        }
+
+      %{status: :stopped} = info ->
+        %{
+          availability: :available,
+          endpoint: nil,
+          message: "Cloud GPU stopped",
+          detail: "Instance will start on first use",
+          can_accept_jobs: true,
           instance_info: info
         }
 
@@ -241,16 +265,12 @@ defmodule Lumainus.Conversion.CloudStatus do
   defp cloud_enabled? do
     if cloud_configured?() do
       # Check if cloud backend is enabled in settings
-      case Settings.fetch_or_init() do
-        {:ok, settings} ->
-          # Cloud is enabled if it's in the profile backends or explicitly enabled
-          profiles = settings.v2_profile_backends || %{}
-          enhanced_backends = Map.get(profiles, "enhanced", [])
-          "cloud" in enhanced_backends
+      {:ok, settings} = Settings.fetch_or_init()
 
-        _ ->
-          false
-      end
+      # Cloud is enabled if it's in the profile backends or explicitly enabled
+      profiles = settings.v2_profile_backends || %{}
+      enhanced_backends = Map.get(profiles, "enhanced", [])
+      "cloud" in enhanced_backends
     else
       false
     end

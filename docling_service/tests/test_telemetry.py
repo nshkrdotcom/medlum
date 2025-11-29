@@ -26,7 +26,7 @@ class FakeConversion:
 
 
 class FakeConverter:
-    def convert(self, _source):
+    def convert(self, _source, **_kwargs):
         return FakeConversion(pages=[1, 2])
 
 

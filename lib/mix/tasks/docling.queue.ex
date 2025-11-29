@@ -12,9 +12,9 @@ defmodule Mix.Tasks.Docling.Queue do
 
   @shortdoc "Print queued/running Docling ingestion jobs"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     limit = parse_limit(args)
 

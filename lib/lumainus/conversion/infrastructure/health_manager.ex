@@ -236,15 +236,8 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
 
   @doc false
   def backends_from_settings do
-    case Settings.fetch_or_init() do
-      {:ok, setting} ->
-        build_backends_from_setting(setting)
-
-      _ ->
-        # Fallback to empty map if Settings unavailable (e.g., during migrations)
-        Logger.warning("[HealthManager] Settings unavailable, using empty backends")
-        %{}
-    end
+    {:ok, setting} = Settings.fetch_or_init()
+    build_backends_from_setting(setting)
   end
 
   defp build_backends_from_setting(setting) do

@@ -33,7 +33,7 @@ defmodule Mix.Tasks.VastAi.Destroy do
 
   @shortdoc "Destroy a Vast.ai GPU instance (ADMIN)"
 
-  @impl Mix.Task
+  @impl true
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
@@ -42,7 +42,7 @@ defmodule Mix.Tasks.VastAi.Destroy do
       )
 
     # Start the application
-    Mix.Task.run("app.start")
+    Mix.Task.run("app.start", [])
 
     force = Keyword.get(opts, :force, false)
     destroy_all = Keyword.get(opts, :all, false)
