@@ -9,6 +9,7 @@ defmodule Lumainus.Reports do
   alias Ecto.UUID
   alias Lumainus.Accounts.Scope
   alias Lumainus.Clinical.{Patient, PatientProfile, RecordSets}
+  alias Lumainus.AI.LlmInvocation
   alias Lumainus.Documents
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
@@ -423,27 +424,26 @@ defmodule Lumainus.Reports do
         preload: [document: ^doc_query]
       )
 
+    llm_shallow_query =
+      from(l in LlmInvocation,
+        select: %LlmInvocation{
+          id: l.id,
+          provider: l.provider,
+          model: l.model,
+          status: l.status,
+          error: l.error,
+          usage: l.usage,
+          req_duration_ms: l.req_duration_ms,
+          request_id: l.request_id,
+          tenant_id: l.tenant_id,
+          inserted_at: l.inserted_at,
+          updated_at: l.updated_at
+        }
+      )
+
     t_llm_0 = System.monotonic_time(:millisecond)
-    runs_with_llm = Repo.preload(runs, [:llm_invocation])
+    runs_with_llm = Repo.preload(runs, llm_invocation: llm_shallow_query)
     t_llm_1 = System.monotonic_time(:millisecond)
-
-    prompt_bytes =
-      runs_with_llm
-      |> Enum.reduce(0, fn run, acc ->
-        case run.llm_invocation do
-          nil -> acc
-          inv -> acc + byte_size(inv.prompt_text || "")
-        end
-      end)
-
-    response_bytes =
-      runs_with_llm
-      |> Enum.reduce(0, fn run, acc ->
-        case run.llm_invocation do
-          nil -> acc
-          inv -> acc + byte_size(inv.response_text || "")
-        end
-      end)
 
     t_cit_0 = System.monotonic_time(:millisecond)
     preloaded = Repo.preload(runs_with_llm, citations: citations_query)
@@ -461,8 +461,7 @@ defmodule Lumainus.Reports do
 
     Logger.info(
       "[Reports.preload_latest_runs] runs=#{length(preloaded)} citations=#{citation_count} docs=#{doc_ids} " <>
-        "time_llm=#{t_llm_1 - t_llm_0}ms time_citations=#{t_cit_1 - t_cit_0}ms total=#{t_cit_1 - t_llm_0}ms " <>
-        "prompt_bytes=#{prompt_bytes} response_bytes=#{response_bytes}"
+        "time_llm=#{t_llm_1 - t_llm_0}ms time_citations=#{t_cit_1 - t_cit_0}ms total=#{t_cit_1 - t_llm_0}ms"
     )
 
     preloaded
