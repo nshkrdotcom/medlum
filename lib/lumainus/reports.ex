@@ -41,12 +41,31 @@ defmodule Lumainus.Reports do
   end
 
   def workspace(%Scope{} = scope, opts \\ []) do
+    t0 = System.monotonic_time(:millisecond)
     tenant_id = tenant_id_from_scope(scope)
     patient = patient_for_scope!(scope, tenant_id, opts)
+    t_patient = System.monotonic_time(:millisecond)
     record_set = record_set_for(patient, opts)
+    t_record_set = System.monotonic_time(:millisecond)
     template = default_template!(tenant_id)
+    t_template = System.monotonic_time(:millisecond)
     documents = list_documents(scope, record_set, include_summary?: false)
+    t_documents = System.monotonic_time(:millisecond)
     sections = list_sections_with_runs(scope, record_set)
+    t_sections = System.monotonic_time(:millisecond)
+
+    log_workspace_timings(
+      %{
+        patient: t_patient - t0,
+        record_set: t_record_set - t_patient,
+        template: t_template - t_record_set,
+        documents: t_documents - t_template,
+        sections: t_sections - t_documents,
+        total: t_sections - t0
+      },
+      patient.id,
+      record_set.id
+    )
 
     %{
       patient: patient,
@@ -103,6 +122,12 @@ defmodule Lumainus.Reports do
 
   def default_template_for_scope(%Scope{} = scope) do
     default_template!(tenant_id_from_scope(scope))
+  end
+
+  defp log_workspace_timings(timings, patient_id, record_set_id) do
+    Logger.info(
+      "[workspace] patient_id=#{patient_id} record_set_id=#{record_set_id} timings_ms=#{inspect(timings)}"
+    )
   end
 
   def get_template!(id) do
