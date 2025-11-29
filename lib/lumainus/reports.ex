@@ -402,7 +402,6 @@ defmodule Lumainus.Reports do
   defp latest_section_runs_map([], _record_set_id), do: %{}
 
   defp latest_section_runs_map(section_ids, record_set_id) do
-    attach_repo_query_logger()
     t0 = System.monotonic_time(:millisecond)
 
     ids =
@@ -481,37 +480,6 @@ defmodule Lumainus.Reports do
       )
 
     Repo.preload(runs, [:llm_invocation, citations: citations_query])
-  end
-
-  defp attach_repo_query_logger do
-    :telemetry.attach(
-      "reports-query-logger",
-      [:lumainus, :repo, :query],
-      &__MODULE__.handle_repo_query/4,
-      nil
-    )
-  rescue
-    _ -> :ok
-  end
-
-  def handle_repo_query(_event, measurements, metadata, _config) do
-    query = Map.get(metadata, :query, "")
-
-    if is_binary(query) and String.contains?(query, "report_section_runs") do
-      total = format_time_ms(measurements[:total_time])
-      queue = format_time_ms(measurements[:queue_time])
-      decode = format_time_ms(measurements[:decode_time])
-
-      Logger.info(
-        "[Repo.query] total=#{total}ms queue=#{queue}ms decode=#{decode}ms sql=#{String.replace(query, "\n", " ")}"
-      )
-    end
-  end
-
-  defp format_time_ms(nil), do: 0
-
-  defp format_time_ms(native) do
-    System.convert_time_unit(native, :native, :millisecond)
   end
 
   defp maybe_filter_patients_for_user(query, nil), do: query
