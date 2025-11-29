@@ -28,6 +28,14 @@ config :swoosh, :api_client, false
 # Print only warnings and errors during test
 config :logger, level: :warning
 
+# Suppress noisy InstanceManager "set_stopped" warnings in tests only
+config :logger, :console,
+  filter_default: :log,
+  filters: [
+    instance_manager_set_stopped:
+      {Logger.Filters, :module_level, {Lumainus.Docling.VastAI.InstanceManager, :error}}
+  ]
+
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 

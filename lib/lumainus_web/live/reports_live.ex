@@ -41,6 +41,7 @@ defmodule LumainusWeb.ReportsLive do
 
     socket =
       socket
+      |> assign(:page_head, mathjax_head())
       |> allow_upload(:documents,
         accept: ~w(.pdf),
         max_entries: 5,
@@ -2337,12 +2338,15 @@ defmodule LumainusWeb.ReportsLive do
   defp format_run(nil), do: nil
 
   defp format_run(run) do
+    citations = Enum.map(run.citations || [], &format_citation/1)
+
     %{
       id: run.id,
       status: run.status,
       output_markdown: run.output_markdown,
       updated_at: run.updated_at,
-      citations: Enum.map(run.citations || [], &format_citation/1)
+      citations: citations,
+      inline_citations: format_inline_citations(run.inline_citations, citations)
     }
   end
 
@@ -2352,6 +2356,70 @@ defmodule LumainusWeb.ReportsLive do
       label: citation.citation_label,
       document_id: citation.document_id
     }
+  end
+
+  defp format_inline_citations(inline_citations, persisted_citations)
+
+  defp format_inline_citations(nil, persisted_citations),
+    do: inline_from_persisted(persisted_citations)
+
+  defp format_inline_citations(%{"entries" => entries}, persisted_citations)
+       when is_list(entries),
+       do: format_inline_citations(entries, persisted_citations)
+
+  defp format_inline_citations(entries, persisted_citations) when is_list(entries) do
+    formatted =
+      Enum.map(entries, fn citation ->
+        ref =
+          citation["document_reference"] || citation[:document_reference] || citation["label"] ||
+            citation[:label]
+
+        label = citation["label"] || citation[:label]
+
+        %{
+          document_reference: ref,
+          document_id:
+            citation["document_id"] ||
+              citation[:document_id] ||
+              lookup_citation_doc_id(persisted_citations, ref, label),
+          label: label,
+          line_start: citation["line_start"] || citation[:line_start],
+          line_end: citation["line_end"] || citation[:line_end]
+        }
+      end)
+
+    case formatted do
+      [] -> inline_from_persisted(persisted_citations)
+      list -> list
+    end
+  end
+
+  defp format_inline_citations(_other, persisted_citations),
+    do: inline_from_persisted(persisted_citations)
+
+  defp inline_from_persisted([]), do: []
+
+  defp inline_from_persisted(citations) when is_list(citations) do
+    Enum.map(citations, fn citation ->
+      %{
+        document_reference: citation.label,
+        document_id: citation.document_id,
+        label: citation.label,
+        line_start: nil,
+        line_end: nil
+      }
+    end)
+  end
+
+  defp lookup_citation_doc_id(citations, ref, label) do
+    Enum.find_value(citations, fn
+      %{label: candidate_label, document_id: doc_id}
+      when doc_id and (candidate_label == label or candidate_label == ref) ->
+        doc_id
+
+      _ ->
+        nil
+    end)
   end
 
   defp run_status(%{latest_run: nil}), do: "not_started"
@@ -3594,6 +3662,7 @@ defmodule LumainusWeb.ReportsLive do
                     content={section_entry.last_run.output_markdown}
                     fallback="Awaiting output"
                     class="report-markdown"
+                    inline_citations={section_entry.last_run.inline_citations}
                   />
                 <% else %>
                   <div style="font-size: 13px; color: #94a3b8;">
@@ -3886,6 +3955,17 @@ defmodule LumainusWeb.ReportsLive do
         </div>
       </div>
     <% end %>
+    """
+  end
+
+  defp mathjax_head(assigns \\ %{}) do
+    ~H"""
+    <script
+      id="mathjax-script"
+      defer
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+    >
+    </script>
     """
   end
 
