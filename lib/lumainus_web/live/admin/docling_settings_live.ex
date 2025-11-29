@@ -26,6 +26,7 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
   alias Lumainus.Docling.Settings
   alias Lumainus.Conversion.Infrastructure.HealthManager
   alias Lumainus.VastAI.Availability
+  alias Lumainus.Cloudflare
 
   @backends [
     {:native_cpu, "Native CPU", "8040", false},
@@ -86,78 +87,65 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     if socket.assigns.adopting_cloud? do
       {:noreply, socket}
     else
-      send(self(), :maybe_adopt_cloud)
-      {:noreply, assign(socket, adopting_cloud?: true)}
+      endpoint = Cloudflare.cloud_url()
+
+      case Settings.update_settings(%{
+             cloud_url: endpoint,
+             default_mode: "cloud",
+             active_local_backend: "vast_ai"
+           }) do
+        {:ok, _} ->
+          # Kick off a background sync to adopt instance state (if any)
+          Task.start(fn -> InstanceManager.sync_with_vast_ai() end)
+
+          {:noreply,
+           socket
+           |> put_flash(:info, "Cloud endpoint set to #{endpoint}")
+           |> assign(adopting_cloud?: false)
+           |> assign_settings()
+           |> assign_all_health()}
+
+        {:error, changeset} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to save cloud endpoint")
+           |> assign(adopting_cloud?: false)
+           |> assign(changeset: changeset, form: to_form(changeset))}
+      end
     end
   end
 
   @impl true
   def handle_info(:maybe_adopt_cloud, socket) do
     if should_adopt_cloud?(socket) do
-      lv_pid = self()
+      # If we should adopt on mount, reuse the synchronous path from the button
+      endpoint = Cloudflare.cloud_url()
 
-      Task.start(fn ->
-        result = InstanceManager.sync_with_vast_ai()
-        send(lv_pid, {:adopt_cloud_result, result})
-      end)
+      case Settings.update_settings(%{
+             cloud_url: endpoint,
+             default_mode: "cloud",
+             active_local_backend: "vast_ai"
+           }) do
+        {:ok, _} ->
+          Task.start(fn -> InstanceManager.sync_with_vast_ai() end)
 
-      {:noreply, assign(socket, adopting_cloud?: true)}
+          {:noreply,
+           socket
+           |> put_flash(:info, "Cloud endpoint set to #{endpoint}")
+           |> assign(adopting_cloud?: false)
+           |> assign_settings()
+           |> assign_all_health()}
+
+        {:error, changeset} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to save cloud endpoint")
+           |> assign(adopting_cloud?: false)
+           |> assign(changeset: changeset, form: to_form(changeset))}
+      end
     else
       {:noreply, socket}
     end
-  end
-
-  def handle_info({:adopt_cloud_result, {:ok, :synced, endpoint}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:info, "Adopted running cloud instance at #{endpoint}")
-     |> assign(adopting_cloud?: false)
-     |> assign_settings()
-     |> assign_all_health()}
-  end
-
-  def handle_info({:adopt_cloud_result, {:ok, :loading, _id}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:info, "Cloud instance is still loading")
-     |> assign(adopting_cloud?: false)
-     |> assign_all_health()}
-  end
-
-  def handle_info({:adopt_cloud_result, {:ok, :stopped, endpoint}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:info, "Found stopped cloud instance; configured endpoint #{endpoint}")
-     |> assign(adopting_cloud?: false)
-     |> assign_settings()
-     |> assign_all_health()}
-  end
-
-  def handle_info({:adopt_cloud_result, {:ok, :none}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:warning, "No running cloud instance found to adopt")
-     |> assign(adopting_cloud?: false)
-     |> assign_all_health()}
-  end
-
-  def handle_info({:adopt_cloud_result, {:ok, :cleared}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:warning, "Cleared stale cloud instance state")
-     |> assign(adopting_cloud?: false)
-     |> assign_all_health()}
-  end
-
-  def handle_info({:adopt_cloud_result, {:ok, :unchanged}}, socket) do
-    {:noreply, assign(socket, adopting_cloud?: false)}
-  end
-
-  def handle_info({:adopt_cloud_result, {:error, reason}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:error, "Failed to adopt cloud instance: #{inspect(reason)}")
-     |> assign(adopting_cloud?: false)}
   end
 
   # Handle GPU status changes from InstanceManager
