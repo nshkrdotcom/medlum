@@ -41,8 +41,24 @@ docling_env_config =
         )
     end
   end)
+  |> then(fn docling_config ->
+    case System.get_env("DOCLING_DOCKER_AUTO_MANAGE") do
+      val when val in ["false", "0", "off", "disable", "disabled", "no"] ->
+        Keyword.put(docling_config, :docker_auto_manage, false)
 
-if System.get_env("DOCLING_URL") || System.get_env("DOCLING_REMOTE_URL") do
+      val when val in ["true", "1", "on", "yes"] ->
+        Keyword.put(docling_config, :docker_auto_manage, true)
+
+      _ ->
+        docling_config
+    end
+  end)
+
+docling_env_overrides? =
+  System.get_env("DOCLING_URL") || System.get_env("DOCLING_REMOTE_URL") ||
+    System.get_env("DOCLING_DOCKER_AUTO_MANAGE")
+
+if docling_env_overrides? do
   config :lumainus, :docling, docling_env_config
 end
 
