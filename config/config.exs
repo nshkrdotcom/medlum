@@ -70,7 +70,11 @@ config :lumainus, :vast_ai_auto_shutdown,
   # How often to check for idle instances (minutes)
   check_interval_minutes: 5,
   # Destroy instance if no activity for this many minutes
-  idle_timeout_minutes: 15
+  idle_timeout_minutes: 15,
+  # Grace period after provisioning before idle checks can stop instances (minutes)
+  post_provisioning_grace_minutes: 3,
+  # Pending shutdown window; during this window any activity cancels shutdown (seconds)
+  pending_shutdown_seconds: 30
 
 # Conversion System v2 Configuration
 # ==================================

@@ -30,6 +30,7 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
   alias Lumainus.Conversion.Infrastructure.HTTP.SSEStream
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Lumainus.Docling.VastAI.AutoShutdown
 
   require Logger
 
@@ -252,6 +253,8 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
     if process_running?(ActivityTracker) do
       ActivityTracker.record_activity()
     end
+
+    AutoShutdown.touch_activity()
 
     :ok
   end

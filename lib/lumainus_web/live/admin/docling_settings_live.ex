@@ -25,6 +25,7 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
 
   alias Lumainus.Docling.Settings
   alias Lumainus.Conversion.Infrastructure.HealthManager
+  alias Lumainus.VastAI.Availability
 
   @backends [
     {:native_cpu, "Native CPU", "8040", false},
@@ -43,17 +44,21 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
       InstanceManager.subscribe()
     end
 
-    {:ok,
-     socket
-     |> assign_settings()
-     |> assign_all_health()}
-  end
+    socket =
+      socket
+      |> assign(adopting_cloud?: false)
+      |> assign_settings()
+      |> assign_all_health()
 
-  # Handle GPU status changes from InstanceManager
-  @impl true
-  def handle_info({:gpu_status_changed, _status_map}, socket) do
-    # Re-derive health from current state (instant, no HTTP)
-    {:noreply, assign_all_health(socket)}
+    socket =
+      if connected?(socket) and should_adopt_cloud?(socket) do
+        send(self(), :maybe_adopt_cloud)
+        socket
+      else
+        socket
+      end
+
+    {:ok, socket}
   end
 
   @impl true
@@ -76,6 +81,82 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     {:noreply, assign_all_health(socket)}
   end
 
+  @impl true
+  def handle_event("adopt_cloud", _params, socket) do
+    if socket.assigns.adopting_cloud? do
+      {:noreply, socket}
+    else
+      send(self(), :maybe_adopt_cloud)
+      {:noreply, assign(socket, adopting_cloud?: true)}
+    end
+  end
+
+  @impl true
+  def handle_info(:maybe_adopt_cloud, socket) do
+    if should_adopt_cloud?(socket) do
+      lv_pid = self()
+
+      Task.start(fn ->
+        result = InstanceManager.sync_with_vast_ai()
+        send(lv_pid, {:adopt_cloud_result, result})
+      end)
+
+      {:noreply, assign(socket, adopting_cloud?: true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:adopt_cloud_result, {:ok, :synced, endpoint}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:info, "Adopted running cloud instance at #{endpoint}")
+     |> assign(adopting_cloud?: false)
+     |> assign_settings()
+     |> assign_all_health()}
+  end
+
+  def handle_info({:adopt_cloud_result, {:ok, :loading, _id}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:info, "Cloud instance is still loading")
+     |> assign(adopting_cloud?: false)
+     |> assign_all_health()}
+  end
+
+  def handle_info({:adopt_cloud_result, {:ok, :none}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:warning, "No running cloud instance found to adopt")
+     |> assign(adopting_cloud?: false)
+     |> assign_all_health()}
+  end
+
+  def handle_info({:adopt_cloud_result, {:ok, :cleared}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:warning, "Cleared stale cloud instance state")
+     |> assign(adopting_cloud?: false)
+     |> assign_all_health()}
+  end
+
+  def handle_info({:adopt_cloud_result, {:ok, :unchanged}}, socket) do
+    {:noreply, assign(socket, adopting_cloud?: false)}
+  end
+
+  def handle_info({:adopt_cloud_result, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:error, "Failed to adopt cloud instance: #{inspect(reason)}")
+     |> assign(adopting_cloud?: false)}
+  end
+
+  # Handle GPU status changes from InstanceManager
+  def handle_info({:gpu_status_changed, _status_map}, socket) do
+    # Re-derive health from current state (instant, no HTTP)
+    {:noreply, assign_all_health(socket)}
+  end
+
   defp assign_settings(socket) do
     {:ok, setting} = Settings.fetch_or_init()
     changeset = Settings.change_settings(%{})
@@ -91,6 +172,15 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
       |> Map.new()
 
     assign(socket, health: health_map)
+  end
+
+  defp should_adopt_cloud?(socket) do
+    setting = socket.assigns[:setting]
+    cloud_missing? = is_nil(setting.cloud_url) or setting.cloud_url == ""
+
+    cloud_missing? and
+      Availability.enabled?() and
+      Availability.process_alive?(InstanceManager)
   end
 
   # For vast_ai, use InstanceManager state instead of HTTP health check
@@ -209,6 +299,14 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
     }
   end
 
+  defp show_adopt_button?(setting) do
+    cloud_missing? = is_nil(setting.cloud_url) or setting.cloud_url == ""
+
+    cloud_missing? and
+      Availability.enabled?() and
+      Availability.process_alive?(InstanceManager)
+  end
+
   # Map UI backend names to v2 HealthManager backend names
   defp v2_backend_name(:native_cpu), do: :local_cpu
   defp v2_backend_name(:native_gpu), do: :local_gpu
@@ -231,13 +329,29 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Backend Health</h2>
-          <button
-            type="button"
-            phx-click="refresh_health"
-            class="text-sm text-blue-600 hover:text-blue-800"
-          >
-            Refresh
-          </button>
+          <div class="flex items-center gap-3">
+            <%= if show_adopt_button?(@setting) do %>
+              <button
+                type="button"
+                phx-click="adopt_cloud"
+                class={[
+                  "text-sm px-3 py-1 rounded-md",
+                  "text-white bg-emerald-600 hover:bg-emerald-700",
+                  @adopting_cloud? && "opacity-70 cursor-not-allowed"
+                ]}
+                disabled={@adopting_cloud?}
+              >
+                {if @adopting_cloud?, do: "Adopting…", else: "Adopt running cloud instance"}
+              </button>
+            <% end %>
+            <button
+              type="button"
+              phx-click="refresh_health"
+              class="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         <div class="grid gap-3 md:grid-cols-5">
           <%= for {backend, name, port, gpu} <- backends() do %>

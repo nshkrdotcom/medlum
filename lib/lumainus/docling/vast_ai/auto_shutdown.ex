@@ -37,13 +37,15 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   use GenServer
   require Logger
 
+  alias Lumainus.Conversion.Job
   alias Lumainus.GPU
-  alias Lumainus.VastAI
-  alias Lumainus.VastAI.Instances
   alias Lumainus.Docling.VastAI.ActivityTracker
   alias Lumainus.Docling.VastAI.InstanceManager
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Docling.VastAI.StartTracker
+  alias Lumainus.Repo
+
+  import Ecto.Query
 
   # =============================================================================
   # Public API
@@ -60,6 +62,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   Returns:
     - {:ok, :no_instances} - No running instances found
     - {:ok, :still_active} - Instance running but not idle
+    - {:ok, :pending_shutdown, instance_id} - Idle threshold reached; shutdown pending
     - {:ok, :stopped, instance_id} - Instance was stopped (can be restarted)
     - {:error, reason} - Error occurred
   """
@@ -96,6 +99,27 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   end
 
   @doc """
+  Grace period after provisioning before idle shutdown logic applies.
+  """
+  def post_provisioning_grace_minutes do
+    config(:post_provisioning_grace_minutes, 0)
+  end
+
+  @doc """
+  Pending shutdown countdown (seconds). Activity during this window cancels shutdown.
+  """
+  def pending_shutdown_seconds do
+    config(:pending_shutdown_seconds, 0)
+  end
+
+  @doc """
+  Cancel any pending shutdown due to recent activity.
+  """
+  def touch_activity do
+    GenServer.cast(__MODULE__, :activity_seen)
+  end
+
+  @doc """
   Immediately cleanup any duplicate running instances.
 
   Keeps only the most recently started instance and destroys all others.
@@ -109,7 +133,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   def cleanup_duplicates do
     Logger.info("[AutoShutdown] Manual duplicate cleanup requested")
 
-    case Instances.list() do
+    case instances_module().list() do
       {:ok, %{"instances" => instances}} when is_list(instances) ->
         running =
           Enum.filter(instances, fn inst ->
@@ -142,7 +166,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
             for extra <- extras do
               extra_id = extra["id"]
               Logger.warning("[AutoShutdown] Destroying duplicate instance #{extra_id}")
-              VastAI.destroy(extra_id)
+              vast_ai_module().destroy(extra_id)
             end
 
             {:ok, :cleaned, length(extras)}
@@ -166,7 +190,8 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
       last_check: nil,
       last_result: nil,
       checks_performed: 0,
-      instances_stopped: 0
+      instances_stopped: 0,
+      pending_shutdown: nil
     }
 
     # Schedule first check
@@ -196,14 +221,23 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
       enabled: enabled?(),
       check_interval_minutes: check_interval_minutes(),
       idle_timeout_minutes: idle_timeout_minutes(),
+      post_provisioning_grace_minutes: post_provisioning_grace_minutes(),
+      pending_shutdown_seconds: pending_shutdown_seconds(),
       last_check: state.last_check,
       last_result: state.last_result,
       checks_performed: state.checks_performed,
       instances_stopped: state.instances_stopped,
-      activity: activity_status
+      activity: activity_status,
+      pending_shutdown: format_pending_status(state.pending_shutdown)
     }
 
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_cast(:activity_seen, state) do
+    new_state = cancel_pending_shutdown(state, :activity)
+    {:noreply, new_state}
   end
 
   @impl true
@@ -218,6 +252,28 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
     {:noreply, state}
   end
 
+  def handle_info({:pending_shutdown_expire, instance_id, deadline_ms}, state) do
+    case state.pending_shutdown do
+      %{instance_id: ^instance_id, deadline_ms: ^deadline_ms} ->
+        {result, new_state} = finalize_pending_shutdown(instance_id, state)
+
+        new_state =
+          new_state
+          |> Map.put(:last_result, result)
+          |> Map.put(:last_check, DateTime.utc_now())
+          |> maybe_increment_stopped(result)
+
+        {:noreply, new_state}
+
+      _ ->
+        Logger.debug(
+          "[AutoShutdown] Ignoring stale pending shutdown timer for instance #{instance_id}"
+        )
+
+        {:noreply, state}
+    end
+  end
+
   # =============================================================================
   # Private
   # =============================================================================
@@ -225,7 +281,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   defp do_check_and_shutdown(state) do
     Logger.debug("[AutoShutdown] Running idle check...")
 
-    result = perform_check()
+    {result, state} = perform_check(state)
 
     state = %{
       state
@@ -234,19 +290,12 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
         checks_performed: state.checks_performed + 1
     }
 
-    state =
-      case result do
-        {:ok, :stopped, _id} ->
-          %{state | instances_stopped: state.instances_stopped + 1}
-
-        _ ->
-          state
-      end
+    state = maybe_increment_stopped(state, result)
 
     {result, state}
   end
 
-  defp perform_check do
+  defp perform_check(state) do
     # CRITICAL: Skip check entirely if provisioning is in progress
     # We don't want to shut down instances while they're being set up
     if ProvisioningState.is_provisioning?() do
@@ -260,15 +309,16 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
         source: "auto_shutdown"
       )
 
-      {:ok, :provisioning_in_progress}
+      state = cancel_pending_shutdown(state, :provisioning_in_progress)
+      {{:ok, :provisioning_in_progress}, state}
     else
-      do_perform_check()
+      do_perform_check(state)
     end
   end
 
-  defp do_perform_check do
+  defp do_perform_check(state) do
     # Get running instances
-    case Instances.list() do
+    case instances_module().list() do
       {:ok, %{"instances" => instances}} when is_list(instances) ->
         running =
           Enum.filter(instances, fn inst ->
@@ -285,11 +335,12 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
               source: "auto_shutdown"
             )
 
-            {:ok, :no_instances}
+            state = cancel_pending_shutdown(state, :no_instances)
+            {{:ok, :no_instances}, state}
 
           [instance] ->
             # Single instance - normal case
-            check_instance_idle(instance)
+            check_instance_idle(instance, state)
 
           [_instance | _rest] = all_running ->
             # CRITICAL: Multiple instances running - delete extras immediately!
@@ -329,7 +380,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
             end
 
             # Now check the remaining instance for idleness
-            check_instance_idle(newest)
+            check_instance_idle(newest, state)
         end
 
       # Handle map format from API (single instance)
@@ -337,15 +388,17 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
         status = instance["actual_status"] || instance["cur_state"]
 
         if status in ["running", "loading"] do
-          check_instance_idle(instance)
+          check_instance_idle(instance, state)
         else
           Logger.debug("[AutoShutdown] Instance not running (status: #{status})")
-          {:ok, :no_instances}
+          state = cancel_pending_shutdown(state, :no_instances)
+          {{:ok, :no_instances}, state}
         end
 
       {:ok, %{"instances" => _}} ->
         Logger.debug("[AutoShutdown] No running instances (empty or unexpected format)")
-        {:ok, :no_instances}
+        state = cancel_pending_shutdown(state, :no_instances)
+        {{:ok, :no_instances}, state}
 
       {:error, reason} ->
         Logger.error("[AutoShutdown] Failed to list instances: #{inspect(reason)}")
@@ -358,102 +411,101 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
           source: "auto_shutdown"
         )
 
-        {:error, reason}
+        {{:error, reason}, state}
     end
   end
 
-  defp check_instance_idle(instance) do
+  defp check_instance_idle(instance, state) do
+    instance = normalize_instance(instance)
     instance_id = instance["id"]
+    state = cancel_pending_if_instance_changed(state, instance_id)
     idle_minutes = ActivityTracker.idle_for_minutes()
     timeout = idle_timeout_minutes()
-
-    # Calculate instance age from start_date
+    grace_minutes = post_provisioning_grace_minutes()
     instance_age_minutes = instance_age_in_minutes(instance)
+    inflight_cloud_jobs? = cloud_jobs_inflight?()
 
-    # Log the idle check to database
+    # Track first seen time for accurate grace calculation
+    StartTracker.record_first_seen(instance_id)
+
     GPU.log_auto_shutdown_check(instance_id, idle_minutes_value(idle_minutes), timeout)
-
-    # Also update session idle time if we have one
     update_session_idle(instance_id, idle_minutes)
 
-    case idle_minutes do
-      :never ->
-        # Never had activity - BUT check instance age first!
-        # Don't stop newly provisioned instances - give them time to receive first request
-        # Grace period = timeout (15 min by default)
-        if instance_age_minutes < timeout do
-          Logger.info(
-            "[AutoShutdown] Instance #{instance_id} has no activity but is new (#{instance_age_minutes} min old < #{timeout} min grace period), keeping alive"
-          )
+    cond do
+      inflight_cloud_jobs? ->
+        new_state = cancel_pending_shutdown(state, :cloud_jobs_inflight)
 
-          GPU.log(
-            :auto_shutdown,
-            :new_instance_grace,
-            "New instance in grace period, keeping alive",
-            instance_id: instance_id,
-            severity: "info",
-            source: "auto_shutdown",
-            details: %{age_minutes: instance_age_minutes, grace_period: timeout}
-          )
-
-          {:ok, :still_active}
-        else
-          # Instance is old enough but never had activity - stop it
-          Logger.info(
-            "[AutoShutdown] Instance #{instance_id} has no activity and is #{instance_age_minutes} min old (>= #{timeout} min), stopping..."
-          )
-
-          GPU.log(
-            :auto_shutdown,
-            :no_activity,
-            "Instance has never had activity and exceeded grace period, will stop",
-            instance_id: instance_id,
-            severity: "warning",
-            source: "auto_shutdown",
-            details: %{age_minutes: instance_age_minutes, grace_period: timeout}
-          )
-
-          stop_instance(instance_id, "idle_timeout")
-        end
-
-      mins when mins >= timeout ->
-        # IMPORTANT: Check instance age too - if instance is new, the idle_minutes
-        # might be stale from a previous instance. Don't shut down new instances.
-        if instance_age_minutes < timeout do
-          Logger.info(
-            "[AutoShutdown] Instance #{instance_id} shows #{mins} min idle but is only #{instance_age_minutes} min old - keeping alive (stale activity data)"
-          )
-
-          GPU.log(
-            :auto_shutdown,
-            :stale_activity_ignored,
-            "Instance shows idle but is new - ignoring stale activity data",
-            instance_id: instance_id,
-            severity: "info",
-            source: "auto_shutdown",
-            details: %{
-              reported_idle_minutes: mins,
-              instance_age_minutes: instance_age_minutes,
-              timeout: timeout
-            }
-          )
-
-          {:ok, :still_active}
-        else
-          Logger.info(
-            "[AutoShutdown] Instance #{instance_id} idle for #{mins} min (>= #{timeout}), stopping..."
-          )
-
-          GPU.log_auto_shutdown_triggered(instance_id, mins)
-          stop_instance(instance_id, "idle_timeout")
-        end
-
-      mins ->
         Logger.debug(
-          "[AutoShutdown] Instance #{instance_id} idle for #{mins} min (< #{timeout}), keeping alive"
+          "[AutoShutdown] Cloud conversions in flight; keeping instance #{instance_id} alive"
         )
 
-        {:ok, :still_active}
+        {{:ok, :still_active}, new_state}
+
+      instance_age_minutes < grace_minutes ->
+        new_state = cancel_pending_shutdown(state, :within_grace_period)
+
+        Logger.debug(
+          "[AutoShutdown] Instance #{instance_id} is #{instance_age_minutes} min old (< #{grace_minutes} min grace); skipping idle shutdown"
+        )
+
+        {{:ok, :still_active}, new_state}
+
+      idle_minutes == :never and instance_age_minutes < max(timeout, grace_minutes) ->
+        new_state = cancel_pending_shutdown(state, :never_seen_grace)
+
+        Logger.info(
+          "[AutoShutdown] Instance #{instance_id} has no activity but is only #{instance_age_minutes} min old; keeping alive until grace passes"
+        )
+
+        GPU.log(
+          :auto_shutdown,
+          :new_instance_grace,
+          "New instance in grace period, keeping alive",
+          instance_id: instance_id,
+          severity: "info",
+          source: "auto_shutdown",
+          details: %{age_minutes: instance_age_minutes, grace_period: max(timeout, grace_minutes)}
+        )
+
+        {{:ok, :still_active}, new_state}
+
+      idle_minutes == :never ->
+        schedule_pending_shutdown(instance_id, idle_minutes, instance_age_minutes, state)
+
+      is_integer(idle_minutes) and idle_minutes < timeout ->
+        new_state = cancel_pending_shutdown(state, :recent_activity)
+
+        Logger.debug(
+          "[AutoShutdown] Instance #{instance_id} idle for #{idle_minutes} min (< #{timeout}), keeping alive"
+        )
+
+        {{:ok, :still_active}, new_state}
+
+      is_integer(idle_minutes) and idle_minutes >= timeout and instance_age_minutes < timeout ->
+        new_state = cancel_pending_shutdown(state, :stale_activity)
+
+        Logger.info(
+          "[AutoShutdown] Instance #{instance_id} shows #{idle_minutes} min idle but is #{instance_age_minutes} min old; treating idle as stale and keeping alive"
+        )
+
+        GPU.log(
+          :auto_shutdown,
+          :stale_activity_ignored,
+          "Instance shows idle but is new - ignoring stale activity data",
+          instance_id: instance_id,
+          severity: "info",
+          source: "auto_shutdown",
+          details: %{
+            reported_idle_minutes: idle_minutes,
+            instance_age_minutes: instance_age_minutes,
+            timeout: timeout
+          }
+        )
+
+        {{:ok, :still_active}, new_state}
+
+      is_integer(idle_minutes) and idle_minutes >= timeout ->
+        schedule_pending_shutdown(instance_id, idle_minutes, instance_age_minutes, state)
     end
   end
 
@@ -507,8 +559,264 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
     end
   end
 
+  defp schedule_pending_shutdown(instance_id, idle_minutes, instance_age_minutes, state) do
+    window_ms = pending_window_ms()
+    idle_label = format_idle_for_log(idle_minutes)
+
+    if window_ms <= 0 do
+      Logger.info(
+        "[AutoShutdown] Instance #{instance_id} idle threshold reached; pending window is 0s, stopping immediately"
+      )
+
+      state = cancel_pending_shutdown(state, :no_pending_window)
+      result = stop_instance(instance_id, "idle_timeout")
+      {result, state}
+    else
+      state = cancel_pending_shutdown(state, :schedule_refresh)
+      deadline_ms = System.monotonic_time(:millisecond) + window_ms
+
+      timer_ref =
+        Process.send_after(
+          self(),
+          {:pending_shutdown_expire, instance_id, deadline_ms},
+          window_ms
+        )
+
+      seconds = div(window_ms, 1000)
+
+      Logger.info(
+        "[AutoShutdown] Instance #{instance_id} idle for #{idle_label}; scheduling shutdown in #{seconds}s (deadline #{deadline_ms})"
+      )
+
+      GPU.log(
+        :auto_shutdown,
+        :pending_shutdown_scheduled,
+        "Idle threshold reached; shutdown pending",
+        instance_id: instance_id,
+        severity: "warning",
+        source: "auto_shutdown",
+        details: %{
+          idle_minutes: idle_minutes_value(idle_minutes),
+          idle_label: idle_label,
+          instance_age_minutes: instance_age_minutes,
+          pending_window_seconds: seconds
+        }
+      )
+
+      new_state = %{
+        state
+        | pending_shutdown: %{
+            instance_id: instance_id,
+            deadline_ms: deadline_ms,
+            timer_ref: timer_ref
+          }
+      }
+
+      {{:ok, :pending_shutdown, instance_id}, new_state}
+    end
+  end
+
+  defp pending_window_ms do
+    max(0, pending_shutdown_seconds() * 1000)
+  end
+
+  defp cancel_pending_shutdown(state, reason) do
+    case state.pending_shutdown do
+      nil ->
+        state
+
+      %{timer_ref: timer_ref, instance_id: pending_instance} ->
+        _ = Process.cancel_timer(timer_ref)
+        log_pending_cancel(pending_instance, reason)
+        %{state | pending_shutdown: nil}
+    end
+  end
+
+  defp cancel_pending_if_instance_changed(state, instance_id) do
+    case state.pending_shutdown do
+      %{instance_id: pending_id} when pending_id != instance_id ->
+        cancel_pending_shutdown(state, :instance_changed)
+
+      _ ->
+        state
+    end
+  end
+
+  defp log_pending_cancel(instance_id, reason) do
+    Logger.info(
+      "[AutoShutdown] Pending shutdown for instance #{instance_id} cancelled (#{reason})"
+    )
+  end
+
+  defp cloud_jobs_inflight? do
+    active_states = [:queued, :provisioning, :starting, :processing]
+
+    query =
+      from(j in Job,
+        where: j.backend_used == :cloud and j.state in ^active_states,
+        select: j.id,
+        limit: 1
+      )
+
+    Repo.exists?(query)
+  rescue
+    exception ->
+      Logger.error(
+        "[AutoShutdown] Failed to check cloud jobs in-flight: #{Exception.message(exception)}"
+      )
+
+      true
+  end
+
+  defp fetch_running_instance(instance_id) do
+    case instances_module().get(instance_id) do
+      {:ok, %{"instances" => inst}} ->
+        fetch_running_instance_from_map(inst)
+
+      {:ok, inst} ->
+        fetch_running_instance_from_map(inst)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_running_instance_from_map(instance) do
+    normalized = normalize_instance(instance)
+
+    if instance_running?(normalized) do
+      {:ok, normalized}
+    else
+      :not_running
+    end
+  end
+
+  defp instance_running?(instance) do
+    status = instance["actual_status"] || instance["cur_state"]
+    status in ["running", "loading"]
+  end
+
+  defp normalize_instance(%{"instances" => inst}), do: inst
+  defp normalize_instance(inst), do: inst
+
+  defp format_pending_status(nil), do: nil
+
+  defp format_pending_status(%{instance_id: id, deadline_ms: deadline_ms}) do
+    now = System.monotonic_time(:millisecond)
+    remaining_ms = max(deadline_ms - now, 0)
+
+    %{
+      instance_id: id,
+      deadline_ms: deadline_ms,
+      remaining_ms: remaining_ms,
+      remaining_seconds: Float.round(remaining_ms / 1000, 1)
+    }
+  end
+
+  defp format_idle_for_log(:never), do: "never (no activity recorded)"
+  defp format_idle_for_log(mins), do: "#{mins} min"
+
+  defp finalize_pending_shutdown(instance_id, state) do
+    state = %{state | pending_shutdown: nil}
+
+    cond do
+      ProvisioningState.is_provisioning?() ->
+        Logger.info(
+          "[AutoShutdown] Pending shutdown cancelled for instance #{instance_id} - provisioning in progress"
+        )
+
+        {{:ok, :pending_cancelled_provisioning}, state}
+
+      true ->
+        case fetch_running_instance(instance_id) do
+          {:ok, instance} ->
+            idle_minutes = ActivityTracker.idle_for_minutes()
+            timeout = idle_timeout_minutes()
+            grace_minutes = post_provisioning_grace_minutes()
+            instance_age_minutes = instance_age_in_minutes(instance)
+            inflight_cloud_jobs? = cloud_jobs_inflight?()
+
+            cond do
+              inflight_cloud_jobs? ->
+                Logger.info(
+                  "[AutoShutdown] Pending shutdown cancelled for #{instance_id} - cloud conversions still active"
+                )
+
+                {{:ok, :pending_cancelled_jobs}, state}
+
+              instance_age_minutes < grace_minutes ->
+                Logger.info(
+                  "[AutoShutdown] Pending shutdown cancelled for #{instance_id} - still within post-provisioning grace (#{instance_age_minutes} < #{grace_minutes} min)"
+                )
+
+                {{:ok, :pending_cancelled_grace}, state}
+
+              idle_minutes == :never and instance_age_minutes < max(timeout, grace_minutes) ->
+                Logger.info(
+                  "[AutoShutdown] Pending shutdown cancelled for #{instance_id} - never active but grace not met (age #{instance_age_minutes} min)"
+                )
+
+                {{:ok, :pending_cancelled_grace}, state}
+
+              is_integer(idle_minutes) and idle_minutes < timeout ->
+                Logger.info(
+                  "[AutoShutdown] Pending shutdown cancelled for #{instance_id} - activity detected (idle #{idle_minutes} < #{timeout})"
+                )
+
+                {{:ok, :pending_cancelled_activity}, state}
+
+              is_integer(idle_minutes) and idle_minutes >= timeout and
+                  instance_age_minutes < timeout ->
+                Logger.info(
+                  "[AutoShutdown] Pending shutdown cancelled for #{instance_id} - idle #{idle_minutes} but age #{instance_age_minutes} < #{timeout} (stale data)"
+                )
+
+                {{:ok, :pending_cancelled_stale}, state}
+
+              true ->
+                Logger.info(
+                  "[AutoShutdown] Pending shutdown window expired; stopping instance #{instance_id} (idle #{format_idle_for_log(idle_minutes)})"
+                )
+
+                GPU.log_auto_shutdown_triggered(instance_id, idle_minutes_value(idle_minutes))
+                {stop_instance(instance_id, "idle_timeout_pending_expired"), state}
+            end
+
+          :not_running ->
+            Logger.info(
+              "[AutoShutdown] Pending shutdown expired but instance #{instance_id} is no longer running; clearing pending state"
+            )
+
+            {{:ok, :pending_cancelled_no_instance}, state}
+
+          {:error, reason} ->
+            Logger.error(
+              "[AutoShutdown] Failed to fetch instance #{instance_id} on pending shutdown expiry: #{inspect(reason)}"
+            )
+
+            GPU.log_error(
+              :auto_shutdown,
+              :pending_shutdown_fetch_failed,
+              "Failed to fetch instance on pending shutdown expiry",
+              reason,
+              instance_id: instance_id,
+              source: "auto_shutdown"
+            )
+
+            {{:error, {:pending_shutdown_fetch_failed, reason}}, state}
+        end
+    end
+  end
+
+  defp maybe_increment_stopped(state, result) do
+    case result do
+      {:ok, :stopped, _id} -> %{state | instances_stopped: state.instances_stopped + 1}
+      _ -> state
+    end
+  end
+
   defp stop_instance(instance_id, reason) do
-    with {:ok, _} <- VastAI.stop(instance_id) do
+    with {:ok, _} <- vast_ai_module().stop(instance_id) do
       Logger.info("[AutoShutdown] Instance #{instance_id} stopped successfully")
 
       # Log stop to database
@@ -541,7 +849,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
         # Single retry after short backoff for transient API hiccups
         Process.sleep(2_000)
 
-        case VastAI.stop(instance_id) do
+        case vast_ai_module().stop(instance_id) do
           {:ok, _} ->
             Logger.info("[AutoShutdown] Retry stop succeeded for instance #{instance_id}")
 
@@ -577,7 +885,7 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
 
   # Keep destroy_instance for duplicate cleanup (duplicates should be destroyed, not stopped)
   defp destroy_instance(instance_id, reason) do
-    case VastAI.destroy(instance_id) do
+    case vast_ai_module().destroy(instance_id) do
       {:ok, _} ->
         Logger.info("[AutoShutdown] Duplicate instance #{instance_id} destroyed")
 
@@ -613,5 +921,13 @@ defmodule Lumainus.Docling.VastAI.AutoShutdown do
   defp config(key, default) do
     Application.get_env(:lumainus, :vast_ai_auto_shutdown, [])
     |> Keyword.get(key, default)
+  end
+
+  defp instances_module do
+    config(:instances_module, Lumainus.VastAI.Instances)
+  end
+
+  defp vast_ai_module do
+    config(:vast_ai_module, Lumainus.VastAI)
   end
 end

@@ -128,6 +128,8 @@ defmodule Lumainus.Conversion.CloudStatus do
 
     case status do
       %{status: :running, healthy: true} = info ->
+        maybe_autofix_cloud_url(endpoint)
+
         %{
           availability: :ready,
           endpoint: endpoint,
@@ -298,4 +300,28 @@ defmodule Lumainus.Conversion.CloudStatus do
       pid -> Process.alive?(pid)
     end
   end
+
+  defp maybe_autofix_cloud_url(endpoint) when is_binary(endpoint) and endpoint != "" do
+    with {:ok, setting} <- Settings.fetch_or_init(),
+         true <- is_nil(setting.cloud_url) or setting.cloud_url == "" do
+      Logger.warning(
+        "[CloudStatus] Cloud endpoint ready but cloud_url is missing; persisting #{endpoint}"
+      )
+
+      case Settings.update_settings(%{cloud_url: endpoint}) do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "[CloudStatus] Failed to persist missing cloud_url #{endpoint}: #{inspect(reason)}"
+          )
+      end
+    else
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_autofix_cloud_url(_), do: :ok
 end

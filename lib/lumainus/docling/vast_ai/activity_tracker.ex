@@ -22,6 +22,8 @@ defmodule Lumainus.Docling.VastAI.ActivityTracker do
   use GenServer
   require Logger
 
+  alias Lumainus.Docling.VastAI.AutoShutdown
+
   @table_name :vast_ai_activity
   @activity_key :last_activity
 
@@ -39,6 +41,7 @@ defmodule Lumainus.Docling.VastAI.ActivityTracker do
   """
   def record_activity do
     :ets.insert(@table_name, {@activity_key, System.monotonic_time(:millisecond)})
+    AutoShutdown.touch_activity()
     :ok
   end
 
