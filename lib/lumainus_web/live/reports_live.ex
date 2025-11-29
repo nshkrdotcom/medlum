@@ -584,6 +584,7 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp load_workspace(socket, opts \\ []) do
+    load_start = System.monotonic_time(:millisecond)
     timings = %{start: System.monotonic_time(:millisecond)}
     mem_before_total = :erlang.memory(:total)
 
@@ -603,6 +604,10 @@ defmodule LumainusWeb.ReportsLive do
     t0 = System.monotonic_time(:millisecond)
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
     t1 = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[ReportsLive.load_workspace] workspace_call=#{t1 - t0}ms patient=#{workspace.patient.id} record_set=#{workspace.record_set.id} docs=#{length(workspace.documents)} sections=#{length(workspace.sections)} opts=#{inspect(opts)}"
+    )
 
     # Per-component timing to isolate slow steps
     doc_start = System.monotonic_time(:millisecond)
@@ -748,6 +753,11 @@ defmodule LumainusWeb.ReportsLive do
     |> maybe_subscribe_record_set(workspace.record_set.id)
     |> maybe_subscribe_report_runs(workspace.record_set.id)
     |> subscribe_to_job_topics()
+    |> tap(fn _ ->
+      Logger.info(
+        "[ReportsLive.load_workspace] finished total=#{System.monotonic_time(:millisecond) - load_start}ms"
+      )
+    end)
   end
 
   @impl true
