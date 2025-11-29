@@ -138,8 +138,6 @@ defmodule Mix.Tasks.VastAi.Start do
   end
 
   defp wait_for_running(instance_id, timeout_ms) do
-    alias Lumainus.VastAI
-
     deadline = System.monotonic_time(:millisecond) + timeout_ms
     poll_interval = 5_000
 

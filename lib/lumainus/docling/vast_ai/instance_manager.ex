@@ -649,6 +649,9 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         {:ok, :none} ->
           {:reply, {:ok, :none}, state}
 
+        {:ok, :stopped, instance_id} ->
+          {:reply, {:ok, :stopped, instance_id}, state}
+
         {:ok, instance_id, _ip} ->
           {:reply, {:ok, :running, instance_id}, state}
 
@@ -684,6 +687,20 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
           # State already clear
           {:reply, {:ok, :unchanged}, state}
         end
+
+      {:ok, :stopped, instance_id} ->
+        # Stopped instance exists; mark settings and local state so admin UI knows it's available
+        endpoint = Cloudflare.cloud_url()
+        maybe_persist_cloud_url(endpoint)
+
+        new_state = %{
+          state
+          | instance_id: instance_id,
+            endpoint: nil,
+            status: @status_stopped
+        }
+
+        {:reply, {:ok, :stopped, endpoint}, new_state}
 
       {:ok, instance_id, ip} when is_binary(ip) and ip != "" ->
         if state.instance_id == instance_id and state.endpoint do
@@ -1420,7 +1437,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     case check_vast_ai_for_instances() do
       {:ok, :running, instance_id, ip} -> {:ok, instance_id, ip}
       {:ok, :loading, instance_id} -> {:ok, instance_id, nil}
-      {:ok, :stopped, _instance_id} -> {:ok, :none}
+      {:ok, :stopped, instance_id} -> {:ok, :stopped, instance_id}
       {:ok, :none} -> {:ok, :none}
       {:error, reason} -> {:error, reason}
     end

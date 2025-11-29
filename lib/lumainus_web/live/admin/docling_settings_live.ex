@@ -124,6 +124,15 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
      |> assign_all_health()}
   end
 
+  def handle_info({:adopt_cloud_result, {:ok, :stopped, endpoint}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:info, "Found stopped cloud instance; configured endpoint #{endpoint}")
+     |> assign(adopting_cloud?: false)
+     |> assign_settings()
+     |> assign_all_health()}
+  end
+
   def handle_info({:adopt_cloud_result, {:ok, :none}}, socket) do
     {:noreply,
      socket
@@ -329,29 +338,20 @@ defmodule LumainusWeb.Admin.DoclingSettingsLive do
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Backend Health</h2>
-          <div class="flex items-center gap-3">
-            <%= if show_adopt_button?(@setting) do %>
-              <button
-                type="button"
-                phx-click="adopt_cloud"
-                class={[
-                  "text-sm px-3 py-1 rounded-md",
-                  "text-white bg-emerald-600 hover:bg-emerald-700",
-                  @adopting_cloud? && "opacity-70 cursor-not-allowed"
-                ]}
-                disabled={@adopting_cloud?}
-              >
-                {if @adopting_cloud?, do: "Adopting…", else: "Adopt running cloud instance"}
-              </button>
-            <% end %>
+          <%= if show_adopt_button?(@setting) do %>
             <button
               type="button"
-              phx-click="refresh_health"
-              class="text-sm text-blue-600 hover:text-blue-800"
+              phx-click="adopt_cloud"
+              class={[
+                "text-sm px-3 py-1 rounded-md",
+                "text-white bg-emerald-600 hover:bg-emerald-700",
+                @adopting_cloud? && "opacity-70 cursor-not-allowed"
+              ]}
+              disabled={@adopting_cloud?}
             >
-              Refresh
+              {if @adopting_cloud?, do: "Adopting…", else: "Adopt cloud instance"}
             </button>
-          </div>
+          <% end %>
         </div>
         <div class="grid gap-3 md:grid-cols-5">
           <%= for {backend, name, port, gpu} <- backends() do %>
