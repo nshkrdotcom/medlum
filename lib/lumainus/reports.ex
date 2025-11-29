@@ -42,12 +42,32 @@ defmodule Lumainus.Reports do
   end
 
   def workspace(%Scope{} = scope, opts \\ []) do
+    t0 = System.monotonic_time(:millisecond)
+
     tenant_id = tenant_id_from_scope(scope)
     patient = patient_for_scope!(scope, tenant_id, opts)
+    t_patient = System.monotonic_time(:millisecond)
+
     record_set = record_set_for(patient, opts)
+    t_record_set = System.monotonic_time(:millisecond)
+
     template = default_template!(tenant_id)
+    t_template = System.monotonic_time(:millisecond)
+
     documents = list_documents(scope, record_set, include_summary?: false)
+    t_documents = System.monotonic_time(:millisecond)
+
     sections = list_sections_with_runs(scope, record_set)
+    t_sections = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[Reports.workspace] patient=#{t_patient - t0}ms " <>
+        "record_set=#{t_record_set - t_patient}ms " <>
+        "template=#{t_template - t_record_set}ms " <>
+        "documents=#{t_documents - t_template}ms " <>
+        "sections=#{t_sections - t_documents}ms " <>
+        "total=#{t_sections - t0}ms docs=#{length(documents)} sections=#{length(sections)}"
+    )
 
     %{
       patient: patient,
@@ -137,7 +157,17 @@ defmodule Lumainus.Reports do
     * `:include_summary?` - when true, include the stored summary in metadata (defaults to false)
   """
   def list_documents(%Scope{} = scope, record_set, opts \\ []) do
-    Documents.list_documents(scope, record_set, opts)
+    t0 = System.monotonic_time(:millisecond)
+    docs = Documents.list_documents(scope, record_set, opts)
+    t1 = System.monotonic_time(:millisecond)
+
+    total_bytes = Enum.reduce(docs, 0, fn d, acc -> acc + (d.byte_size || 0) end)
+
+    Logger.info(
+      "[Reports.list_documents] docs=#{length(docs)} bytes=#{total_bytes} time=#{t1 - t0}ms summary?=#{Keyword.get(opts, :include_summary?, false)}"
+    )
+
+    docs
   end
 
   @doc """
@@ -186,6 +216,7 @@ defmodule Lumainus.Reports do
   end
 
   def list_sections_with_runs(%Scope{} = scope, record_set) do
+    t0 = System.monotonic_time(:millisecond)
     template = default_template!(tenant_id_from_scope(scope))
 
     sections =
@@ -194,7 +225,16 @@ defmodule Lumainus.Reports do
       |> order_by([s], asc: s.position)
       |> Repo.all()
 
+    t_sections = System.monotonic_time(:millisecond)
+
     runs_map = latest_section_runs_map(Enum.map(sections, & &1.id), record_set.id)
+    t_runs = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[Reports.list_sections_with_runs] sections=#{length(sections)} " <>
+        "sections_query=#{t_sections - t0}ms runs=#{map_size(runs_map)} runs_query=#{t_runs - t_sections}ms " <>
+        "total=#{t_runs - t0}ms"
+    )
 
     Enum.map(sections, fn section ->
       %{section: section, latest_run: Map.get(runs_map, section.id)}
@@ -363,6 +403,7 @@ defmodule Lumainus.Reports do
 
   defp latest_section_runs_map(section_ids, record_set_id) do
     attach_repo_query_logger()
+    t0 = System.monotonic_time(:millisecond)
 
     ids =
       try do
@@ -389,22 +430,38 @@ defmodule Lumainus.Reports do
       |> select([t], t.id)
       |> Repo.all()
 
-    ReportSectionRun
-    |> where([sr], sr.id in ^latest_ids)
-    |> select([sr], %ReportSectionRun{
-      id: sr.id,
-      section_template_id: sr.section_template_id,
-      status: sr.status,
-      output_markdown: sr.output_markdown,
-      inline_citations: sr.inline_citations,
-      inserted_at: sr.inserted_at,
-      updated_at: sr.updated_at,
-      llm_invocation_id: sr.llm_invocation_id,
-      report_run_id: sr.report_run_id
-    })
-    |> Repo.all()
-    |> preload_latest_runs()
-    |> Enum.into(%{}, fn run -> {run.section_template_id, run} end)
+    t_ids = System.monotonic_time(:millisecond)
+
+    runs =
+      ReportSectionRun
+      |> where([sr], sr.id in ^latest_ids)
+      |> select([sr], %ReportSectionRun{
+        id: sr.id,
+        section_template_id: sr.section_template_id,
+        status: sr.status,
+        output_markdown: sr.output_markdown,
+        inline_citations: sr.inline_citations,
+        inserted_at: sr.inserted_at,
+        updated_at: sr.updated_at,
+        llm_invocation_id: sr.llm_invocation_id,
+        report_run_id: sr.report_run_id
+      })
+      |> Repo.all()
+
+    t_runs = System.monotonic_time(:millisecond)
+
+    runs =
+      runs
+      |> preload_latest_runs()
+
+    t_preload = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[Reports.latest_section_runs_map] ids=#{length(ids)} latest_ids=#{length(latest_ids)} " <>
+        "runs=#{length(runs)} ids_query=#{t_ids - t0}ms runs_query=#{t_runs - t_ids}ms preload=#{t_preload - t_runs}ms total=#{t_preload - t0}ms"
+    )
+
+    Enum.into(runs, %{}, fn run -> {run.section_template_id, run} end)
   end
 
   defp preload_latest_runs(runs) do
