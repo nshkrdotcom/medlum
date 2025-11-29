@@ -24,7 +24,7 @@ defmodule LumainusWeb.UserAuth do
   # it will result in less time before a session token expires for a user to get issued a new
   # token. This can be set to a value greater than `@max_cookie_age_in_days` to disable
   # the reissuing of tokens completely.
-  @session_reissue_age_in_days 15
+  @session_reissue_age_in_days 7
 
   @doc """
   Logs the user in.

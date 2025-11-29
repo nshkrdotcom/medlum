@@ -57,16 +57,17 @@ defmodule Lumainus.Documents.IngestionProcessorTest do
         conn.method == "POST" and conn.request_path == "/jobs" ->
           Conn.resp(conn, 200, Jason.encode!(%{"job_id" => "accepted", "state" => "queued"}))
 
-        conn.method == "GET" and String.ends_with?(conn.request_path, "/status") ->
-          # Return flat format with markdown at top level (as expected by persist_parse)
-          body =
-            Jason.encode!(%{
-              "state" => "completed",
-              "markdown" => "# Lab Results\nLDL elevated",
-              "metadata" => %{"page_count" => 1, "source_kind" => "upload", "has_tables" => false}
-            })
+        conn.method == "GET" and String.ends_with?(conn.request_path, "/stream") ->
+          conn = Conn.put_resp_content_type(conn, "text/event-stream")
+          conn = Conn.send_chunked(conn, 200)
 
-          Conn.resp(conn, 200, body)
+          {:ok, conn} =
+            Conn.chunk(
+              conn,
+              "data: {\"state\":\"completed\",\"markdown\":\"# Lab Results\\nLDL elevated\",\"metadata\":{\"page_count\":1,\"source_kind\":\"upload\",\"has_tables\":false}}\n\n"
+            )
+
+          conn
 
         true ->
           Conn.resp(conn, 404, "not found")

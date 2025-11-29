@@ -242,31 +242,23 @@ defmodule Lumainus.Conversion.Backends.CloudBackendTest do
     test "awaits job completion" do
       bypass = Bypass.open()
 
-      call_count = :counters.new(1, [:atomics])
+      Bypass.stub(bypass, "GET", "/jobs/cloud-job-123/stream", fn conn ->
+        conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
+        conn = Plug.Conn.send_chunked(conn, 200)
 
-      Bypass.stub(bypass, "GET", "/jobs/cloud-job-123/status", fn conn ->
-        :counters.add(call_count, 1, 1)
-        count = :counters.get(call_count, 1)
+        {:ok, conn} =
+          Plug.Conn.chunk(
+            conn,
+            "data: {\"job_id\":\"cloud-job-123\",\"state\":\"processing\",\"progress\":50}\n\n"
+          )
 
-        response =
-          if count >= 2 do
-            Jason.encode!(%{
-              "job_id" => "cloud-job-123",
-              "state" => "completed",
-              "progress" => 100,
-              "result" => %{"markdown" => "# Cloud Result"}
-            })
-          else
-            Jason.encode!(%{
-              "job_id" => "cloud-job-123",
-              "state" => "processing",
-              "progress" => 50
-            })
-          end
+        {:ok, conn} =
+          Plug.Conn.chunk(
+            conn,
+            "data: {\"job_id\":\"cloud-job-123\",\"state\":\"completed\",\"progress\":100,\"result\":{\"markdown\":\"# Cloud Result\"}}\n\n"
+          )
 
         conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.resp(200, response)
       end)
 
       job_ref = %{
@@ -290,7 +282,6 @@ defmodule Lumainus.Conversion.Backends.CloudBackendTest do
       result =
         CloudBackend.await(job_ref,
           timeout_ms: 5000,
-          poll_interval_ms: 50,
           cloud_status_fn: mock_cloud_status,
           update_activity_fn: mock_update_activity
         )

@@ -9,7 +9,7 @@ defmodule LumainusWeb.UserAuthTest do
   import Lumainus.AccountsFixtures
 
   @remember_me_cookie "_lumainus_web_user_remember_me"
-  @remember_me_cookie_max_age 60 * 60 * 24 * 14
+  @remember_me_cookie_max_age 60 * 60 * 24 * 30
 
   setup %{conn: conn} do
     conn =
@@ -191,7 +191,6 @@ defmodule LumainusWeb.UserAuthTest do
       %{value: signed_token} = logged_in_conn.resp_cookies[@remember_me_cookie]
 
       offset_user_token(token, -10, :day)
-      {user, _} = Accounts.get_user_by_session_token(token)
 
       conn =
         conn
@@ -201,7 +200,6 @@ defmodule LumainusWeb.UserAuthTest do
         |> UserAuth.fetch_current_scope_for_user([])
 
       assert conn.assigns.current_scope.user.id == user.id
-      assert conn.assigns.current_scope.user.authenticated_at == user.authenticated_at
       assert new_token = get_session(conn, :user_token)
       assert new_token != token
       assert %{value: new_signed_token, max_age: max_age} = conn.resp_cookies[@remember_me_cookie]

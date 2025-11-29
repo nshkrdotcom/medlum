@@ -11,6 +11,7 @@ defmodule Lumainus.Docling.DockerManager do
       config :lumainus, :docling,
         docker_auto_manage: true,      # Enable auto-management (default: true)
         docker_service: "docling-cpu", # Which service to manage (default: "docling-cpu")
+        docker_force_recreate: false,  # Whether to pass --force-recreate on startup
         docker_compose_path: nil       # Path to docker-compose.yml (default: app root)
   """
 
@@ -21,7 +22,7 @@ defmodule Lumainus.Docling.DockerManager do
   @startup_timeout_ms 120_000
   @health_endpoint "http://127.0.0.1:8042/health"
 
-  defstruct [:service, :compose_path, :status, :container_id]
+  defstruct [:service, :compose_path, :status, :container_id, :force_recreate]
 
   # ============================================================================
   # Client API
@@ -53,7 +54,8 @@ defmodule Lumainus.Docling.DockerManager do
       service: Keyword.get(config, :docker_service, "docling-cpu"),
       compose_path: Keyword.get(config, :docker_compose_path) || app_root(),
       status: :starting,
-      container_id: nil
+      container_id: nil,
+      force_recreate: Keyword.get(config, :docker_force_recreate, false)
     }
 
     # Block startup until container is healthy
@@ -145,16 +147,7 @@ defmodule Lumainus.Docling.DockerManager do
   defp start_container_blocking(state) do
     IO.puts("\n#{IO.ANSI.cyan()}[DockerManager]#{IO.ANSI.reset()} Starting #{state.service}...")
 
-    # Use --force-recreate to always pick up code changes from mounted volumes
-    args = [
-      "compose",
-      "-f",
-      Path.join(state.compose_path, "docker-compose.yml"),
-      "up",
-      "-d",
-      "--force-recreate",
-      state.service
-    ]
+    args = compose_up_args(state)
 
     case System.cmd("docker", args, stderr_to_stdout: true, cd: state.compose_path) do
       {output, 0} ->
@@ -194,16 +187,7 @@ defmodule Lumainus.Docling.DockerManager do
   defp start_container(state) do
     Logger.info("[DockerManager] Starting #{state.service}...")
 
-    # Use --force-recreate to always pick up code changes from mounted volumes
-    args = [
-      "compose",
-      "-f",
-      Path.join(state.compose_path, "docker-compose.yml"),
-      "up",
-      "-d",
-      "--force-recreate",
-      state.service
-    ]
+    args = compose_up_args(state)
 
     case System.cmd("docker", args, stderr_to_stdout: true, cd: state.compose_path) do
       {output, 0} ->
@@ -249,6 +233,18 @@ defmodule Lumainus.Docling.DockerManager do
     end
   end
 
+  defp compose_up_args(state) do
+    [
+      "compose",
+      "-f",
+      Path.join(state.compose_path, "docker-compose.yml"),
+      "up",
+      "-d"
+    ] ++
+      if(state.force_recreate, do: ["--force-recreate"], else: []) ++
+      [state.service]
+  end
+
   defp restart_container(state) do
     args = [
       "compose",
@@ -279,7 +275,7 @@ defmodule Lumainus.Docling.DockerManager do
     {:error, :timeout}
   end
 
-  defp do_wait_for_healthy_with_progress(timeout_ms, elapsed, last_report) do
+  defp do_wait_for_healthy_with_progress(timeout_ms, elapsed, _last_report) do
     # Report every 5 seconds
     if elapsed - last_report >= 5_000 and elapsed > 0 do
       seconds = div(elapsed, 1000)

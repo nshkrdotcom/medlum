@@ -127,16 +127,16 @@ defmodule Lumainus.Conversion.Application.JobTrackerTest do
       {:ok, updated} =
         JobTracker.update(tracker, job.id, %{
           state: :processing,
-          progress: 50
+          progress: 50.0
         })
 
       assert updated.state == :processing
-      assert updated.progress == 50
+      assert updated.progress == 50.0
 
       # Verify DB is updated
       db_job = Repo.get(Job, job.id)
       assert db_job.state == :processing
-      assert db_job.progress == 50
+      assert db_job.progress == 50.0
 
       # Verify ETS is updated
       [{_, cached}] = :ets.lookup(table, job.id)

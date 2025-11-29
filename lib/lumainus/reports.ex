@@ -147,6 +147,24 @@ defmodule Lumainus.Reports do
   end
 
   @doc """
+  List documents with parses and chunks preloaded for citation-aware pipelines (LLM, reports).
+  Excludes raw_blob to avoid loading multi-MB PDF binaries.
+  """
+  def list_documents_with_chunks(%Scope{} = scope, record_set) do
+    fields =
+      DocumentUpload.__schema__(:fields)
+      |> Enum.reject(&(&1 == :raw_blob))
+
+    DocumentUpload
+    |> where([d], d.tenant_id == ^tenant_id_from_scope(scope))
+    |> where([d], d.record_set_id == ^record_set.id)
+    |> order_by([d], desc: d.inserted_at)
+    |> preload(parses: :chunks)
+    |> select([d], struct(d, ^fields))
+    |> Repo.all()
+  end
+
+  @doc """
   Get a document with its parses and chunks preloaded.
   Use this when you need the actual content chunks.
   """

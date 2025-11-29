@@ -162,9 +162,17 @@ defmodule Lumainus.Documents.DoclingIngestionWorkerTest do
           conn.method == "POST" and conn.request_path == "/jobs" ->
             Conn.resp(conn, 200, ~s({"job_id":"accepted","state":"queued"}))
 
-          conn.method == "GET" and String.ends_with?(conn.request_path, "/status") ->
-            # Return markdown at top level (v2 format for persist_parse)
-            Conn.resp(conn, 200, ~s({"state":"completed","markdown":"ok","metadata":{}}))
+          conn.method == "GET" and String.ends_with?(conn.request_path, "/stream") ->
+            conn = Conn.put_resp_content_type(conn, "text/event-stream")
+            conn = Conn.send_chunked(conn, 200)
+
+            {:ok, conn} =
+              Conn.chunk(
+                conn,
+                "data: {\"state\":\"completed\",\"markdown\":\"ok\",\"metadata\":{}}\n\n"
+              )
+
+            conn
 
           true ->
             Conn.resp(conn, 404, "not found")

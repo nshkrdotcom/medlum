@@ -193,7 +193,7 @@ defmodule Lumainus.Conversion.ServiceTest do
         |> Ecto.Changeset.put_change(:backend_used, :docker_cpu)
         |> Ecto.Changeset.put_change(:backend_endpoint, "http://localhost:8042")
         |> Ecto.Changeset.put_change(:state, :processing)
-        |> Ecto.Changeset.put_change(:progress, 50)
+        |> Ecto.Changeset.put_change(:progress, 50.0)
 
       {:ok, job} = JobTracker.register(tracker, changeset)
 
@@ -323,7 +323,6 @@ defmodule Lumainus.Conversion.ServiceTest do
 
     test "await broadcasts progress and completion", %{tracker: tracker} do
       bypass = Bypass.open()
-      {:ok, status_state} = Agent.start_link(fn -> 0 end)
 
       Bypass.expect(bypass, fn conn ->
         case {conn.method, conn.request_path} do
@@ -336,34 +335,29 @@ defmodule Lumainus.Conversion.ServiceTest do
             )
 
           {"GET", path} ->
-            if String.contains?(path, "/jobs/") and String.ends_with?(path, "/status") do
-              step = Agent.get_and_update(status_state, fn count -> {count, count + 1} end)
+            if String.contains?(path, "/jobs/") and String.ends_with?(path, "/stream") do
+              conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
+              conn = Plug.Conn.send_chunked(conn, 200)
 
-              status =
-                case step do
-                  0 ->
-                    %{
-                      "state" => "processing",
-                      "progress" => 30,
-                      "pages_done" => 1,
-                      "pages_total" => 3
-                    }
+              {:ok, conn} =
+                Plug.Conn.chunk(
+                  conn,
+                  "data: {\"state\":\"processing\",\"progress\":30,\"pages_done\":1,\"pages_total\":3}\n\n"
+                )
 
-                  1 ->
-                    %{
-                      "state" => "processing",
-                      "progress" => 80,
-                      "pages_done" => 3,
-                      "pages_total" => 3
-                    }
+              {:ok, conn} =
+                Plug.Conn.chunk(
+                  conn,
+                  "data: {\"state\":\"processing\",\"progress\":80,\"pages_done\":3,\"pages_total\":3}\n\n"
+                )
 
-                  _ ->
-                    %{"state" => "completed", "progress" => 100, "markdown" => "# done"}
-                end
+              {:ok, conn} =
+                Plug.Conn.chunk(
+                  conn,
+                  "data: {\"state\":\"completed\",\"progress\":100,\"markdown\":\"# done\"}\n\n"
+                )
 
               conn
-              |> Plug.Conn.put_resp_content_type("application/json")
-              |> Plug.Conn.resp(200, Jason.encode!(status))
             else
               Plug.Conn.resp(conn, 404, "not found")
             end
@@ -396,8 +390,8 @@ defmodule Lumainus.Conversion.ServiceTest do
                  on_progress: fn _ -> :ok end
                )
 
-      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 30}}
-      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 80}}
+      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 30.0}}
+      assert_receive {:conversion_job, :progress, %{job_id: ^job_id, progress: 80.0}}
       assert_receive {:conversion_job, :completed, %{id: ^job_id}}
     end
   end

@@ -57,7 +57,9 @@ config :lumainus, :docling,
   poll_interval_ms: 250,
   # Docker auto-management: starts container on Phoenix boot, stops on shutdown
   docker_auto_manage: true,
-  docker_service: "docling-cpu"
+  docker_service: "docling-cpu",
+  # Set true to force container recreation on every Phoenix boot (picks up mounts)
+  docker_force_recreate: false
 
 # Vast.ai Auto-Shutdown Configuration
 # ====================================

@@ -5,6 +5,9 @@ defmodule Lumainus.Application do
 
   use Application
   alias Oban
+  require Logger
+
+  alias Lumainus.VastAI.Availability
 
   @impl true
   def start(_type, _args) do
@@ -63,6 +66,7 @@ defmodule Lumainus.Application do
             Lumainus.Docling.VastAI.ProvisioningState
           ]
       else
+        Logger.info("[VastAI] Vast.ai workers not started (no API key configured)")
         children
       end
 
@@ -81,10 +85,7 @@ defmodule Lumainus.Application do
   end
 
   defp vast_ai_enabled? do
-    case Application.get_env(:lumainus, :vast_ai) do
-      nil -> false
-      config -> Keyword.has_key?(config, :api_key)
-    end
+    Availability.enabled?()
   end
 
   defp docker_auto_manage_enabled? do

@@ -39,7 +39,7 @@ defmodule LumainusWeb.ReportsLiveTest do
 
     html = render(view)
     assert html =~ "Docling"
-    assert html =~ "40%"
+    assert html =~ "40.00%"
   end
 
   test "allows deleting uploads", %{conn: conn, scope: scope} do

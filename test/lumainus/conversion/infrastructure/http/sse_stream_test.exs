@@ -28,7 +28,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
     } do
       test_pid = self()
 
-      Bypass.expect(bypass, "GET", "/jobs/job-123/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/job-123/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -50,7 +50,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
 
       assert_receive {:sse_event, "job-123", %{"state" => "running", "progress" => 50}}, 1000
       assert_receive {:sse_event, "job-123", %{"state" => "completed", "progress" => 100}}, 1000
-      assert_receive {:sse_done, "job-123", :completed}, 1000
+      assert_receive {:sse_done, "job-123", :completed, _}, 1000
 
       assert_receive {:got_event, %{"progress" => 50}}, 100
       assert_receive {:got_event, %{"progress" => 100}}, 100
@@ -60,7 +60,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
     end
 
     test "handles failed state", %{bypass: bypass, base_url: base_url, finch_name: finch_name} do
-      Bypass.expect(bypass, "GET", "/jobs/job-456/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/job-456/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -73,11 +73,11 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       {:ok, _pid} = subscribe_unlinked("job-456", base_url: base_url, finch_name: finch_name)
 
       assert_receive {:sse_event, "job-456", %{"state" => "failed"}}, 1000
-      assert_receive {:sse_done, "job-456", :failed}, 1000
+      assert_receive {:sse_done, "job-456", :failed, _}, 1000
     end
 
     test "handles cancelled state", %{bypass: bypass, base_url: base_url, finch_name: finch_name} do
-      Bypass.expect(bypass, "GET", "/jobs/job-789/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/job-789/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -88,7 +88,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       {:ok, _pid} = subscribe_unlinked("job-789", base_url: base_url, finch_name: finch_name)
 
       assert_receive {:sse_event, "job-789", %{"state" => "cancelled"}}, 1000
-      assert_receive {:sse_done, "job-789", :cancelled}, 1000
+      assert_receive {:sse_done, "job-789", :cancelled, _}, 1000
     end
   end
 
@@ -100,7 +100,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
     } do
       assert :ok ==
                with_shutdown_tolerated(fn ->
-                 Bypass.stub(bypass, "GET", "/jobs/cancel-test/events", fn conn ->
+                 Bypass.stub(bypass, "GET", "/jobs/cancel-test/stream", fn conn ->
                    conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
                    conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -131,7 +131,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       test_pid = self()
       attempt_counter = :counters.new(1, [])
 
-      Bypass.stub(bypass, "GET", "/jobs/reconnect-test/events", fn conn ->
+      Bypass.stub(bypass, "GET", "/jobs/reconnect-test/stream", fn conn ->
         :counters.add(attempt_counter, 1, 1)
         attempt = :counters.get(attempt_counter, 1)
         send(test_pid, {:connection_attempt, attempt})
@@ -153,7 +153,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       assert_receive {:connection_attempt, 2}, 2000
       assert_receive {:connection_attempt, 3}, 3000
 
-      assert_receive {:sse_done, "reconnect-test", :completed}, 5000
+      assert_receive {:sse_done, "reconnect-test", :completed, _}, 5000
     end
 
     test "emits telemetry on reconnection", %{
@@ -165,7 +165,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       handler_id = attach_sse_reconnecting_handler(test_pid)
       attempt_counter = :counters.new(1, [])
 
-      Bypass.stub(bypass, "GET", "/jobs/telemetry-test/events", fn conn ->
+      Bypass.stub(bypass, "GET", "/jobs/telemetry-test/stream", fn conn ->
         :counters.add(attempt_counter, 1, 1)
         attempt = :counters.get(attempt_counter, 1)
 
@@ -199,7 +199,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
                  test_pid = self()
                  attempt_counter = :counters.new(1, [])
 
-                 Bypass.stub(bypass, "GET", "/jobs/heartbeat-test/events", fn conn ->
+                 Bypass.stub(bypass, "GET", "/jobs/heartbeat-test/stream", fn conn ->
                    :counters.add(attempt_counter, 1, 1)
                    attempt = :counters.get(attempt_counter, 1)
                    send(test_pid, {:connection_attempt, attempt})
@@ -226,7 +226,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
                  assert_receive {:connection_attempt, 1}, 500
                  assert_receive {:connection_attempt, 2}, 3000
 
-                 assert_receive {:sse_done, "heartbeat-test", :completed}, 3000
+                 assert_receive {:sse_done, "heartbeat-test", :completed, _}, 3000
                  SSEStream.cancel(pid)
                  Bypass.pass(bypass)
                end)
@@ -244,7 +244,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
                  handler_id = attach_heartbeat_timeout_handler(test_pid)
                  attempt_counter = :counters.new(1, [])
 
-                 Bypass.stub(bypass, "GET", "/jobs/hb-telemetry/events", fn conn ->
+                 Bypass.stub(bypass, "GET", "/jobs/hb-telemetry/stream", fn conn ->
                    :counters.add(attempt_counter, 1, 1)
                    attempt = :counters.get(attempt_counter, 1)
 
@@ -286,7 +286,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
     } do
       test_pid = self()
 
-      Bypass.expect(bypass, "GET", "/jobs/active-test/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/active-test/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -315,7 +315,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       assert_receive {:sse_event, "active-test", %{"progress" => 10}}, 500
       assert_receive {:sse_event, "active-test", %{"progress" => 20}}, 500
       assert_receive {:sse_event, "active-test", %{"progress" => 30}}, 500
-      assert_receive {:sse_done, "active-test", :completed}, 500
+      assert_receive {:sse_done, "active-test", :completed, _}, 500
 
       refute_receive {:telemetry, [:lumainus, :conversion, :sse, :heartbeat_timeout], _, _}, 100
 
@@ -329,7 +329,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       base_url: base_url,
       finch_name: finch_name
     } do
-      Bypass.expect(bypass, "GET", "/jobs/parse-test/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/parse-test/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -351,7 +351,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
     end
 
     test "handles event type field", %{bypass: bypass, base_url: base_url, finch_name: finch_name} do
-      Bypass.expect(bypass, "GET", "/jobs/event-type/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/event-type/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -377,7 +377,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       assert_receive {:sse_event, "event-type", event1}, 1000
       assert event1["progress"] == 50
 
-      assert_receive {:sse_done, "event-type", :completed}, 1000
+      assert_receive {:sse_done, "event-type", :completed, _}, 1000
     end
 
     test "ignores malformed SSE data", %{
@@ -385,7 +385,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       base_url: base_url,
       finch_name: finch_name
     } do
-      Bypass.expect(bypass, "GET", "/jobs/malformed/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/malformed/stream", fn conn ->
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
 
@@ -398,7 +398,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
 
       {:ok, _pid} = subscribe_unlinked("malformed", base_url: base_url, finch_name: finch_name)
 
-      assert_receive {:sse_done, "malformed", :completed}, 1000
+      assert_receive {:sse_done, "malformed", :completed, _}, 1000
     end
   end
 
@@ -411,7 +411,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       test_pid = self()
       handler_id = attach_sse_connected_handler(test_pid)
 
-      Bypass.expect(bypass, "GET", "/jobs/connected-telemetry/events", fn conn ->
+      Bypass.expect(bypass, "GET", "/jobs/connected-telemetry/stream", fn conn ->
         send(test_pid, :request_hit)
         conn = Plug.Conn.put_resp_content_type(conn, "text/event-stream")
         conn = Plug.Conn.send_chunked(conn, 200)
@@ -441,7 +441,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStreamTest do
       handler_id = attach_sse_error_handler(test_pid)
       attempt_counter = :counters.new(1, [])
 
-      Bypass.stub(bypass, "GET", "/jobs/error-telemetry/events", fn conn ->
+      Bypass.stub(bypass, "GET", "/jobs/error-telemetry/stream", fn conn ->
         :counters.add(attempt_counter, 1, 1)
         attempt = :counters.get(attempt_counter, 1)
 

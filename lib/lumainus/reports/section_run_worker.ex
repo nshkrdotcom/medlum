@@ -26,7 +26,7 @@ defmodule Lumainus.Reports.SectionRunWorker do
     report_run = ensure_run_running(section_run.report_run)
     patient = Repo.preload(report_run.patient, :current_profile)
     scope = %Scope{tenant_id: report_run.tenant_id}
-    documents = Reports.list_documents(scope, report_run.record_set)
+    documents = Reports.list_documents_with_chunks(scope, report_run.record_set)
 
     result = SectionRunner.run_section(scope, section_run, patient, documents)
 

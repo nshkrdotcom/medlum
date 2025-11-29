@@ -11,6 +11,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   alias Lumainus.Docling.VastAI.ProvisioningState
   alias Lumainus.Cloudflare
   alias Lumainus.Cloudflare.Tunnel
+  alias Lumainus.VastAI.Availability
 
   @cloudflare_api "https://api.cloudflare.com/client/v4"
 
@@ -28,26 +29,42 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   @impl true
   def mount(_params, _session, socket) do
-    # Load existing provisioning state (survives page navigation)
-    prov_state = ProvisioningState.get_state()
+    availability = Availability.status()
+    prov_state = provisioning_state_or_default(availability)
+    operational? = availability.operational?
 
     if connected?(socket) do
-      # Subscribe to provisioning events for real-time updates
-      ProvisioningState.subscribe()
-      send(self(), :load_data)
+      if operational? do
+        # Subscribe to provisioning events for real-time updates
+        ProvisioningState.subscribe()
+        send(self(), :load_data)
 
-      # If provisioning is already in progress, start refresh loop
-      if prov_state.provisioning do
-        Process.send_after(self(), :refresh_while_provisioning, 2_000)
+        # If provisioning is already in progress, start refresh loop
+        if prov_state.provisioning do
+          Process.send_after(self(), :refresh_while_provisioning, 2_000)
+        end
       end
     end
+
+    auto_shutdown_status =
+      if availability.enabled? and Availability.process_alive?(ActivityTracker) do
+        get_auto_shutdown_status()
+      else
+        %{
+          enabled: false,
+          idle_formatted: "n/a",
+          idle_timeout: 15,
+          check_interval: 5,
+          idle_minutes: :never
+        }
+      end
 
     {:ok,
      socket
      |> assign(
        instances: [],
        offers: [],
-       loading: true,
+       loading: operational?,
        provisioning: prov_state.provisioning,
        provision_status: prov_state.status,
        provision_logs: prov_state.logs,
@@ -57,16 +74,23 @@ defmodule LumainusWeb.Admin.VastAILive do
        selected_image: @docling_image,
        health_results: %{},
        use_https: prov_state.use_https,
-       auto_shutdown_status: get_auto_shutdown_status(),
+       auto_shutdown_status: auto_shutdown_status,
        dns_status: compute_dns_status(),
        starting_instance_id: nil,
-       stopping_instance_id: nil
+       stopping_instance_id: nil,
+       vast_ai_status: availability,
+       vast_ai_available: operational?,
+       vast_ai_unavailable_reason: unavailable_reason(availability)
      )}
   end
 
   # =============================================================================
   # Handle Info (grouped together)
   # =============================================================================
+
+  def handle_info(_message, %{assigns: %{vast_ai_available: false}} = socket) do
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_info(:load_data, socket) do
@@ -287,6 +311,10 @@ defmodule LumainusWeb.Admin.VastAILive do
   # Handle Events (all grouped together)
   # =============================================================================
 
+  def handle_event(_event, _params, %{assigns: %{vast_ai_available: false}} = socket) do
+    {:noreply, unavailable_flash(socket)}
+  end
+
   @impl true
   def handle_event("refresh", _params, socket) do
     {:noreply, socket |> assign(loading: true) |> load_instances() |> assign(loading: false)}
@@ -333,45 +361,54 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   def handle_event("quick_provision", _params, socket) do
-    # Quick provision with default settings (RTX 3090, Cloudflare tunnel, US/CA)
-    # Uses shared ProvisioningState for logs (survives page navigation)
-    ProvisioningState.start_provisioning(true)
-    ProvisioningState.add_log(:info, "=== QUICK PROVISION STARTED ===")
-    ProvisioningState.add_log(:info, "Using defaults: RTX 3090, Cloudflare tunnel, US/CA regions")
+    with {:ok, socket} <- ensure_operational(socket) do
+      # Quick provision with default settings (RTX 3090, Cloudflare tunnel, US/CA)
+      # Uses shared ProvisioningState for logs (survives page navigation)
+      ProvisioningState.start_provisioning(true)
+      ProvisioningState.add_log(:info, "=== QUICK PROVISION STARTED ===")
 
-    # Spawn async task for provisioning
-    filters = default_filters()
-    image = @docling_image
+      ProvisioningState.add_log(
+        :info,
+        "Using defaults: RTX 3090, Cloudflare tunnel, US/CA regions"
+      )
 
-    Task.start(fn ->
-      ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
+      # Spawn async task for provisioning
+      filters = default_filters()
+      image = @docling_image
 
-      case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
-        {_fqdn, nil} ->
-          ProvisioningState.add_log(
-            :error,
-            "CLOUDFLARE_API_TOKEN not set! Cannot setup Cloudflare tunnel."
-          )
+      Task.start(fn ->
+        ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
 
-          ProvisioningState.fail(:missing_cloudflare_token)
+        case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
+          {_fqdn, nil} ->
+            ProvisioningState.add_log(
+              :error,
+              "CLOUDFLARE_API_TOKEN not set! Cannot setup Cloudflare tunnel."
+            )
 
-        {fqdn, _token} ->
-          ProvisioningState.add_log(:success, "Cloudflare configured for #{fqdn}")
-          do_provision_with_https(image, filters, nil)
-      end
-    end)
+            ProvisioningState.fail(:missing_cloudflare_token)
 
-    # Schedule periodic refresh while provisioning
-    Process.send_after(self(), :refresh_while_provisioning, 5_000)
+          {fqdn, _token} ->
+            ProvisioningState.add_log(:success, "Cloudflare configured for #{fqdn}")
+            do_provision_with_https(image, filters, nil)
+        end
+      end)
 
-    {:noreply,
-     socket
-     |> assign(
-       provisioning: true,
-       provision_status: "Starting quick provisioning (Cloudflare tunnel)...",
-       use_https: true
-     )
-     |> put_flash(:info, "Quick provisioning started! This will take 2-5 minutes.")}
+      # Schedule periodic refresh while provisioning
+      Process.send_after(self(), :refresh_while_provisioning, 5_000)
+
+      {:noreply,
+       socket
+       |> assign(
+         provisioning: true,
+         provision_status: "Starting quick provisioning (Cloudflare tunnel)...",
+         use_https: true
+       )
+       |> put_flash(:info, "Quick provisioning started! This will take 2-5 minutes.")}
+    else
+      {:error, socket} ->
+        {:noreply, unavailable_flash(socket)}
+    end
   end
 
   def handle_event("search_offers", params, socket) do
@@ -391,34 +428,39 @@ defmodule LumainusWeb.Admin.VastAILive do
   end
 
   def handle_event("provision", %{"offer_id" => offer_id}, socket) do
-    # Safety check: prevent provisioning if instances already exist
-    existing_instances = socket.assigns.instances
+    with {:ok, socket} <- ensure_operational(socket) do
+      # Safety check: prevent provisioning if instances already exist
+      existing_instances = socket.assigns.instances
 
-    running_count =
-      Enum.count(existing_instances, &(&1["actual_status"] in ["running", "loading"]))
+      running_count =
+        Enum.count(existing_instances, &(&1["actual_status"] in ["running", "loading"]))
 
-    if running_count > 0 do
-      {:noreply,
-       socket
-       |> put_flash(
-         :error,
-         "Cannot provision: #{running_count} instance(s) already active. Destroy existing instances first."
-       )}
-    else
-      offer_id = String.to_integer(offer_id)
-      offer = Enum.find(socket.assigns.offers, &(&1["id"] == offer_id))
-
-      if offer do
-        socket =
-          socket
-          |> assign(provisioning: true, error: nil, provision_logs: [])
-          |> add_log(:info, "Starting provisioning for offer #{offer_id}...")
-
-        image = socket.assigns.selected_image
-        provision_with_https(socket, offer, image)
+      if running_count > 0 do
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "Cannot provision: #{running_count} instance(s) already active. Destroy existing instances first."
+         )}
       else
-        {:noreply, put_flash(socket, :error, "Offer not found")}
+        offer_id = String.to_integer(offer_id)
+        offer = Enum.find(socket.assigns.offers, &(&1["id"] == offer_id))
+
+        if offer do
+          socket =
+            socket
+            |> assign(provisioning: true, error: nil, provision_logs: [])
+            |> add_log(:info, "Starting provisioning for offer #{offer_id}...")
+
+          image = socket.assigns.selected_image
+          provision_with_https(socket, offer, image)
+        else
+          {:noreply, put_flash(socket, :error, "Offer not found")}
+        end
       end
+    else
+      {:error, socket} ->
+        {:noreply, unavailable_flash(socket)}
     end
   end
 
@@ -855,6 +897,101 @@ defmodule LumainusWeb.Admin.VastAILive do
   # Private: Helpers
   # =============================================================================
 
+  defp ensure_operational(socket) do
+    availability = Availability.status()
+    reason = unavailable_reason(availability)
+
+    socket =
+      assign(socket,
+        vast_ai_status: availability,
+        vast_ai_available: availability.operational?,
+        vast_ai_unavailable_reason: reason
+      )
+
+    if availability.operational? do
+      {:ok, socket}
+    else
+      {:error, socket}
+    end
+  end
+
+  defp unavailable_flash(socket) do
+    reason =
+      socket.assigns.vast_ai_unavailable_reason ||
+        "Vast.ai is disabled or not running. Check VAST_API_KEY and restart the service."
+
+    put_flash(socket, :error, reason)
+  end
+
+  defp provisioning_state_or_default(%{operational?: true}) do
+    ProvisioningState.get_state()
+  end
+
+  defp provisioning_state_or_default(_availability) do
+    %{
+      provisioning: false,
+      status: nil,
+      logs: [],
+      use_https: true
+    }
+  end
+
+  defp unavailable_reason(availability) do
+    cond do
+      not availability.enabled? ->
+        "Vast.ai is not configured (missing VAST_API_KEY)."
+
+      not availability.provisioning_state_alive? ->
+        "Vast.ai provisioning service is not running. Restart the application to restore it."
+
+      not availability.instance_manager_alive? ->
+        "Vast.ai instance manager is not running. Restart the application to restore it."
+
+      true ->
+        nil
+    end
+  end
+
+  defp status_classes(status) do
+    cond do
+      status.operational? ->
+        "bg-green-50 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-100 dark:border-green-800"
+
+      status.enabled? ->
+        "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800"
+
+      true ->
+        "bg-red-50 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-100 dark:border-red-800"
+    end
+  end
+
+  defp status_dot_classes(status) do
+    cond do
+      status.operational? -> "bg-green-500"
+      status.enabled? -> "bg-amber-500"
+      true -> "bg-red-500"
+    end
+  end
+
+  defp status_label(status) do
+    cond do
+      status.operational? ->
+        "Vast.ai ready"
+
+      status.enabled? and not status.instance_manager_alive? ->
+        "Instance manager offline"
+
+      status.enabled? and not status.provisioning_state_alive? ->
+        "Provisioning offline"
+
+      status.enabled? ->
+        "Vast.ai configured"
+
+      true ->
+        "Vast.ai disabled"
+    end
+  end
+
   defp add_log(socket, level, message) do
     log_entry = %{
       level: level,
@@ -1283,6 +1420,16 @@ defmodule LumainusWeb.Admin.VastAILive do
           </p>
         </div>
         <div class="flex items-center gap-3">
+          <div
+            class={[
+              "flex items-center gap-2 px-3 py-1 text-xs font-semibold border rounded-full",
+              status_classes(@vast_ai_status)
+            ]}
+            data-testid="vastai-status-pill"
+          >
+            <span class={["w-2.5 h-2.5 rounded-full", status_dot_classes(@vast_ai_status)]}></span>
+            <span>{status_label(@vast_ai_status)}</span>
+          </div>
           <.link
             navigate={~p"/admin/gpu_events"}
             class="px-4 py-2 text-sm font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50"
@@ -1303,6 +1450,22 @@ defmodule LumainusWeb.Admin.VastAILive do
       <%= if @error do %>
         <div class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg p-4">
           <p class="text-sm text-red-800 dark:text-red-200">Error: {@error |> inspect()}</p>
+        </div>
+      <% end %>
+
+      <%= unless @vast_ai_available do %>
+        <div class="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/30 px-4 py-3 flex items-start gap-3">
+          <div class="mt-1 h-2.5 w-2.5 rounded-full bg-amber-500"></div>
+          <div class="space-y-1 text-sm text-amber-900 dark:text-amber-100">
+            <p class="font-semibold">Vast.ai unavailable</p>
+            <p>
+              {@vast_ai_unavailable_reason ||
+                "VAST_API_KEY is missing or the Vast.ai services are not running."}
+            </p>
+            <p class="text-xs text-amber-800 dark:text-amber-200">
+              Ensure the systemd environment includes VAST_API_KEY and restart the lumainus service.
+            </p>
+          </div>
         </div>
       <% end %>
 
