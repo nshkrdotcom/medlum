@@ -376,14 +376,21 @@ defmodule Lumainus.Reports do
           []
       end
 
+    latest_ids =
+      ReportSectionRun
+      |> join(:inner, [sr], r in ReportRun, on: r.id == sr.report_run_id)
+      |> where([sr, r], sr.section_template_id in ^ids and r.record_set_id == ^record_set_id)
+      |> windows([sr],
+        w: [partition_by: sr.section_template_id, order_by: [desc: sr.inserted_at]]
+      )
+      |> select([sr], %{id: sr.id, row_num: row_number() |> over(:w)})
+      |> subquery()
+      |> where([t], t.row_num == 1)
+      |> select([t], t.id)
+      |> Repo.all()
+
     ReportSectionRun
-    |> join(:inner, [sr], r in ReportRun, on: r.id == sr.report_run_id)
-    |> where(
-      [sr, r],
-      sr.section_template_id in ^ids and r.record_set_id == ^record_set_id
-    )
-    |> distinct([sr, _r], sr.section_template_id)
-    |> order_by([sr], desc: sr.inserted_at)
+    |> where([sr], sr.id in ^latest_ids)
     |> select([sr], %ReportSectionRun{
       id: sr.id,
       section_template_id: sr.section_template_id,
