@@ -171,11 +171,9 @@ defmodule Lumainus.Documents do
     |> tap(fn docs ->
       t1 = System.monotonic_time(:millisecond)
 
-      if Mix.env() == :dev do
-        Logger.info(
-          "[list_documents][dev] record_set=#{record_set.id} count=#{length(docs)} total_bytes=#{Enum.reduce(docs, 0, fn d, acc -> acc + (d.byte_size || 0) end)} duration_ms=#{t1 - t0}"
-        )
-      end
+      Logger.info(
+        "[list_documents] record_set=#{record_set.id} count=#{length(docs)} total_bytes=#{Enum.reduce(docs, 0, fn d, acc -> acc + (d.byte_size || 0) end)} duration_ms=#{t1 - t0}"
+      )
     end)
   end
 
