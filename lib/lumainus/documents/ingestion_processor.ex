@@ -4,6 +4,7 @@ defmodule Lumainus.Documents.IngestionProcessor do
   import Ecto.Query, warn: false
 
   alias Ecto.Changeset
+  alias Lumainus.Conversion.Events
   alias Lumainus.Conversion.Service, as: ConversionService
   alias Lumainus.Documents
   alias Lumainus.Documents.{DocumentChunk, DocumentParse, DocumentUpload, IngestionJob}
@@ -129,7 +130,8 @@ defmodule Lumainus.Documents.IngestionProcessor do
 
       # Await completion via v2 Service
       case ConversionService.await(conversion_job.id,
-             on_progress: fn status -> maybe_track_progress_v2(job, status) end
+             on_progress: fn status -> maybe_track_progress_v2(job, status) end,
+             broadcast: false
            ) do
         {:ok, response} -> {:ok, response, job}
         {:error, :timeout} -> {:error, :timeout, job}
@@ -247,6 +249,10 @@ defmodule Lumainus.Documents.IngestionProcessor do
         duplicate_of: duplicate_of,
         dedup_target?: dedup_target
       )
+
+    if job.docling_job_id do
+      Events.broadcast_completed(%{id: job.docling_job_id})
+    end
 
     {:ok, parse, %{job | upload: updated_upload}}
   end

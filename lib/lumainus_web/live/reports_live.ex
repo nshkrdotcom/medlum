@@ -92,7 +92,8 @@ defmodule LumainusWeb.ReportsLive do
         {:noreply, assign(socket, selected_document: nil)}
 
       true ->
-        {:noreply, assign(socket, selected_document: doc)}
+        hydrated = maybe_hydrate_selected_document(doc)
+        {:noreply, assign(socket, selected_document: hydrated)}
     end
   end
 
@@ -2161,6 +2162,27 @@ defmodule LumainusWeb.ReportsLive do
 
   defp docling_job_match?(docling_job_id, job_id) do
     to_string(docling_job_id) == to_string(job_id)
+  end
+
+  defp maybe_hydrate_selected_document(doc) do
+    cond do
+      doc.cleaned_content ->
+        doc
+
+      not document_parsed?(doc) ->
+        doc
+
+      true ->
+        content = Reports.get_document_content(doc.id)
+
+        doc
+        |> Map.put(:cleaned_content, content.cleaned_content)
+        |> Map.put(:raw_content, content.raw_content)
+    end
+  end
+
+  defp document_parsed?(doc) do
+    doc.ingestion_stage == "completed" or doc.status == "parsed"
   end
 
   defp normalize_v2_progress(nil, current), do: current

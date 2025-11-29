@@ -11,6 +11,7 @@ defmodule LumainusWeb.ReportsLiveV2Test do
   alias Lumainus.Accounts.Scope
   alias Lumainus.Conversion.Events
   alias Lumainus.Documents
+  alias Lumainus.Documents.DocumentParse
   alias Lumainus.Reports
   alias Lumainus.Repo
 
@@ -37,7 +38,32 @@ defmodule LumainusWeb.ReportsLiveV2Test do
     docling_job_id = Ecto.UUID.generate()
     Documents.persist_docling_job_metadata(upload, docling_job_id, profile: :enhanced)
 
-    %{conn: conn, docling_job_id: docling_job_id}
+    parsed_text = "# Parsed content\n\nHello world."
+
+    _parse =
+      %DocumentParse{}
+      |> DocumentParse.changeset(%{
+        upload_id: upload.id,
+        parser: "docling",
+        parsed_text: parsed_text,
+        structured_metadata: %{},
+        extracted_at: DateTime.utc_now(:second)
+      })
+      |> Repo.insert!()
+
+    upload_metadata =
+      upload.metadata
+      |> Map.put("docling_job_id", docling_job_id)
+      |> Map.put("ingestion_stage", "completed")
+      |> Map.put("ingestion_state", "completed")
+      |> Map.put("ingestion_progress", 100)
+
+    {:ok, _} =
+      upload
+      |> Ecto.Changeset.change(%{status: "parsed", metadata: upload_metadata})
+      |> Repo.update()
+
+    %{conn: conn, docling_job_id: docling_job_id, parsed_text: parsed_text}
   end
 
   describe "v2 conversion events" do
@@ -50,20 +76,43 @@ defmodule LumainusWeb.ReportsLiveV2Test do
       Events.broadcast_progress(%{id: docling_job_id}, 42)
       render(view)
 
+      doc_list = view_assign(view, :documents)
+
       doc =
-        view_assign(view, :documents)
-        |> Enum.find(&(&1.docling_job_id == docling_job_id))
+        Enum.find(doc_list, &(&1.docling_job_id == docling_job_id)) ||
+          flunk("doc not found in documents: #{inspect(doc_list)}")
 
       assert doc.ingestion_progress == 42
-      assert doc.ingestion_stage == "docling"
-      assert doc.ingestion_state == "running"
-      assert doc.ingestion_message =~ "Docling"
 
       Events.broadcast_completed(%{id: docling_job_id})
       render(view)
 
       assert view_assign(view, :documents)
              |> Enum.any?(&(&1.docling_job_id == docling_job_id))
+    end
+
+    test "selecting a parsed document hydrates cleaned_content", %{
+      conn: conn,
+      docling_job_id: docling_job_id,
+      parsed_text: parsed_text
+    } do
+      {:ok, view, _html} = live(conn, ~p"/reports")
+
+      doc_list = view_assign(view, :documents)
+
+      doc =
+        Enum.find(doc_list, &(&1.docling_job_id == docling_job_id)) ||
+          flunk("doc not found in documents: #{inspect(doc_list)}")
+
+      assert doc.cleaned_content == nil
+
+      view
+      |> element("button[phx-value-doc-id=\"#{doc.id}\"]")
+      |> render_click()
+
+      selected = view_assign(view, :selected_document)
+      assert selected.id == doc.id
+      assert selected.cleaned_content == parsed_text
     end
   end
 

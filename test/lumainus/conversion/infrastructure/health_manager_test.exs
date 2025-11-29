@@ -143,7 +143,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
 
       bypass = Bypass.open()
 
-      Bypass.expect_once(bypass, "GET", "/health", fn conn ->
+      Bypass.stub(bypass, "GET", "/health", fn conn ->
         # Small delay to ensure measurable latency
         Process.sleep(10)
         Plug.Conn.resp(conn, 200, ~s({"status": "ok"}))

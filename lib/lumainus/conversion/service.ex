@@ -120,6 +120,7 @@ defmodule Lumainus.Conversion.Service do
   @spec await(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def await(job_id, opts \\ []) when is_binary(job_id) do
     tracker = Keyword.get(opts, :job_tracker, JobTracker)
+    broadcast? = Keyword.get(opts, :broadcast, true)
 
     with {:ok, job} <- JobTracker.get(tracker, job_id) do
       backend_module = backend_module_for(job.backend_used)
@@ -168,7 +169,10 @@ defmodule Lumainus.Conversion.Service do
           {:ok, updated_job} =
             JobTracker.update(tracker, job_id, %{state: :completed, result: result})
 
-          Events.broadcast_completed(updated_job)
+          if broadcast? do
+            Events.broadcast_completed(updated_job)
+          end
+
           Emitter.emit_job_completed(updated_job)
           {:ok, result}
 
