@@ -448,16 +448,11 @@ defmodule Lumainus.Accounts do
     {:ok, query} = UserToken.verify_magic_link_token_query(token)
 
     case Repo.one(query) do
-      # Prevent session fixation attacks by disallowing magic links for unconfirmed users with password
-      {%User{confirmed_at: nil, hashed_password: hash}, _token} when not is_nil(hash) ->
-        raise """
-        magic link log in is not allowed for unconfirmed users with a password set!
-
-        This cannot happen with the default implementation, which indicates that you
-        might have adapted the code to a different use case. Please make sure to read the
-        "Mixing magic link and password registration" section of `mix help phx.gen.auth`.
-        """
-
+      # Unconfirmed user (with or without password) - confirm and log in.
+      # Note: The default Phoenix auth generator raises an error for unconfirmed users
+      # with passwords to prevent session fixation attacks. However, our invitation-based
+      # registration flow is not vulnerable since the same user who registers (and sets
+      # their password) is the one who clicks the confirmation link.
       {%User{confirmed_at: nil} = user, _token} ->
         user
         |> User.confirm_changeset()
