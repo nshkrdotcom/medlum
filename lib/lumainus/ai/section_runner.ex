@@ -320,9 +320,8 @@ defmodule Lumainus.AI.SectionRunner do
     # Defensive decoding: if object is a binary string (JSON wasn't parsed), try to decode it
     object = ensure_decoded_object(raw_object, text)
 
-    citations = object["citations"] || []
-    markdown = object["markdown"] || text || ""
-    summary = object["summary"] || String.slice(markdown, 0, 280)
+    # Handle nested JSON: if markdown field contains JSON with a markdown key, extract it
+    {markdown, citations, summary} = extract_content_from_object(object, text)
 
     %{
       object: object,
@@ -335,6 +334,43 @@ defmodule Lumainus.AI.SectionRunner do
       request_id: extract(response, :request_id)
     }
   end
+
+  # Extract markdown, citations, and summary from object, handling nested JSON in markdown field
+  defp extract_content_from_object(object, text) when is_map(object) do
+    raw_markdown = object["markdown"] || text || ""
+
+    # Check if markdown field contains JSON (LLM returned nested JSON)
+    case maybe_decode_nested_json(raw_markdown) do
+      {:ok, nested} when is_map(nested) ->
+        # Successfully decoded nested JSON - extract fields from it
+        markdown = nested["markdown"] || raw_markdown
+        citations = nested["citations"] || object["citations"] || []
+        summary = nested["summary"] || object["summary"] || String.slice(markdown, 0, 280)
+        {markdown, citations, summary}
+
+      _ ->
+        # Normal case - use fields directly from object
+        citations = object["citations"] || []
+        summary = object["summary"] || String.slice(raw_markdown, 0, 280)
+        {raw_markdown, citations, summary}
+    end
+  end
+
+  defp extract_content_from_object(_, text),
+    do: {text || "", [], String.slice(text || "", 0, 280)}
+
+  # Try to decode a string as JSON if it looks like JSON
+  defp maybe_decode_nested_json(str) when is_binary(str) do
+    trimmed = String.trim(str)
+
+    if String.starts_with?(trimmed, "{") and String.ends_with?(trimmed, "}") do
+      Jason.decode(trimmed)
+    else
+      :not_json
+    end
+  end
+
+  defp maybe_decode_nested_json(_), do: :not_json
 
   # Handle case where object is a binary string containing JSON
   defp ensure_decoded_object(object, _text) when is_binary(object) do
@@ -410,7 +446,50 @@ defmodule Lumainus.AI.SectionRunner do
   def schema_for_llm(schema) do
     schema
     |> schema_to_json()
+    |> ensure_array_items()
   end
+
+  # Runtime normalization: ensure all array fields have an "items" property.
+  # Gemini's structured output API requires this. This is a safety net for any
+  # schemas that weren't fixed by migration or were created incorrectly.
+  defp ensure_array_items(nil), do: nil
+
+  defp ensure_array_items(%{"type" => "object", "properties" => props} = schema)
+       when is_map(props) do
+    fixed_props =
+      Enum.reduce(props, %{}, fn {key, value}, acc ->
+        Map.put(acc, key, ensure_array_items_for_field(key, value))
+      end)
+
+    Map.put(schema, "properties", fixed_props)
+  end
+
+  defp ensure_array_items(schema), do: schema
+
+  defp ensure_array_items_for_field(field_name, %{"type" => "array"} = field) do
+    if Map.has_key?(field, "items") do
+      field
+    else
+      Map.put(field, "items", default_items_schema(field_name))
+    end
+  end
+
+  defp ensure_array_items_for_field(_field_name, field), do: field
+
+  @citations_items_schema %{
+    "type" => "object",
+    "properties" => %{
+      "label" => %{"type" => "string"},
+      "document_id" => %{"type" => "string"},
+      "document_reference" => %{"type" => "string"},
+      "line_start" => %{"type" => "integer"},
+      "line_end" => %{"type" => "integer"},
+      "excerpt" => %{"type" => "string"}
+    }
+  }
+
+  defp default_items_schema("citations"), do: @citations_items_schema
+  defp default_items_schema(_), do: %{"type" => "string"}
 
   defp decode_schema(nil), do: nil
 

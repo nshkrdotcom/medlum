@@ -86,8 +86,11 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
       try do
         GenServer.stop(pid, :normal)
       catch
+        :exit, :normal -> :ok
         :exit, :noproc -> :ok
         :exit, {:noproc, _} -> :ok
+        :exit, :shutdown -> :ok
+        :exit, {:shutdown, _} -> :ok
       end
     end
 

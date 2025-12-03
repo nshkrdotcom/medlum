@@ -40,12 +40,12 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
     end
 
     test "returns :healthy after successful health check" do
+      handler_id = attach_health_telemetry()
       name = unique_name(:health_manager)
 
-      # Use a mock that always returns healthy
       bypass = Bypass.open()
 
-      Bypass.expect_once(bypass, "GET", "/health", fn conn ->
+      Bypass.stub(bypass, "GET", "/health", fn conn ->
         Plug.Conn.resp(conn, 200, ~s({"status": "ok"}))
       end)
 
@@ -59,22 +59,18 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
 
       {:ok, _pid} = start_supervised({HealthManager, name: name, backends: backends})
 
-      # Trigger immediate check
       HealthManager.check_now(name, :test_backend)
 
-      # Wait for the check to complete
-      assert_eventually(fn ->
-        HealthManager.status(name, :test_backend) == :healthy
-      end)
+      assert_health_event(handler_id, [:lumainus, :conversion, :health, :checked], :test_backend)
+      assert HealthManager.status(name, :test_backend) == :healthy
     end
 
     test "returns :unhealthy after failed health check" do
+      handler_id = attach_health_telemetry()
       name = unique_name(:health_manager)
 
-      # Use a mock that always fails
       bypass = Bypass.open()
 
-      # Use Bypass.stub since RetryPolicy may retry the request
       Bypass.stub(bypass, "GET", "/health", fn conn ->
         Plug.Conn.resp(conn, 500, ~s({"status": "error"}))
       end)
@@ -89,13 +85,15 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
 
       {:ok, _pid} = start_supervised({HealthManager, name: name, backends: backends})
 
-      # Trigger immediate check
       HealthManager.check_now(name, :test_backend)
 
-      # Wait for the check to complete
-      assert_eventually(fn ->
-        HealthManager.status(name, :test_backend) == :unhealthy
-      end)
+      assert_health_event(
+        handler_id,
+        [:lumainus, :conversion, :health, :unhealthy],
+        :test_backend
+      )
+
+      assert HealthManager.status(name, :test_backend) == :unhealthy
     end
 
     test "returns :unknown when health data is stale (>90s)" do
@@ -139,6 +137,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
     end
 
     test "returns latency in ms after successful check" do
+      handler_id = attach_health_telemetry()
       name = unique_name(:health_manager)
 
       bypass = Bypass.open()
@@ -159,14 +158,13 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
 
       {:ok, _pid} = start_supervised({HealthManager, name: name, backends: backends})
 
-      # Trigger immediate check
       HealthManager.check_now(name, :test_backend)
 
-      # Wait for the check to complete and verify latency is recorded
-      assert_eventually(fn ->
-        latency = HealthManager.latency(name, :test_backend)
-        is_integer(latency) and latency > 0
-      end)
+      assert_health_event(handler_id, [:lumainus, :conversion, :health, :checked], :test_backend)
+
+      latency = HealthManager.latency(name, :test_backend)
+      assert is_integer(latency)
+      assert latency > 0
     end
   end
 
@@ -179,7 +177,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
       # Track that health endpoint was called
       test_pid = self()
 
-      Bypass.expect(bypass, "GET", "/health", fn conn ->
+      Bypass.stub(bypass, "GET", "/health", fn conn ->
         send(test_pid, :health_checked)
         Plug.Conn.resp(conn, 200, ~s({"status": "ok"}))
       end)
@@ -194,7 +192,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
 
       {:ok, _pid} = start_supervised({HealthManager, name: name, backends: backends})
 
-      # Trigger immediate check
+      refute_receive :health_checked, 0
       HealthManager.check_now(name, :test_backend)
 
       # Should receive the health check message
@@ -251,22 +249,30 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManagerTest do
     :"#{base}_#{System.unique_integer([:positive])}"
   end
 
-  defp assert_eventually(check_fn, timeout \\ 5000) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_assert_eventually(check_fn, deadline)
+  defp attach_health_telemetry do
+    handler_id = "health-manager-test-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:lumainus, :conversion, :health, :checked],
+          [:lumainus, :conversion, :health, :unhealthy]
+        ],
+        fn event, measurements, metadata, _ ->
+          send(test_pid, {:health_event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    handler_id
   end
 
-  defp do_assert_eventually(check_fn, deadline) do
-    if System.monotonic_time(:millisecond) > deadline do
-      flunk("Condition not met within timeout")
-    else
-      if check_fn.() do
-        :ok
-      else
-        Process.sleep(50)
-        do_assert_eventually(check_fn, deadline)
-      end
-    end
+  defp assert_health_event(_handler_id, event, backend, timeout \\ 1_000) do
+    assert_receive {:health_event, ^event, _measurements, %{backend: ^backend}}, timeout
   end
 
   # Mock backend module for testing
