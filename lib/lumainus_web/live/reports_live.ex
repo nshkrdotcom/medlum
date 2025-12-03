@@ -2240,7 +2240,14 @@ defmodule LumainusWeb.ReportsLive do
     not (doc.status == "parsed" or doc.ingestion_stage == "completed")
   end
 
-  defp backend_label(%{conversion_profile: profile}),
+  defp backend_label(%{conversion_profile: profile, backend: backend}) do
+    case normalize_conversion_profile(profile) do
+      nil -> backend_label(backend)
+      normalized -> backend_label(normalized)
+    end
+  end
+
+  defp backend_label(%{conversion_profile: profile}) when not is_nil(profile),
     do: backend_label(normalize_conversion_profile(profile))
 
   defp backend_label(backend) do
@@ -2252,7 +2259,14 @@ defmodule LumainusWeb.ReportsLive do
 
   defp backend_badge_class(subject, status \\ nil)
 
-  defp backend_badge_class(%{conversion_profile: profile}, status),
+  defp backend_badge_class(%{conversion_profile: profile, backend: backend}, status) do
+    case normalize_conversion_profile(profile) do
+      nil -> backend_badge_class(backend, status)
+      normalized -> backend_badge_class(normalized, status)
+    end
+  end
+
+  defp backend_badge_class(%{conversion_profile: profile}, status) when not is_nil(profile),
     do: backend_badge_class(normalize_conversion_profile(profile), status)
 
   defp backend_badge_class(backend, status) do

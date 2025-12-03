@@ -37,7 +37,7 @@ defmodule LumainusWeb.UserAuth do
 
     conn
     |> create_or_extend_session(user, params)
-    |> redirect(to: user_return_to || signed_in_path(conn))
+    |> redirect(to: user_return_to || signed_in_path(user))
   end
 
   @doc """
@@ -269,6 +269,8 @@ defmodule LumainusWeb.UserAuth do
   def signed_in_path(%Phoenix.LiveView.Socket{assigns: %{current_scope: %Scope{user: user}}}) do
     signed_in_path_for_user(user)
   end
+
+  def signed_in_path(%Accounts.User{} = user), do: signed_in_path_for_user(user)
 
   def signed_in_path(_), do: ~p"/"
 
