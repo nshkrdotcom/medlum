@@ -106,6 +106,37 @@ defmodule Lumainus.Accounts.User do
   end
 
   @doc """
+  A user changeset for registration that handles both email and password.
+
+  Password is optional - if provided, it will be validated and hashed.
+  This supports both magic-link-only registration and password-based registration.
+
+  ## Options
+
+    * `:hash_password` - Hashes the password so it can be stored securely
+      in the database. Defaults to `true`.
+    * `:validate_unique` - Validates email uniqueness. Defaults to `true`.
+  """
+  def registration_changeset(user, attrs, opts \\ []) do
+    changeset = email_changeset(user, attrs, opts)
+
+    # Only process password if one was provided
+    if password_provided?(attrs) do
+      changeset
+      |> cast(attrs, [:password])
+      |> validate_confirmation(:password, message: "does not match password")
+      |> validate_password(opts)
+    else
+      changeset
+    end
+  end
+
+  defp password_provided?(attrs) do
+    password = Map.get(attrs, :password) || Map.get(attrs, "password")
+    is_binary(password) and password != ""
+  end
+
+  @doc """
   A user changeset for changing the password.
 
   It is important to validate the length of the password, as long passwords may

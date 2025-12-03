@@ -80,7 +80,7 @@ defmodule Lumainus.Accounts do
     attrs = ensure_tenant_id(attrs)
 
     %User{}
-    |> User.email_changeset(attrs)
+    |> User.registration_changeset(attrs)
     |> Repo.insert()
   end
 
