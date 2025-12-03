@@ -129,7 +129,11 @@ defmodule LumainusWeb.Markdown do
       doc_id = citation_value(entry, [:document_id])
       label = citation_value(entry, [:label, :document_reference])
 
+      # Strip line hints from ref for map key (e.g., "doc-001:L005-L010" -> "doc-001")
+      ref_without_lines = strip_line_hints(ref)
+
       acc
+      |> put_citation(ref_without_lines, doc_id, label)
       |> put_citation(ref, doc_id, label)
       |> put_citation(label, doc_id, label)
     end)
@@ -158,4 +162,15 @@ defmodule LumainusWeb.Markdown do
     |> Enum.map(fn key -> Map.get(entry, key) || Map.get(entry, to_string(key)) end)
     |> Enum.find(& &1)
   end
+
+  # Strip line number hints from document references (e.g., "doc-001:L005-L010" -> "doc-001")
+  defp strip_line_hints(nil), do: nil
+
+  defp strip_line_hints(ref) when is_binary(ref) do
+    ref
+    |> String.replace(~r/:L\d+(-L?\d+)?$/, "")
+    |> String.trim()
+  end
+
+  defp strip_line_hints(ref), do: ref
 end

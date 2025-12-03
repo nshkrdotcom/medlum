@@ -313,9 +313,13 @@ defmodule Lumainus.AI.SectionRunner do
   defp wrap_citations(other), do: other
 
   defp normalize_response(response) do
-    object = response |> extract(:object) |> stringify_keys()
+    raw_object = response |> extract(:object) |> stringify_keys()
     usage = response |> extract(:usage) || %{}
     text = extract(response, :text) || extract(response, :response_text)
+
+    # Defensive decoding: if object is a binary string (JSON wasn't parsed), try to decode it
+    object = ensure_decoded_object(raw_object, text)
+
     citations = object["citations"] || []
     markdown = object["markdown"] || text || ""
     summary = object["summary"] || String.slice(markdown, 0, 280)
@@ -331,6 +335,25 @@ defmodule Lumainus.AI.SectionRunner do
       request_id: extract(response, :request_id)
     }
   end
+
+  # Handle case where object is a binary string containing JSON
+  defp ensure_decoded_object(object, _text) when is_binary(object) do
+    case Jason.decode(object) do
+      {:ok, decoded} when is_map(decoded) -> stringify_keys(decoded)
+      _ -> %{"markdown" => object}
+    end
+  end
+
+  # Handle case where object is nil but text contains JSON
+  defp ensure_decoded_object(nil, text) when is_binary(text) do
+    case Jason.decode(text) do
+      {:ok, decoded} when is_map(decoded) -> stringify_keys(decoded)
+      _ -> %{"markdown" => text}
+    end
+  end
+
+  defp ensure_decoded_object(object, _text) when is_map(object), do: object
+  defp ensure_decoded_object(_, _), do: %{}
 
   defp fallback_payload(section_template, context) do
     body =

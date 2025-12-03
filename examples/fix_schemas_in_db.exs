@@ -1,7 +1,7 @@
-# Fix schemas in database
+# Fix schemas in database - ADD missing "items" to array fields
 #
-# The schema validation error occurs because old schemas with "items" are
-# stored in the database. This script updates them to the new format.
+# Gemini's structured output requires array types to have an "items" field
+# that defines what type of objects are in the array.
 #
 # Run with: mix run examples/fix_schemas_in_db.exs
 
@@ -9,7 +9,20 @@ alias Lumainus.Repo
 alias Lumainus.Reports.ReportSectionTemplate
 import Ecto.Query
 
-IO.puts("\n=== Fixing Schemas in Database ===\n")
+IO.puts("\n=== Fixing Schemas in Database (Adding missing 'items' to arrays) ===\n")
+
+# The correct items schema for citations
+@citations_items_schema %{
+  "type" => "object",
+  "properties" => %{
+    "label" => %{"type" => "string"},
+    "document_id" => %{"type" => "string"},
+    "document_reference" => %{"type" => "string"},
+    "line_start" => %{"type" => "integer"},
+    "line_end" => %{"type" => "integer"},
+    "excerpt" => %{"type" => "string"}
+  }
+}
 
 # Find all section templates
 sections = Repo.all(ReportSectionTemplate)
@@ -21,15 +34,19 @@ for section <- sections do
   schema = section.output_schema
 
   IO.puts("Section: #{section.title} (#{section.identifier})")
-  IO.puts("  Current schema has 'items'?: #{has_items?(schema)}")
 
-  if has_items?(schema) do
-    IO.puts("  ⚠️  OLD SCHEMA DETECTED - needs fixing!")
-    IO.inspect(schema, label: "  Old schema", pretty: true, limit: :infinity)
+  arrays_missing_items = find_arrays_missing_items(schema)
 
-    # Fix the schema
-    fixed_schema = fix_schema(schema)
-    IO.inspect(fixed_schema, label: "  New schema", pretty: true, limit: :infinity)
+  if length(arrays_missing_items) > 0 do
+    IO.puts(
+      "  ⚠️  Found #{length(arrays_missing_items)} array field(s) missing 'items': #{inspect(arrays_missing_items)}"
+    )
+
+    IO.inspect(schema, label: "  Current schema", pretty: true, limit: :infinity)
+
+    # Fix the schema by adding items to array fields
+    fixed_schema = add_items_to_arrays(schema)
+    IO.inspect(fixed_schema, label: "  Fixed schema", pretty: true, limit: :infinity)
 
     # Update the database
     case Ecto.Changeset.change(section, %{output_schema: fixed_schema}) |> Repo.update() do
@@ -40,7 +57,7 @@ for section <- sections do
         IO.puts("  ✗ Failed to update: #{inspect(changeset.errors)}")
     end
   else
-    IO.puts("  ✓ Schema is already in correct format")
+    IO.puts("  ✓ Schema already has 'items' on all array fields")
   end
 
   IO.puts("")
@@ -49,30 +66,33 @@ end
 IO.puts("=== Done ===\n")
 
 # Helper functions
-defp has_items?(schema) when is_map(schema) do
-  # Check if any field has "items" key
-  Enum.any?(Map.get(schema, "properties", %{}), fn {_key, value} ->
-    is_map(value) && Map.has_key?(value, "items")
+
+defp find_arrays_missing_items(schema) when is_map(schema) do
+  properties = Map.get(schema, "properties", %{})
+
+  properties
+  |> Enum.filter(fn {_key, value} ->
+    is_map(value) &&
+      Map.get(value, "type") == "array" &&
+      !Map.has_key?(value, "items")
   end)
+  |> Enum.map(fn {key, _} -> key end)
 end
 
-defp has_items?(_), do: false
+defp find_arrays_missing_items(_), do: []
 
-defp fix_schema(schema) when is_map(schema) do
-  # Remove "items" from all array fields and replace with description
+defp add_items_to_arrays(schema) when is_map(schema) do
   properties = Map.get(schema, "properties", %{})
 
   fixed_properties =
     Enum.reduce(properties, %{}, fn {key, value}, acc ->
       fixed_value =
-        if is_map(value) && Map.get(value, "type") == "array" && Map.has_key?(value, "items") do
-          # Remove items, keep type and add description
-          items_info = inspect_items(Map.get(value, "items"))
+        if is_map(value) && Map.get(value, "type") == "array" && !Map.has_key?(value, "items") do
+          # Add appropriate items schema based on field name
+          items_schema = items_schema_for_field(key)
 
-          %{
-            "type" => "array",
-            "description" => "Array of #{items_info}"
-          }
+          value
+          |> Map.put("items", items_schema)
         else
           value
         end
@@ -80,16 +100,27 @@ defp fix_schema(schema) when is_map(schema) do
       Map.put(acc, key, fixed_value)
     end)
 
-  schema
-  |> Map.put("properties", fixed_properties)
+  Map.put(schema, "properties", fixed_properties)
 end
 
-defp fix_schema(schema), do: schema
+defp add_items_to_arrays(schema), do: schema
 
-defp inspect_items(%{"type" => "object", "properties" => props}) when is_map(props) do
-  fields = Map.keys(props) |> Enum.join(", ")
-  "objects with fields: #{fields}"
+defp items_schema_for_field("citations") do
+  # Use the standard citations schema
+  %{
+    "type" => "object",
+    "properties" => %{
+      "label" => %{"type" => "string"},
+      "document_id" => %{"type" => "string"},
+      "document_reference" => %{"type" => "string"},
+      "line_start" => %{"type" => "integer"},
+      "line_end" => %{"type" => "integer"},
+      "excerpt" => %{"type" => "string"}
+    }
+  }
 end
 
-defp inspect_items(%{"type" => type}), do: type
-defp inspect_items(_), do: "items"
+defp items_schema_for_field(_) do
+  # Default to string items for unknown array fields
+  %{"type" => "string"}
+end

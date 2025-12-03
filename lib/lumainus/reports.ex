@@ -758,6 +758,17 @@ defmodule Lumainus.Reports do
         "markdown" => %{"type" => "string"},
         "citations" => %{
           "type" => "array",
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "label" => %{"type" => "string"},
+              "document_id" => %{"type" => "string"},
+              "document_reference" => %{"type" => "string"},
+              "line_start" => %{"type" => "integer"},
+              "line_end" => %{"type" => "integer"},
+              "excerpt" => %{"type" => "string"}
+            }
+          },
           "description" => "List of citations with label and document_id"
         }
       },
