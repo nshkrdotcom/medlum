@@ -130,7 +130,7 @@ defmodule LumainusWeb.PromptsLive do
                 type="textarea"
                 field={@ingestion_form[:ingestion_prompt_template]}
                 rows="10"
-                class="w-full rounded-xl border border-slate-200 p-3 text-sm font-mono"
+                class="textarea w-full rounded-xl border border-slate-200 p-3 text-sm font-mono"
               />
               <div class="flex justify-end">
                 <.button type="submit" class="btn btn-primary btn-sm">
@@ -157,7 +157,7 @@ defmodule LumainusWeb.PromptsLive do
                 type="textarea"
                 field={@section_form[:prompt_template]}
                 rows="20"
-                class="w-full rounded-2xl border border-slate-200 p-4 font-mono text-sm leading-relaxed"
+                class="textarea w-full rounded-2xl border border-slate-200 p-4 font-mono text-sm leading-relaxed"
               />
               <div class="flex justify-end">
                 <.button type="submit" class="btn btn-primary">
