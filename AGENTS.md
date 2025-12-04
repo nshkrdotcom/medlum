@@ -966,3 +966,70 @@ end
 ```
 
 Progress is now stored as FLOAT with 2 decimal places (e.g., 45.67% not 45%).
+
+---
+
+## Gemini Rate Limiting Integration (2025-12-03)
+
+### Overview
+
+The project uses `gemini_ex` 0.5.0+ which includes automatic rate limiting to prevent 429 quota errors during admin report generation. Rate limiting is **enabled by default** with conservative settings.
+
+### Configuration
+
+Rate limiter settings in `config/config.exs`:
+
+```elixir
+config :gemini_ex, :rate_limiter,
+  max_concurrency_per_model: 2,    # Conservative limit for concurrent requests
+  max_attempts: 4,                  # Retry attempts on transient errors
+  base_backoff_ms: 1500,           # Base backoff with exponential + jitter
+  adaptive_concurrency: true,       # Reduces concurrency on 429s, increases on success
+  adaptive_ceiling: 4,              # Max concurrency adaptive mode can reach
+  profile: :prod
+```
+
+### Key Behaviors
+
+1. **Automatic Rate Limiting**: All Gemini API requests go through the rate limiter automatically
+2. **Concurrency Gating**: Limits concurrent requests per model to prevent quota exhaustion
+3. **Automatic Retries**: Retries with exponential backoff on 429 and transient errors
+4. **Adaptive Mode**: Dynamically adjusts concurrency based on API responses
+5. **Streaming Safe**: Rate limiter only gates request submission; open streams are not interrupted
+
+### Structured Errors
+
+The `Lumainus.LLM` module handles gemini_ex structured errors:
+
+- `{:error, {:rate_limited, retry_at, details}}` → Formatted with retry timing info
+- `{:error, {:transient_failure, attempts, original_error}}` → Formatted with attempt count
+
+These are stored in the `error` field of `ReportSectionRun` with structured details.
+
+### Troubleshooting
+
+If reports still fail with 429s:
+
+1. **Lower concurrency further**: Set `max_concurrency_per_model: 1` in config
+2. **Reduce parallelism at app level**: Limit concurrent section generation in Oban queues
+3. **Check quotas**: Verify Gemini API quota limits in Google Cloud Console
+4. **Review logs**: Look for `[SectionRunner] LLM generation failed` messages
+
+### Environment Variables
+
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`: Gemini API key (set in `config/runtime.exs`)
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `config/config.exs` | Global rate limiter configuration |
+| `lib/lumainus/llm.ex` | Gemini client facade with error handling |
+| `lib/lumainus/ai/section_runner.ex` | Section generation that uses LLM client |
+
+### Agent Notes
+
+- Rate limiter config is in `config.exs`, not env-specific configs
+- Do not add manual sleeps or delays; rely on gemini_ex rate limiter
+- The `MockClient` in tests bypasses rate limiting (no network calls)
+- Monitor telemetry events `[:gemini, :rate_limit, ...]` for rate limit insights

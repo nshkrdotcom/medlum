@@ -141,6 +141,39 @@ config :lumainus, :llm,
   enabled: true,
   default_options: [temperature: 0.2, max_output_tokens: 2048]
 
+# Gemini rate limiter configuration (gemini_ex 0.5.0+)
+# =====================================================
+# Rate limiting is enabled by default in gemini_ex 0.5.0+.
+# These settings tune the limiter for conservative production usage
+# to avoid 429 quota errors when multiple report sections run concurrently.
+#
+# Key behaviors:
+# - max_concurrency_per_model: Limits concurrent requests per model (default: 4)
+# - max_attempts: Number of retry attempts on transient errors (default: 3)
+# - base_backoff_ms: Base backoff duration between retries (default: 1000)
+# - adaptive_concurrency: Dynamically adjusts based on 429 responses
+#
+# Structured errors returned:
+# - {:error, {:rate_limited, retry_at, details}} - Rate limited with retry info
+# - {:error, {:transient_failure, attempts, original_error}} - Transient failure after retries
+#
+# See: https://hexdocs.pm/gemini_ex/rate_limiting.html
+config :gemini_ex, :rate_limiter,
+  # Conservative concurrency to avoid 429s when multiple sections run
+  max_concurrency_per_model: 2,
+  # Retry up to 4 times on transient errors/rate limits
+  max_attempts: 4,
+  # 1.5 second base backoff (gemini_ex applies exponential + jitter)
+  base_backoff_ms: 1500,
+  # ±25% jitter to prevent thundering herd
+  jitter_factor: 0.25,
+  # Enable adaptive mode: reduces concurrency on 429s, increases on success
+  adaptive_concurrency: true,
+  # Max concurrency the adaptive mode can reach
+  adaptive_ceiling: 4,
+  # Use prod profile defaults as baseline
+  profile: :prod
+
 # Configures the endpoint
 config :lumainus, LumainusWeb.Endpoint,
   url: [host: "localhost"],

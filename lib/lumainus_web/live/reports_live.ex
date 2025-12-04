@@ -2428,17 +2428,18 @@ defmodule LumainusWeb.ReportsLive do
 
         base_label = citation["label"] || citation[:label]
 
+        doc_id =
+          citation["document_id"] ||
+            citation[:document_id] ||
+            lookup_citation_doc_id(persisted_citations, ref, base_label)
+
         %{
           document_reference: ref,
-          document_id:
-            citation["document_id"] ||
-              citation[:document_id] ||
-              lookup_citation_doc_id(persisted_citations, ref, label),
+          document_id: doc_id,
           label:
             base_label ||
               lookup_citation_label(persisted_citations, ref) ||
-              lookup_citation_label(persisted_citations, citation[:document_id]) ||
-              lookup_citation_label(persisted_citations, citation["document_id"]),
+              lookup_citation_label(persisted_citations, doc_id),
           line_start: citation["line_start"] || citation[:line_start],
           line_end: citation["line_end"] || citation[:line_end]
         }
@@ -2479,13 +2480,16 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp lookup_citation_label(citations, ref_or_id) do
-    Enum.find_value(citations, fn
-      %{label: candidate_label, document_id: doc_id}
-      when candidate_label && (candidate_label == ref_or_id or doc_id == ref_or_id) ->
-        candidate_label
+    Enum.find_value(citations, fn citation ->
+      candidate_label = citation[:label] || citation["label"]
+      doc_id = citation[:document_id] || citation["document_id"]
 
-      _ ->
-        nil
+      cond do
+        is_nil(ref_or_id) -> nil
+        candidate_label && candidate_label == ref_or_id -> candidate_label
+        doc_id && doc_id == ref_or_id -> candidate_label
+        true -> nil
+      end
     end)
   end
 
