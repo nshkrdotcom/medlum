@@ -570,10 +570,12 @@ defmodule Lumainus.Reports do
   end
 
   defp default_template!(tenant_id) do
+    sections_query = from(s in ReportSectionTemplate, order_by: [asc: s.position])
+
     ReportTemplate
     |> where([t], t.tenant_id == ^tenant_id)
     |> order_by([t], asc: t.inserted_at)
-    |> preload(:sections)
+    |> preload(sections: ^sections_query)
     |> Repo.one!()
   end
 

@@ -68,7 +68,7 @@ defmodule Lumainus.MixProject do
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.5"},
-      {:gemini_ex, "~> 0.5.0"},
+      {:gemini_ex, "~> 0.5.2"},
       {:earmark, "~> 1.4"},
       {:oban, "~> 2.17"},
       {:telemetry_metrics, "~> 1.0"},
@@ -88,7 +88,9 @@ defmodule Lumainus.MixProject do
       {:tidewave, "~> 0.5", only: :dev},
       {:bypass, "~> 2.1", only: :test},
       {:supertester, "~> 0.3.1", only: :test},
-      {:stream_data, "~> 1.0", only: :test}
+      {:stream_data, "~> 1.0", only: :test},
+      # Admin panel
+      {:backpex, "~> 0.9"}
     ]
   end
 

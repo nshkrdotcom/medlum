@@ -64,6 +64,12 @@
           <% end %>
           <%= if show_admin_link? do %>
             <.link
+              href={~p"/admin/db/report_runs"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              Admin · DB
+            </.link>
+            <.link
               href={~p"/admin/llm-config"}
               class="global-nav__link transition hover:text-slate-900"
             >

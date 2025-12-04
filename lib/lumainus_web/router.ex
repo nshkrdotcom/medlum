@@ -4,6 +4,9 @@ defmodule LumainusWeb.Router do
   # Import authentication plugs
   import LumainusWeb.UserAuth
 
+  # Import Backpex routes macro
+  import Backpex.Router
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -107,6 +110,28 @@ defmodule LumainusWeb.Router do
       live "/gpu_events", Admin.GPUEventsLive
       # LLM Config Studio - comprehensive LLM configuration
       live "/llm-config", Admin.LlmConfigLive
+    end
+  end
+
+  ## Admin Database Browser (Backpex) - require admin role
+  scope "/admin/db", LumainusWeb do
+    pipe_through [:browser, :require_authenticated_user, :require_admin_role]
+
+    # Backpex cookie routes
+    backpex_routes()
+
+    live_session :admin_db,
+      on_mount: [Backpex.InitAssigns, {LumainusWeb.UserAuth, :ensure_authenticated}],
+      root_layout: {LumainusWeb.Layouts, :root} do
+      live_resources("/users", Admin.Db.UserLive)
+      live_resources("/tenants", Admin.Db.TenantLive)
+      live_resources("/patients", Admin.Db.PatientLive)
+      live_resources("/report_runs", Admin.Db.ReportRunLive)
+      live_resources("/report_section_runs", Admin.Db.ReportSectionRunLive)
+      live_resources("/report_templates", Admin.Db.ReportTemplateLive)
+      live_resources("/llm_invocations", Admin.Db.LlmInvocationLive)
+      live_resources("/document_uploads", Admin.Db.DocumentUploadLive)
+      live_resources("/ingestion_jobs", Admin.Db.IngestionJobLive)
     end
   end
 end

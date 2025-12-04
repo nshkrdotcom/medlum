@@ -5,6 +5,8 @@
 @source "../css";
 @source "../js";
 @source "../../lib/lumainus_web";
+@source "../../deps/backpex/**/*.*ex";
+@source "../../deps/backpex/assets/js/**/*.*js";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available.
    The heroicons installation itself is managed by your mix.exs */
@@ -181,4 +183,403 @@ select.select {
 [data-theme="dark"] .border-gray-200,
 [data-theme="dark"] .border-gray-300 {
   border-color: #4b5563 !important;
+}
+
+/* ========================================
+   Backpex Admin Panel Styles
+   ======================================== */
+
+/* Admin shell base */
+#backpex-admin-shell {
+  --admin-sidebar-bg: #1e293b;
+  --admin-sidebar-border: #334155;
+  --admin-sidebar-text: #cbd5e1;
+  --admin-sidebar-text-hover: #ffffff;
+  --admin-sidebar-active-bg: #334155;
+  --admin-content-bg: #f1f5f9;
+}
+
+/* Backpex content area styling */
+.backpex-content {
+  background-color: transparent;
+}
+
+/* Style the Backpex table container */
+.backpex-content .card,
+.backpex-content [class*="card"] {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+}
+
+/* Style Backpex tables */
+.backpex-content table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.backpex-content table thead {
+  background-color: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.backpex-content table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.backpex-content table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.backpex-content table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+/* Backpex buttons */
+.backpex-content .btn-primary,
+.backpex-content .btn.btn-primary {
+  background-color: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+.backpex-content .btn-primary:hover,
+.backpex-content .btn.btn-primary:hover {
+  background-color: #2563eb !important;
+  border-color: #2563eb !important;
+}
+
+/* Backpex form inputs in admin */
+.backpex-content .input,
+.backpex-content .textarea,
+.backpex-content .select,
+.backpex-content input[type="text"],
+.backpex-content input[type="email"],
+.backpex-content input[type="number"],
+.backpex-content textarea,
+.backpex-content select {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #1e293b !important;
+  border-radius: 0.375rem;
+}
+
+.backpex-content .input:focus,
+.backpex-content .textarea:focus,
+.backpex-content .select:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+  outline: none !important;
+}
+
+/* Backpex pagination */
+.backpex-content .join .btn,
+.backpex-content .pagination .btn {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #64748b;
+}
+
+.backpex-content .join .btn:hover,
+.backpex-content .pagination .btn:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.backpex-content .join .btn.btn-active,
+.backpex-content .pagination .btn.btn-active {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+/* Backpex badges/status indicators */
+.backpex-content .badge {
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+/* Backpex action dropdowns */
+.backpex-content .dropdown-content {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+
+/* Title and header styling */
+.backpex-content h1,
+.backpex-content h2,
+.backpex-content h3 {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+/* Ensure links are visible */
+.backpex-content a:not(.btn) {
+  color: #3b82f6;
+}
+
+.backpex-content a:not(.btn):hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+/* Empty state styling */
+.backpex-content .text-base-content {
+  color: #475569;
+}
+
+/* Fix any bg-base-* colors for consistency */
+.backpex-content .bg-base-100 {
+  background-color: #ffffff !important;
+}
+
+.backpex-content .bg-base-200 {
+  background-color: #f8fafc !important;
+}
+
+.backpex-content .bg-base-300 {
+  background-color: #f1f5f9 !important;
+}
+
+/* Checkbox styling */
+.backpex-content input[type="checkbox"] {
+  accent-color: #3b82f6;
+}
+
+/* Modal/dialog styling */
+.backpex-content .modal-box {
+  background-color: #ffffff;
+  color: #1e293b;
+}
+
+/* Search input */
+.backpex-content [type="search"],
+.backpex-content input[placeholder*="Search"] {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+/* ========================================
+   Admin Compact Mode - Ultra Tight Layout
+   ======================================== */
+
+.admin-compact .backpex-content {
+  font-size: 11px;
+}
+
+/* Compact table styling */
+.admin-compact .backpex-content table {
+  font-size: 10px;
+  width: 100%;
+}
+
+.admin-compact .backpex-content table th {
+  padding: 2px 4px;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-compact .backpex-content table td {
+  padding: 2px 4px;
+  font-size: 10px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Checkbox column - make it tiny */
+.admin-compact .backpex-content table th:first-child,
+.admin-compact .backpex-content table td:first-child {
+  width: 20px;
+  max-width: 20px;
+  padding: 2px;
+}
+
+/* ID column (usually second) */
+.admin-compact .backpex-content table th:nth-child(2),
+.admin-compact .backpex-content table td:nth-child(2) {
+  max-width: 80px;
+}
+
+/* Show page fixes - ensure proper text colors */
+.admin-compact .backpex-content {
+  color: #334155;
+}
+
+.admin-compact .backpex-content .show-page,
+.admin-compact .backpex-content dl,
+.admin-compact .backpex-content dd,
+.admin-compact .backpex-content dt,
+.admin-compact .backpex-content p,
+.admin-compact .backpex-content span,
+.admin-compact .backpex-content div {
+  color: inherit;
+}
+
+.admin-compact .backpex-content .text-base-content {
+  color: #334155 !important;
+}
+
+/* Show/detail page - don't truncate, allow wrapping */
+.admin-compact .backpex-content [data-view="show"] td,
+.admin-compact .backpex-content [data-view="show"] th,
+.admin-compact .backpex-content .resource-show td,
+.admin-compact .backpex-content .resource-show th {
+  color: #334155;
+  white-space: normal;
+  max-width: none;
+  overflow: visible;
+}
+
+/* Fix any white text issues */
+.admin-compact .backpex-content .bg-base-100,
+.admin-compact .backpex-content .bg-white {
+  color: #334155;
+}
+
+
+/* Compact buttons and controls */
+.admin-compact .backpex-content .btn {
+  padding: 2px 6px;
+  font-size: 10px;
+  min-height: unset;
+  height: auto;
+}
+
+.admin-compact .backpex-content .btn-sm {
+  padding: 1px 4px;
+  font-size: 9px;
+}
+
+/* Compact card styling */
+.admin-compact .backpex-content .card,
+.admin-compact .backpex-content [class*="card"] {
+  padding: 4px;
+  border-radius: 4px;
+}
+
+/* Compact form inputs */
+.admin-compact .backpex-content .input,
+.admin-compact .backpex-content .select,
+.admin-compact .backpex-content input,
+.admin-compact .backpex-content select {
+  padding: 2px 6px;
+  font-size: 10px;
+  height: auto;
+  min-height: 24px;
+}
+
+/* Compact pagination */
+.admin-compact .backpex-content .join .btn,
+.admin-compact .backpex-content .pagination .btn {
+  padding: 2px 6px;
+  font-size: 9px;
+}
+
+/* Compact headers */
+.admin-compact .backpex-content h1 {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.admin-compact .backpex-content h2 {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+/* Compact badge */
+.admin-compact .backpex-content .badge {
+  font-size: 9px;
+  padding: 1px 4px;
+}
+
+/* Compact search/filter bar */
+.admin-compact .backpex-content [type="search"],
+.admin-compact .backpex-content input[placeholder*="Search"] {
+  padding: 2px 8px;
+  font-size: 10px;
+  height: 24px;
+}
+
+/* Remove excess margins/padding in compact mode */
+.admin-compact .backpex-content .p-4 {
+  padding: 4px;
+}
+
+.admin-compact .backpex-content .p-6 {
+  padding: 6px;
+}
+
+.admin-compact .backpex-content .px-4 {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.admin-compact .backpex-content .py-4 {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.admin-compact .backpex-content .mb-4 {
+  margin-bottom: 4px;
+}
+
+.admin-compact .backpex-content .mt-4 {
+  margin-top: 4px;
+}
+
+.admin-compact .backpex-content .gap-4 {
+  gap: 4px;
+}
+
+/* Compact table row actions */
+.admin-compact .backpex-content table td .dropdown-content {
+  font-size: 10px;
+}
+
+.admin-compact .backpex-content table td .dropdown-content li {
+  padding: 2px 6px;
+}
+
+/* Checkbox in compact mode */
+.admin-compact .backpex-content input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+}
+
+/* Dropdown menus compact */
+.admin-compact .backpex-content .dropdown-content {
+  padding: 2px;
+}
+
+.admin-compact .backpex-content .dropdown-content li > * {
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+/* Filter bar compact */
+.admin-compact .backpex-content .select-sm {
+  padding: 2px 6px;
+  font-size: 10px;
+  height: 22px;
+  min-height: 22px;
+}
+
+/* Links in table */
+.admin-compact .backpex-content table a {
+  font-size: 10px;
 }
