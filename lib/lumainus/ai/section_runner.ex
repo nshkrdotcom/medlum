@@ -10,6 +10,7 @@ defmodule Lumainus.AI.SectionRunner do
   alias Lumainus.Repo
 
   alias Lumainus.Reports.{ReportSectionCitation, ReportSectionRun}
+  alias JsonRemedy
   require EEx
   require Logger
 
@@ -197,10 +198,10 @@ defmodule Lumainus.AI.SectionRunner do
   defp persist_citations(_section_run, nil, _documents, _context), do: :ok
 
   defp persist_citations(section_run, citations, documents, prompt_context) do
-    {by_id, by_mock} = build_document_lookup(documents)
+    lookups = build_document_lookup(documents)
 
     Enum.each(citations, fn citation ->
-      with {:ok, doc} <- locate_document(by_id, by_mock, citation),
+      with {:ok, doc} <- locate_document(lookups, citation),
            {:ok, {line_start, line_end}} <- citation_line_span(citation, doc),
            chunk <- find_chunk_for_line(doc, line_start),
            source_span <- build_source_span(doc, chunk, line_start, line_end, prompt_context) do
@@ -225,11 +226,19 @@ defmodule Lumainus.AI.SectionRunner do
       |> Enum.filter(& &1["mock_id"])
       |> Map.new(fn doc -> {doc["mock_id"], doc} end)
 
-    {by_id, by_mock}
+    by_label =
+      documents
+      |> Enum.filter(& &1["label"])
+      |> Map.new(fn doc -> {normalize_label(doc["label"]), doc} end)
+
+    {by_id, by_mock, by_label}
   end
 
-  defp locate_document(by_id, by_mock, citation) do
+  defp locate_document({by_id, by_mock, by_label}, citation) do
     reference = citation["document_reference"]
+    label = citation["label"]
+    norm_ref = normalize_label(reference)
+    norm_label = normalize_label(label)
 
     cond do
       reference && Map.has_key?(by_mock, reference) ->
@@ -237,6 +246,12 @@ defmodule Lumainus.AI.SectionRunner do
 
       citation["document_id"] && Map.has_key?(by_id, citation["document_id"]) ->
         {:ok, Map.fetch!(by_id, citation["document_id"])}
+
+      norm_ref && Map.has_key?(by_label, norm_ref) ->
+        {:ok, Map.fetch!(by_label, norm_ref)}
+
+      norm_label && Map.has_key?(by_label, norm_label) ->
+        {:ok, Map.fetch!(by_label, norm_label)}
 
       true ->
         {:error, :document_not_found}
@@ -904,6 +919,15 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp doc_label(%DocumentUpload{metadata: metadata}) do
     (metadata && (metadata["label"] || metadata["mock_id"])) || "doc"
+  end
+
+  defp normalize_label(nil), do: nil
+
+  defp normalize_label(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
   end
 
   defp symbolize_keys(map) when is_map(map) do
