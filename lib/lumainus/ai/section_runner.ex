@@ -363,8 +363,19 @@ defmodule Lumainus.AI.SectionRunner do
   defp maybe_decode_nested_json(str) when is_binary(str) do
     trimmed = String.trim(str)
 
-    if String.starts_with?(trimmed, "{") and String.ends_with?(trimmed, "}") do
-      Jason.decode(trimmed)
+    if String.starts_with?(trimmed, "{") do
+      case Jason.decode(trimmed) do
+        {:ok, decoded} ->
+          {:ok, decoded}
+
+        _ ->
+          # Use JsonRemedy for tolerant repair of malformed JSON (trailing junk, missing braces)
+          case JsonRemedy.repair(trimmed, fast_path_optimization: false) do
+            {:ok, decoded} -> {:ok, decoded}
+            {:ok, decoded, _logs} -> {:ok, decoded}
+            _ -> :not_json
+          end
+      end
     else
       :not_json
     end
