@@ -5,10 +5,17 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
       schema: Lumainus.Reports.ReportRun,
       repo: Lumainus.Repo,
       update_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.report_run_changeset/3,
-      create_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.report_run_changeset/3
+      create_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.report_run_changeset/3,
+      item_query: &__MODULE__.item_query/3
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "report_runs"],
     init_order: %{by: :inserted_at, direction: :desc}
+
+  import Ecto.Query
+
+  def item_query(query, _live_action, _assigns) do
+    from(q in query, preload: [:tenant, :patient])
+  end
 
   @impl Backpex.LiveResource
   def singular_name, do: "Report Run"

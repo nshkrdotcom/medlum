@@ -17,6 +17,10 @@ config :lumainus, Lumainus.Cldr,
 
 config :ex_cldr, default_backend: Lumainus.Cldr
 
+config :backpex,
+  translator_function: {LumainusWeb.CoreComponents, :translate_backpex},
+  error_translator_function: {LumainusWeb.CoreComponents, :translate_error}
+
 config :lumainus, :scopes,
   user: [
     default: true,
@@ -127,6 +131,8 @@ config :lumainus, Oban,
   repo: Lumainus.Repo,
   plugins: [
     {Oban.Plugins.Pruner, max_age: 86_400},
+    # Rescue orphaned jobs after BEAM crash - jobs stuck "executing" for 10+ min get retried
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(10)},
     {Oban.Plugins.Cron,
      crontab: [
        {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker},

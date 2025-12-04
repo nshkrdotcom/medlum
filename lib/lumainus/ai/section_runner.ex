@@ -126,7 +126,7 @@ defmodule Lumainus.AI.SectionRunner do
     AI.client().generate_object(model_spec, prompt_text, schema, options)
   rescue
     error ->
-      {:error, Exception.message(error)}
+      {:error, %{type: :exception, message: Exception.message(error), exception: inspect(error)}}
   end
 
   defp persist_success(section_run, llm, normalized, prompt_context, documents, duration) do
@@ -160,23 +160,24 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp persist_failure(section_run, llm, reason, fallback, prompt_context, documents, duration) do
-    # Log error instead of persisting to DB
+    error_payload = failure_error_payload(reason)
+
+    # Log with structured error info
     Logger.error("""
     [SectionRunner] LLM generation failed for section_run=#{section_run.id}
     Section: #{section_run.section_template.title}
-    Reason: #{inspect(reason)}
+    Error: #{inspect(error_payload)}
     """)
 
-    # Update LLM invocation with error status but no error field
+    # Update LLM invocation with error status AND error details
     Repo.update!(
       Changeset.change(llm, %{
         status: "error",
+        error: error_payload,
         response_object: fallback,
         req_duration_ms: duration
       })
     )
-
-    error_payload = failure_error_payload(reason)
 
     section_run =
       Repo.update!(
@@ -445,6 +446,21 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp failure_error_payload(reason) when is_binary(reason), do: %{"message" => reason}
 
+  # Handle Gemini.Error struct with rich error info
+  defp failure_error_payload(%Gemini.Error{} = error) do
+    %{
+      "type" => to_string(error.type),
+      "message" => error.message,
+      "http_status" => error.http_status,
+      "api_reason" => stringify_if_present(error.api_reason),
+      "details" => error.details,
+      "original_error" => stringify_if_present(error.original_error)
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  # Handle other structs (exceptions, etc.)
   defp failure_error_payload(%{__struct__: module} = reason) do
     message =
       if function_exported?(module, :message, 1) do
@@ -453,18 +469,44 @@ defmodule Lumainus.AI.SectionRunner do
         inspect(reason)
       end
 
-    %{
+    base = %{
       "message" => message,
       "type" => to_string(module)
     }
+
+    # Try to extract common fields if present
+    base
+    |> maybe_add_field("http_status", Map.get(reason, :http_status))
+    |> maybe_add_field("details", Map.get(reason, :details))
   end
 
+  # Handle plain maps (including our rescue-wrapped errors)
   defp failure_error_payload(reason) when is_map(reason) do
     message = Map.get(reason, "message") || Map.get(reason, :message) || inspect(reason)
-    %{"message" => message, "details" => reason}
+
+    %{"message" => message}
+    |> maybe_add_field("type", Map.get(reason, :type) || Map.get(reason, "type"))
+    |> maybe_add_field(
+      "http_status",
+      Map.get(reason, :http_status) || Map.get(reason, "http_status")
+    )
+    |> maybe_add_field(
+      "api_reason",
+      Map.get(reason, :api_reason) || Map.get(reason, "api_reason")
+    )
+    |> maybe_add_field("details", Map.get(reason, :details) || Map.get(reason, "details"))
+    |> maybe_add_field("exception", Map.get(reason, :exception) || Map.get(reason, "exception"))
   end
 
   defp failure_error_payload(reason), do: %{"message" => inspect(reason)}
+
+  defp stringify_if_present(nil), do: nil
+  defp stringify_if_present(val) when is_binary(val), do: val
+  defp stringify_if_present(val) when is_atom(val), do: to_string(val)
+  defp stringify_if_present(val), do: inspect(val)
+
+  defp maybe_add_field(map, _key, nil), do: map
+  defp maybe_add_field(map, key, value), do: Map.put(map, key, value)
 
   @doc false
   def schema_to_json(schema), do: decode_schema(schema)

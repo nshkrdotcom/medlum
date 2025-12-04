@@ -129,6 +129,7 @@ defmodule LumainusWeb.Router do
       live_resources("/report_runs", Admin.Db.ReportRunLive)
       live_resources("/report_section_runs", Admin.Db.ReportSectionRunLive)
       live_resources("/report_templates", Admin.Db.ReportTemplateLive)
+      live_resources("/report_section_templates", Admin.Db.ReportSectionTemplateLive)
       live_resources("/llm_invocations", Admin.Db.LlmInvocationLive)
       live_resources("/document_uploads", Admin.Db.DocumentUploadLive)
       live_resources("/ingestion_jobs", Admin.Db.IngestionJobLive)

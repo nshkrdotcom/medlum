@@ -27,6 +27,10 @@ defmodule LumainusWeb.Admin.Db.ChangesetHelpers do
   def report_template_changeset(template, attrs, _metadata),
     do: Lumainus.Reports.ReportTemplate.changeset(template, attrs)
 
+  # ReportSectionTemplate
+  def report_section_template_changeset(section, attrs, _metadata),
+    do: Lumainus.Reports.ReportSectionTemplate.changeset(section, attrs)
+
   # LlmInvocation
   def llm_invocation_changeset(invocation, attrs, _metadata),
     do: Lumainus.AI.LlmInvocation.changeset(invocation, attrs)

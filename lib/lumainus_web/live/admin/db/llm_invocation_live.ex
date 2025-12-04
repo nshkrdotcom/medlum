@@ -5,15 +5,32 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
       schema: Lumainus.AI.LlmInvocation,
       repo: Lumainus.Repo,
       update_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.llm_invocation_changeset/3,
-      create_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.llm_invocation_changeset/3
+      create_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.llm_invocation_changeset/3,
+      item_query: &__MODULE__.item_query/3
     ],
-    pubsub: [server: LumainusWeb.PubSub, topic: "llm_invocations"]
+    pubsub: [server: LumainusWeb.PubSub, topic: "llm_invocations"],
+    init_order: %{by: :inserted_at, direction: :desc}
+
+  import Ecto.Query
+
+  def item_query(query, _live_action, _assigns) do
+    from(q in query, preload: [:tenant])
+  end
 
   @impl Backpex.LiveResource
   def singular_name, do: "LLM Invocation"
 
   @impl Backpex.LiveResource
   def plural_name, do: "LLM Invocations"
+
+  @impl Backpex.LiveResource
+  def filters(_assigns) do
+    [
+      report_run: %{
+        module: LumainusWeb.Admin.Db.Filters.LlmReportRunFilter
+      }
+    ]
+  end
 
   @impl Backpex.LiveResource
   def fields do
@@ -24,14 +41,42 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
       status: %{
         module: Backpex.Fields.Select,
         label: "Status",
-        options: [{"Pending", "pending"}, {"Success", "success"}, {"Error", "error"}]
+        options: [{"Pending", "pending"}, {"Completed", "completed"}, {"Error", "error"}]
+      },
+      error: %{
+        module: Backpex.Fields.Text,
+        label: "Error",
+        readonly: true,
+        render: fn assigns ->
+          error = assigns.value
+
+          text =
+            cond do
+              is_nil(error) -> "-"
+              is_map(error) -> Jason.encode!(error, pretty: true)
+              true -> inspect(error)
+            end
+
+          assigns = Map.put(assigns, :text, text)
+          ~H(<pre class="text-xs whitespace-pre-wrap max-w-xs overflow-auto"><%= @text %></pre>)
+        end
       },
       temperature: %{module: Backpex.Fields.Number, label: "Temperature"},
       max_output_tokens: %{module: Backpex.Fields.Number, label: "Max Output Tokens"},
       req_duration_ms: %{module: Backpex.Fields.Number, label: "Duration (ms)", readonly: true},
       request_id: %{module: Backpex.Fields.Text, label: "Request ID", readonly: true},
-      prompt_text: %{module: Backpex.Fields.Textarea, label: "Prompt Text", readonly: true},
-      response_text: %{module: Backpex.Fields.Textarea, label: "Response Text", readonly: true},
+      prompt_text: %{
+        module: Backpex.Fields.Textarea,
+        label: "Prompt Text",
+        readonly: true,
+        except: [:index]
+      },
+      response_text: %{
+        module: Backpex.Fields.Textarea,
+        label: "Response Text",
+        readonly: true,
+        except: [:index]
+      },
       tenant: %{
         module: Backpex.Fields.BelongsTo,
         label: "Tenant",

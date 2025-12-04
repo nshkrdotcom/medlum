@@ -5,9 +5,16 @@ defmodule LumainusWeb.Admin.Db.ReportTemplateLive do
       schema: Lumainus.Reports.ReportTemplate,
       repo: Lumainus.Repo,
       update_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.report_template_changeset/3,
-      create_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.report_template_changeset/3
+      create_changeset: &LumainusWeb.Admin.Db.ChangesetHelpers.report_template_changeset/3,
+      item_query: &__MODULE__.item_query/3
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "report_templates"]
+
+  import Ecto.Query
+
+  def item_query(query, _live_action, _assigns) do
+    from(q in query, preload: [:tenant])
+  end
 
   @impl Backpex.LiveResource
   def singular_name, do: "Report Template"

@@ -3,6 +3,7 @@ defmodule Lumainus.AI.LlmInvocation do
   import Ecto.Changeset
 
   alias Lumainus.Tenancy.Tenant
+  alias Lumainus.Reports.ReportSectionRun
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -22,6 +23,7 @@ defmodule Lumainus.AI.LlmInvocation do
     field(:request_id, :string)
 
     belongs_to(:tenant, Tenant)
+    has_one(:section_run, ReportSectionRun)
 
     timestamps(type: :utc_datetime)
   end

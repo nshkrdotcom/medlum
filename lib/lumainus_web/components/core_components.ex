@@ -443,6 +443,19 @@ defmodule LumainusWeb.CoreComponents do
   end
 
   @doc """
+  Passthrough translator for Backpex admin UI strings.
+  Handles both plain strings and {msg, bindings} tuples for interpolation.
+  """
+  def translate_backpex({msg, bindings}) when is_binary(msg) and is_map(bindings) do
+    Enum.reduce(bindings, msg, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", to_string(value))
+    end)
+  end
+
+  def translate_backpex(msg) when is_binary(msg), do: msg
+  def translate_backpex(msg), do: to_string(msg)
+
+  @doc """
   Translates an error message using gettext.
   """
   def translate_error({msg, opts}) do
