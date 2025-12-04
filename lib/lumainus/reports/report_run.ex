@@ -15,6 +15,8 @@ defmodule Lumainus.Reports.ReportRun do
     field(:status, :string, default: "pending")
     field(:started_at, :utc_datetime)
     field(:finished_at, :utc_datetime)
+    field(:timeout_at, :utc_datetime)
+    field(:last_activity_at, :utc_datetime)
 
     belongs_to(:tenant, Tenant)
     belongs_to(:patient, Patient)
@@ -35,6 +37,8 @@ defmodule Lumainus.Reports.ReportRun do
       :status,
       :started_at,
       :finished_at,
+      :timeout_at,
+      :last_activity_at,
       :tenant_id,
       :patient_id,
       :record_set_id,

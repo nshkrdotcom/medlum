@@ -71,7 +71,7 @@ Replace `/prompts` with a comprehensive "LLM Config Studio" at `/admin/llm-confi
 
 **Tab 4: Output**
 - Output Schema (JSON editor with validation)
-- Response Format (select: json, text)
+- Response MIME Type (select: application/json, text/plain)
 - Schema validation status indicator
 
 **Tab 5: Advanced**
@@ -91,11 +91,13 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
   use LumainusWeb, :live_view
 
   alias Lumainus.Reports
+  alias Lumainus.Reports.SchemaValidator
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
-    template = Reports.default_template_for_scope(scope)
+    # New context helper wrapping existing ensure_template!/1 + preload(:sections)
+    template = Reports.fetch_template_with_sections!(scope.tenant_id)
     sections = template.sections
     selected = List.first(sections)
 
@@ -107,7 +109,7 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
      |> assign(:active_tab, "prompts")
      |> assign(:section_form, section_form(selected))
      |> assign(:template_form, template_form(template))
-     |> assign(:schema_valid, true)
+     |> assign(:schema_valid, SchemaValidator.valid?(selected.output_schema))
      |> assign(:schema_error, nil)}
   end
 
@@ -290,8 +292,14 @@ scope "/admin", LumainusWeb.Admin do
   pipe_through [:browser, :require_authenticated_user, :require_admin]
 
   live "/llm-config", LlmConfigLive, :index
+  get "/prompts", Redirect, to: ~p"/admin/llm-config"
 end
 ```
+
+### Data Flow Considerations
+- Prompt when switching sections with dirty forms, or autosave changes, to avoid silent loss.
+- Convert UI inputs to the persisted shape: JSON text ↔ map for `output_schema`, tags ↔ arrays for `stop_sequences`, integers for ms fields.
+- Pre-fill section forms from template defaults (`default_prompt_options`, template `system_prompt`) when section-level values are nil.
 
 ## Consequences
 

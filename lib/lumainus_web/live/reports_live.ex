@@ -3934,8 +3934,8 @@ defmodule LumainusWeb.ReportsLive do
               <section class="modal-panel">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                   <h3>Workspace context</h3>
-                  <.link navigate={~p"/prompts"} class="btn btn-ghost btn-xs">
-                    Open prompts
+                  <.link navigate={~p"/admin/llm-config"} class="btn btn-ghost btn-xs">
+                    LLM Config
                   </.link>
                 </div>
 
@@ -3988,7 +3988,7 @@ defmodule LumainusWeb.ReportsLive do
                       :if={length(@template.sections) > 4}
                       style="font-size: 11px; color: #94a3b8; margin-top: 4px;"
                     >
-                      +{length(@template.sections) - 4} additional sections configured in prompts.
+                      +{length(@template.sections) - 4} additional sections configured in LLM Config.
                     </div>
                   </div>
                 </div>

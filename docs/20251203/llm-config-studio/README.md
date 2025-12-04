@@ -39,8 +39,8 @@ Desired state:
 | **Model** | provider, model, fallback_provider, fallback_model |
 | **Generation** | temperature, max_output_tokens, top_p, top_k, candidate_count |
 | **Constraints** | stop_sequences, presence_penalty, frequency_penalty |
-| **Output** | output_schema, response_format |
-| **Context** | system_prompt, seed |
+| **Output** | output_schema (validated), response_mime_type (json/text) |
+| **Context** | system_prompt (template default + per-section override), seed |
 | **Reliability** | timeout_ms, max_retries, retry_delay_ms |
 
 ### What Stays Hard-Coded
@@ -76,6 +76,7 @@ lib/lumainus_web/live/admin/llm_config_live.ex  # New config UI
 ```
 lib/lumainus/reports.ex                     # Remove blueprints, use Blueprints module
 lib/lumainus/reports/report_section_template.ex  # Add new schema fields
+lib/lumainus/ai.ex                          # Pass new per-section overrides to LLM
 lib/lumainus/ai/section_runner.ex           # Read new fields, use DB system_prompt
 lib/lumainus/llm.ex                         # Pass new parameters to Gemini
 config/config.exs                           # Update default values
@@ -83,11 +84,10 @@ config/config.exs                           # Update default values
 
 ### Migrations
 
-```
-20251203100000_add_llm_config_fields.exs    # Add columns
-20251203100001_backfill_llm_defaults.exs    # Populate defaults
-20251203100002_populate_system_prompts.exs  # Move system prompt to DB
-```
+- Use the next timestamps after `20251204000000_fix_citation_array_schemas.exs`:
+  - `YYYYMMDDHHMMSS_add_llm_config_fields.exs` – add section/template columns for new parameters
+  - `YYYYMMDDHHMMSS_backfill_llm_defaults.exs` – populate safe defaults + copy system prompt into DB
+  - Optional code cleanup later: remove `/prompts` redirect once adoption is complete (router change, no migration)
 
 ## UI Layout
 

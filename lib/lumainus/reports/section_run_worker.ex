@@ -5,12 +5,10 @@ defmodule Lumainus.Reports.SectionRunWorker do
 
   use Oban.Worker, queue: :reports, max_attempts: 3
 
-  import Ecto.Query, warn: false
-
   alias Ecto.Changeset
   alias Lumainus.Accounts.Scope
   alias Lumainus.AI.SectionRunner
-  alias Lumainus.Reports.{ReportRun, ReportSectionRun}
+  alias Lumainus.Reports.{ReportRun, ReportSectionRun, RunReconciler}
   alias Lumainus.{Repo, Reports}
 
   @impl true
@@ -30,64 +28,28 @@ defmodule Lumainus.Reports.SectionRunWorker do
 
     result = SectionRunner.run_section(scope, section_run, patient, documents)
 
-    finalize_run_state(report_run, result)
+    RunReconciler.maybe_finalize(report_run.id)
     Reports.notify_section_run_update(report_run.record_set_id)
 
-    result
-    |> case do
+    case result do
       {:ok, _run} -> :ok
       {:error, _run} -> :ok
     end
   end
 
   defp ensure_run_running(%ReportRun{} = report_run) do
+    now = DateTime.utc_now(:second)
+
     if report_run.status in ["queued", "pending"] do
       Repo.update!(
         Changeset.change(report_run, %{
           status: "running",
-          started_at: DateTime.utc_now(:second)
+          started_at: now,
+          last_activity_at: now
         })
       )
     else
       report_run
-    end
-  end
-
-  defp finalize_run_state(report_run, {:error, _section_run}) do
-    Repo.update!(
-      Changeset.change(report_run, %{
-        status: "error",
-        finished_at: DateTime.utc_now(:second)
-      })
-    )
-  end
-
-  defp finalize_run_state(report_run, {:ok, _section_run}) do
-    statuses =
-      ReportSectionRun
-      |> where([sr], sr.report_run_id == ^report_run.id)
-      |> select([sr], sr.status)
-      |> Repo.all()
-
-    cond do
-      Enum.any?(statuses, &(&1 == "error")) ->
-        Repo.update!(
-          Changeset.change(report_run, %{
-            status: "error",
-            finished_at: DateTime.utc_now(:second)
-          })
-        )
-
-      Enum.all?(statuses, &(&1 == "completed")) ->
-        Repo.update!(
-          Changeset.change(report_run, %{
-            status: "completed",
-            finished_at: DateTime.utc_now(:second)
-          })
-        )
-
-      true ->
-        :ok
     end
   end
 end

@@ -33,6 +33,8 @@ defmodule Lumainus.Reports.SchemaValidator do
 
   @valid_types ["string", "number", "integer", "boolean", "object", "array"]
 
+  def valid?(schema), do: match?({:ok, _}, validate(schema))
+
   def validate(schema) when is_map(schema) do
     with :ok <- validate_root_type(schema),
          :ok <- validate_properties(schema),
@@ -85,12 +87,33 @@ defmodule Lumainus.Reports.SchemaValidator do
   defp validate_required(_), do: :ok
 
   defp validate_arrays(schema) do
-    # Recursively check all nested arrays have items
     case find_arrays_without_items(schema) do
       [] -> :ok
       paths -> {:error, "Arrays missing 'items': #{Enum.join(paths, ", ")}"}
     end
   end
+
+  defp find_arrays_without_items(value, path \\ "$")
+
+  defp find_arrays_without_items(%{"type" => "array"} = spec, path) do
+    has_items? = Map.has_key?(spec, "items")
+    nested_paths = find_arrays_without_items(Map.get(spec, "items"), path <> ".items")
+
+    (if has_items?, do: [], else: [path]) ++ nested_paths
+  end
+
+  defp find_arrays_without_items(%{"properties" => props}, path) when is_map(props) do
+    props
+    |> Enum.flat_map(fn {k, v} -> find_arrays_without_items(v, path <> ".properties." <> k) end)
+  end
+
+  defp find_arrays_without_items(list, path) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {v, idx} -> find_arrays_without_items(v, "#{path}[#{idx}]") end)
+  end
+
+  defp find_arrays_without_items(_value, _path), do: []
 end
 ```
 
@@ -121,6 +144,11 @@ def handle_event("save_section", params, socket) do
   end
 end
 ```
+
+### Server-Side Enforcement
+
+- Call `SchemaValidator.validate/1` inside `ReportSectionTemplate.changeset/2` and any template-level update paths to prevent bad schemas from being persisted even if the UI bypasses checks.
+- Keep the existing migration `20251204000000_fix_citation_array_schemas.exs` as a guardrail for legacy data; the validator should prevent reintroduction of the same issue.
 
 ### UI Feedback
 
@@ -164,7 +192,6 @@ end
 | Arrays have items | "Array property 'X' must have 'items' definition" |
 | Required exists | "Required fields not in properties: [...]" |
 | Valid JSON | "Invalid JSON syntax" |
-| No circular refs | "Circular reference detected at 'X'" |
 
 ## Consequences
 

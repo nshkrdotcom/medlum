@@ -37,7 +37,7 @@ Refactor the reports/LLM system to make **everything configurable** through a ne
 | **Model Selection** | provider, model, fallback_provider, fallback_model |
 | **Generation** | temperature, max_output_tokens, top_p, top_k, candidate_count |
 | **Constraints** | stop_sequences, presence_penalty, frequency_penalty |
-| **Structured Output** | output_schema (JSON Schema), response_format |
+| **Structured Output** | output_schema (JSON Schema), response_mime_type |
 | **Context** | system_prompt (separate from user prompt), seed |
 | **Operational** | timeout_ms, max_retries, retry_delay_ms |
 

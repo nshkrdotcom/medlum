@@ -9,6 +9,9 @@ defmodule Lumainus.Repo.Migrations.FixCitationArraySchemas do
   1. Finds all section templates with JSON Schema format (has "properties" key)
   2. For each array field missing "items", adds the appropriate items schema
   3. Specifically handles the "citations" array with its known structure
+
+  NOTE: Uses raw SQL to avoid schema coupling - the Ecto schema may have additional
+  fields that don't exist in the database yet when this migration runs.
   """
   use Ecto.Migration
 
@@ -36,22 +39,21 @@ defmodule Lumainus.Repo.Migrations.FixCitationArraySchemas do
   end
 
   defp fix_schemas do
-    import Ecto.Query
-
     repo = Lumainus.Repo
-    alias Lumainus.Reports.ReportSectionTemplate
 
-    templates = repo.all(from(t in ReportSectionTemplate, select: t))
+    # Use raw SQL to avoid schema coupling
+    {:ok, result} =
+      repo.query("SELECT id, output_schema FROM report_section_templates", [])
 
-    for template <- templates do
-      schema = template.output_schema
-
+    for [id, schema] <- result.rows do
       if needs_fix?(schema) do
         fixed_schema = fix_schema(schema)
 
-        template
-        |> Ecto.Changeset.change(%{output_schema: fixed_schema})
-        |> repo.update!()
+        # Pass the map directly - Postgrex will encode it as JSON for the jsonb column
+        repo.query!(
+          "UPDATE report_section_templates SET output_schema = $1 WHERE id = $2",
+          [fixed_schema, id]
+        )
       end
     end
 

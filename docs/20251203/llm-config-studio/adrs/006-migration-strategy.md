@@ -17,14 +17,11 @@ Existing tenants have `report_section_templates` with minimal configuration. The
 ### Phase 1: Schema Migration (Database)
 
 ```elixir
-# priv/repo/migrations/20251203100000_add_llm_config_fields.exs
+# priv/repo/migrations/20251205000100_add_llm_config_fields.exs
 defmodule Lumainus.Repo.Migrations.AddLlmConfigFields do
   use Ecto.Migration
 
   def change do
-    # All new fields are nullable or have defaults
-    # This is backward compatible - existing code continues to work
-
     alter table(:report_section_templates) do
       add :top_p, :float
       add :top_k, :integer
@@ -39,42 +36,52 @@ defmodule Lumainus.Repo.Migrations.AddLlmConfigFields do
       add :retry_delay_ms, :integer, default: 1000
       add :fallback_provider, :string
       add :fallback_model, :string
-      add :response_format, :string, default: "json"
+      add :response_mime_type, :string, default: "application/json"
     end
 
     alter table(:report_templates) do
       add :system_prompt, :text
-      add :default_llm_config, :map, default: %{}
+      # Template defaults reuse existing :default_prompt_options map
     end
+
+    create constraint(:report_section_templates, :temperature_range,
+             check: "temperature IS NULL OR (temperature >= 0.0 AND temperature <= 2.0)")
+
+    create constraint(:report_section_templates, :top_p_range,
+             check: "top_p IS NULL OR (top_p >= 0.0 AND top_p <= 1.0)")
+
+    create constraint(:report_section_templates, :penalty_range,
+             check:
+               "(presence_penalty IS NULL OR (presence_penalty >= -2.0 AND presence_penalty <= 2.0)) AND " <>
+                 "(frequency_penalty IS NULL OR (frequency_penalty >= -2.0 AND frequency_penalty <= 2.0))")
+
+    create constraint(:report_section_templates, :candidate_count_positive,
+             check: "candidate_count IS NULL OR candidate_count >= 1")
+
+    create constraint(:report_section_templates, :top_k_non_negative,
+             check: "top_k IS NULL OR top_k >= 0")
+
+    create constraint(:report_section_templates, :timeout_positive,
+             check: "timeout_ms IS NULL OR timeout_ms > 0")
+
+    create constraint(:report_section_templates, :retry_non_negative,
+             check: "max_retries IS NULL OR max_retries >= 0")
   end
 end
 ```
 
-### Phase 2: Code Migration (Blueprints Module)
+### Phase 2: Data Backfill + System Prompt
 
 ```elixir
-# priv/repo/migrations/20251203100001_create_blueprints_module.exs
-# This is a code-only migration marker - no DB changes
-defmodule Lumainus.Repo.Migrations.CreateBlueprintsModuleMarker do
-  use Ecto.Migration
-
-  def change do
-    # No-op migration to mark the code refactor in migration history
-    # Actual work is in lib/lumainus/reports/blueprints.ex
-    execute "SELECT 1", "SELECT 1"
-  end
-end
-```
-
-### Phase 3: Data Backfill (Optional)
-
-If we want to populate defaults for existing sections:
-
-```elixir
-# priv/repo/migrations/20251203100002_backfill_llm_defaults.exs
+# priv/repo/migrations/20251205000200_backfill_llm_defaults.exs
 defmodule Lumainus.Repo.Migrations.BackfillLlmDefaults do
   use Ecto.Migration
-  import Ecto.Query
+
+  @default_system_prompt """
+  You are Lumainus, a clinical documentation system.
+  Produce structured markdown with inline citations like [doc-001].
+  Return JSON that matches the provided schema exactly.
+  """
 
   @defaults %{
     temperature: 0.2,
@@ -84,83 +91,59 @@ defmodule Lumainus.Repo.Migrations.BackfillLlmDefaults do
     max_retries: 3,
     retry_delay_ms: 1000,
     candidate_count: 1,
-    response_format: "json"
+    response_mime_type: "application/json"
   }
 
   def up do
-    # Only update sections that have NULL for these fields
-    from(s in "report_section_templates",
-      where: is_nil(s.temperature),
-      update: [set: [temperature: ^@defaults.temperature]]
-    )
-    |> repo().update_all([])
+    execute(fn ->
+      repo = repo()
 
-    # Similar for other fields...
+      repo.query!("""
+      UPDATE report_templates
+      SET system_prompt = $1
+      WHERE system_prompt IS NULL
+      """, [@default_system_prompt])
+
+      Enum.each(@defaults, fn {field, value} ->
+        repo.query!("""
+        UPDATE report_section_templates
+        SET #{field} = $1
+        WHERE #{field} IS NULL
+        """, [value])
+      end)
+    end)
   end
 
   def down do
-    # No rollback needed - we're just filling NULLs
     :ok
   end
 end
 ```
 
-### Phase 4: System Prompt Extraction
+### Phase 3: Code Deployment (no migration)
 
-Move the hard-coded system prompt to database:
+- Extract `Reports.Blueprints` and point seeding/helper code to it.
+- Add `SchemaValidator` to `ReportSectionTemplate` changesets (and any template-level schema entry points).
+- Extend `Lumainus.AI.options/1` and `Lumainus.LLM.build_request_opts/3` to honor new fields (`stop_sequences`, penalties, fallback provider/model, response_mime_type, retries).
+- Establish precedence: section column → template default (`default_prompt_options`, template `system_prompt`) → application config.
 
-```elixir
-# priv/repo/migrations/20251203100003_populate_system_prompts.exs
-defmodule Lumainus.Repo.Migrations.PopulateSystemPrompts do
-  use Ecto.Migration
-
-  @default_system_prompt """
-  You are Lumainus, a clinical documentation system.
-  Produce structured markdown with inline citations like [doc-001].
-  Return JSON that matches the provided schema exactly.
-  """
-
-  def up do
-    # Set template-level system prompt
-    execute """
-    UPDATE report_templates
-    SET system_prompt = '#{@default_system_prompt}'
-    WHERE system_prompt IS NULL
-    """
-  end
-
-  def down do
-    execute """
-    UPDATE report_templates
-    SET system_prompt = NULL
-    """
-  end
-end
-```
-
-### Phase 5: UI Deployment
+### Phase 4: UI Deployment
 
 1. Deploy new `LlmConfigLive` module
-2. Add route to router
+2. Add route to router (+ redirect `/prompts` to `/admin/llm-config`)
 3. Update navigation to point to new page
-4. Keep old `/prompts` route as redirect for bookmarks
-
-```elixir
-# router.ex
-live "/prompts", LlmConfigLive, :index  # Redirect old URL
-live "/admin/llm-config", LlmConfigLive, :index  # New canonical URL
-```
+4. Keep the old route as redirect for existing bookmarks
 
 ### Deployment Order
 
 ```
-1. Run database migrations (Phase 1, 3, 4)
-   - Adds columns, no code dependency
+1. Run database migrations (Phase 1, Phase 2)
+   - Adds columns and backfills defaults/system prompts
 
 2. Deploy code changes
    - Blueprints module extraction
-   - Schema updates
-   - LLM client updates to read new fields
+   - Schema validator + changeset wiring
+   - LLM client updates to read new fields and fallback
 
 3. Deploy UI changes
    - New LlmConfigLive page
@@ -174,6 +157,11 @@ live "/admin/llm-config", LlmConfigLive, :index  # New canonical URL
 ### Rollback Plan
 
 **If Phase 1 fails:**
+```bash
+mix ecto.rollback --step 1
+```
+
+**If Phase 2 backfill fails:**
 ```bash
 mix ecto.rollback --step 1
 ```
@@ -199,7 +187,8 @@ mix ecto.rollback --step 1
 [ ] Save blocked when schema invalid
 [ ] Fallback model used when primary fails
 [ ] System prompt appears in LLM request
-[ ] Temperature/top_p affect output
+[ ] Temperature/top_p/stop_sequences affect output
+[ ] Response MIME type respected when schema omitted
 ```
 
 ### Feature Flags (Optional)
@@ -231,6 +220,6 @@ end
 - Testing burden increases
 
 ### Timeline Considerations
-- Phase 1-4: Can run together in single deploy
-- Phase 5: Can be delayed until UI is ready
+- Phase 1-3 can ship together (DB + code)
+- Phase 4 (UI) can be delayed or feature-flagged
 - Feature flag allows staged rollout

@@ -92,7 +92,6 @@ defmodule LumainusWeb.Router do
     live_session :doctor_routes,
       on_mount: [{LumainusWeb.UserAuth, :ensure_authenticated}, {LumainusWeb.Locale, :set_locale}] do
       live "/reports", ReportsLive
-      live "/prompts", PromptsLive
     end
   end
 
@@ -106,6 +105,8 @@ defmodule LumainusWeb.Router do
       live "/docling", Admin.DoclingSettingsLive
       live "/vast_ai", Admin.VastAILive
       live "/gpu_events", Admin.GPUEventsLive
+      # LLM Config Studio - comprehensive LLM configuration
+      live "/llm-config", Admin.LlmConfigLive
     end
   end
 end

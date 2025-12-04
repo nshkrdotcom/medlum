@@ -14,10 +14,6 @@ defmodule Lumainus.AI.SectionRunner do
   require EEx
   require Logger
 
-  @system_prompt """
-  You are Lumainus, a clinical documentation system. Produce structured markdown with inline citations like [doc-001] and return JSON that matches the provided schema exactly.
-  """
-
   def run_section(scope, %ReportSectionRun{} = section_run, patient, documents, _opts \\ []) do
     section_run =
       Repo.preload(section_run, [
@@ -26,6 +22,7 @@ defmodule Lumainus.AI.SectionRunner do
       ])
 
     section_template = section_run.section_template
+    template = section_run.report_run.template
     doc_payloads = Enum.map(documents, &document_payload/1)
     prompt_context = build_prompt_context(section_template, patient, doc_payloads)
 
@@ -35,10 +32,14 @@ defmodule Lumainus.AI.SectionRunner do
     schema = schema_for_llm(section_template.output_schema)
     model_spec = AI.model_spec(section_template)
 
+    # Get system prompt with proper precedence: section → template → default
+    system_prompt = AI.system_prompt(section_template, template)
+
+    # Get merged options with proper precedence: section → template defaults → app config
     options =
-      AI.options(section_template)
+      AI.options(section_template, template)
       |> Keyword.put(:prompt_context, prompt_context)
-      |> Keyword.put(:system_instruction, @system_prompt)
+      |> Keyword.put(:system_instruction, system_prompt)
 
     llm =
       %LlmInvocation{}

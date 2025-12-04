@@ -52,21 +52,39 @@ defmodule Lumainus.LLM do
 
   defp parse_model_spec(_), do: {:error, "Invalid model specification"}
 
-  defp build_request_opts(model, schema, opts) do
+  @doc false
+  def build_request_opts(model, schema, opts) do
     []
     |> Keyword.put(:model, model)
+    # Sampling parameters
     |> maybe_put(:temperature, Keyword.get(opts, :temperature))
     |> maybe_put(:max_output_tokens, Keyword.get(opts, :max_output_tokens))
     |> maybe_put(:top_p, Keyword.get(opts, :top_p))
     |> maybe_put(:top_k, Keyword.get(opts, :top_k))
-    |> maybe_put(:system_instruction, Keyword.get(opts, :system_instruction))
     |> maybe_put(:candidate_count, Keyword.get(opts, :candidate_count))
+    # Context
+    |> maybe_put(:system_instruction, Keyword.get(opts, :system_instruction))
+    |> maybe_put(:seed, Keyword.get(opts, :seed))
+    # Constraints
+    |> maybe_put(:stop_sequences, Keyword.get(opts, :stop_sequences))
+    |> maybe_put(:presence_penalty, Keyword.get(opts, :presence_penalty))
+    |> maybe_put(:frequency_penalty, Keyword.get(opts, :frequency_penalty))
+    # Response format
     |> maybe_put(:response_schema, schema)
-    |> maybe_put(:response_mime_type, infer_response_mime_type(schema))
+    |> maybe_put(:response_mime_type, determine_response_mime_type(schema, opts))
   end
 
-  defp infer_response_mime_type(schema) when is_map(schema), do: "application/json"
-  defp infer_response_mime_type(_), do: nil
+  # Determine response MIME type:
+  # 1. If schema is provided, use "application/json" (Gemini requirement)
+  # 2. Otherwise, use the response_mime_type from opts if provided
+  # 3. Default to nil (let Gemini decide)
+  defp determine_response_mime_type(schema, _opts) when is_map(schema) and map_size(schema) > 0 do
+    "application/json"
+  end
+
+  defp determine_response_mime_type(_, opts) do
+    Keyword.get(opts, :response_mime_type)
+  end
 
   defp normalize_response(%GenerateContentResponse{} = response, schema) do
     text = extract_text(response)

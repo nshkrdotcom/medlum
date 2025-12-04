@@ -129,7 +129,8 @@ config :lumainus, Oban,
     {Oban.Plugins.Pruner, max_age: 86_400},
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker}
+       {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker},
+       {"*/5 * * * *", Lumainus.Reports.StaleRunWorker}
      ]}
   ],
   queues: [ingestion: 5, reports: 5, health_checks: 1, maintenance: 1]

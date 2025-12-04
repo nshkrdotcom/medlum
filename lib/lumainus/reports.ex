@@ -16,6 +16,7 @@ defmodule Lumainus.Reports do
   alias Lumainus.Reports.SectionRunWorker
 
   alias Lumainus.Reports.{
+    Blueprints,
     Report,
     ReportRun,
     ReportSectionCitation,
@@ -114,7 +115,7 @@ defmodule Lumainus.Reports do
   end
 
   def ingestion_prompt(%ReportTemplate{} = template) do
-    template.ingestion_prompt_template || default_ingestion_prompt()
+    template.ingestion_prompt_template || Blueprints.default_ingestion_prompt()
   end
 
   def update_section_prompt(%ReportSectionTemplate{} = section, attrs) do
@@ -238,6 +239,10 @@ defmodule Lumainus.Reports do
     ids = normalize_section_ids(section_ids)
     document_ids = document_ids_for(scope, record_set)
 
+    now = DateTime.utc_now(:second)
+    timeout_minutes = Keyword.get(opts, :timeout_minutes, 30)
+    timeout_at = DateTime.add(now, timeout_minutes, :minute)
+
     sections =
       ReportSectionTemplate
       |> where([s], s.template_id == ^template.id and s.id in ^ids)
@@ -254,7 +259,9 @@ defmodule Lumainus.Reports do
                template_id: template.id,
                run_type: run_type_for(sections, template),
                status: "queued",
-               triggered_by_user_id: scope.user && scope.user.id
+               triggered_by_user_id: scope.user && scope.user.id,
+               timeout_at: timeout_at,
+               last_activity_at: now
              })
              |> Repo.insert!()
 
@@ -589,15 +596,18 @@ defmodule Lumainus.Reports do
   defp ensure_template!(tenant_id) do
     case Repo.get_by(ReportTemplate, tenant_id: tenant_id, slug: "cardiology-primary") do
       nil ->
+        template_attrs = Blueprints.default_template_attrs()
+
         template =
           %ReportTemplate{}
           |> ReportTemplate.changeset(%{
             tenant_id: tenant_id,
-            name: "Cardiology Intake",
-            slug: "cardiology-primary",
-            description: "LLM-driven cardiology report",
+            name: template_attrs.name,
+            slug: template_attrs.slug,
+            description: template_attrs.description,
             default_prompt_options: %{},
-            ingestion_prompt_template: default_ingestion_prompt()
+            ingestion_prompt_template: Blueprints.default_ingestion_prompt(),
+            system_prompt: Blueprints.default_system_prompt()
           })
           |> Repo.insert!()
 
@@ -617,219 +627,20 @@ defmodule Lumainus.Reports do
 
   @doc false
   def default_sections(template_id) do
-    section_blueprints()
+    Blueprints.section_blueprints()
     |> Enum.with_index(1)
     |> Enum.map(fn {blueprint, idx} ->
       instructions = Map.get(blueprint, :instructions)
-      schema = Map.get(blueprint, :output_schema) || default_schema()
+      schema = Map.get(blueprint, :output_schema) || Blueprints.default_output_schema()
 
       %{
         identifier: blueprint.identifier,
         title: blueprint.title,
-        prompt_template: section_prompt(blueprint.focus, instructions: instructions),
+        prompt_template: Blueprints.section_prompt(blueprint.focus, instructions: instructions),
         output_schema: schema,
         template_id: template_id,
         position: idx * 10
       }
     end)
-  end
-
-  defp section_blueprints do
-    [
-      %{
-        identifier: "chief-complaint",
-        title: "Chief Complaint",
-        focus: "the patient's primary reason for presentation",
-        instructions: """
-        - Keep this section to 1-2 sentences written from the patient's voice.
-        - Capture onset timing, severity, and precipitating context if documented.
-        - Highlight notable quotes or descriptors inside quotation marks.
-        """
-      },
-      %{
-        identifier: "history-present-illness",
-        title: "History of Present Illness (HPI)",
-        focus: "a chronological narrative of the presenting problem",
-        instructions: """
-        - Organize paragraphs by timeline: onset, progression, current status.
-        - Mention alleviating/exacerbating factors plus associated ROS findings.
-        - Call out pertinent negatives inline (e.g., \"denies syncope\").
-        """
-      },
-      %{
-        identifier: "past-history",
-        title: "Past History",
-        focus: "medical, surgical, and social history summaries",
-        instructions: """
-        - Create subheadings for Medical History, Surgical History, and Social History.
-        - Use bullet lists under each subheading; include dates if available.
-        - Social History should mention marital status, tobacco/alcohol/drugs, and occupation when documented.
-        """
-      },
-      %{
-        identifier: "medications",
-        title: "Medications",
-        focus: "current medications, doses, and adherence notes",
-        instructions: """
-        - Present as a bullet list with medication name, dose, route, and frequency.
-        - Note recent changes, held meds, or adherence concerns in italics.
-        - Include OTC and supplements if present.
-        """
-      },
-      %{
-        identifier: "physical-exam-history",
-        title: "Past Physical Exam Findings",
-        focus: "historical exam findings and vitals trends",
-        instructions: """
-        - Group content by system (Cardiovascular, Pulmonary, Neuro, etc.) with subheadings.
-        - Highlight abnormal findings first, then list reassuring normals.
-        - Include notable vital trends with dates.
-        """
-      },
-      %{
-        identifier: "review-of-systems",
-        title: "Review of Systems",
-        focus: "prior documented ROS results",
-        instructions: """
-        - Use a table or bullet list grouped by system.
-        - For each system, list positives first then key negatives.
-        - Limit to items explicitly mentioned in the source documents.
-        """
-      },
-      %{
-        identifier: "lab-review",
-        title: "Laboratory Review",
-        focus: "all relevant laboratory data and trends",
-        instructions: """
-        - Provide a markdown table with columns: Test, Value & Units, Reference/Flag, Date or Trend.
-        - Call out abnormal values with **bold** flags or text.
-        - Follow the table with 1-2 sentences interpreting the trends.
-        """
-      },
-      %{
-        identifier: "imaging-review",
-        title: "Imaging Review",
-        focus: "radiology, cardiology, and other imaging summaries",
-        instructions: """
-        - List each study with modality and date.
-        - Summarize impressions plus key measurements (e.g., EF, stenosis %).
-        - Note whether follow-up imaging is pending.
-        """
-      },
-      %{
-        identifier: "pathology-review",
-        title: "Pathology Review",
-        focus: "biopsy and pathology results relevant to the case",
-        instructions: """
-        - Include specimen site, diagnosis, grade/stage markers, and critical molecular findings.
-        - Mention when pathology is pending or inconclusive.
-        - Tie findings to treatment implications when evident.
-        """
-      },
-      %{
-        identifier: "assessment",
-        title: "Assessment",
-        focus: "synthesis of clinical problems with evidence",
-        instructions: """
-        - Use a numbered list, one problem per number ordered by priority.
-        - Each entry should include 1-2 sentences referencing supporting data with citations.
-        - Note current status/severity and clinical uncertainty if present.
-        """
-      },
-      %{
-        identifier: "plan",
-        title: "Plan",
-        focus: "recommended management steps for each assessed problem",
-        instructions: """
-        - Mirror the numbering from the Assessment section when possible.
-        - Detail medications, procedures, monitoring, patient education, and contingency plans.
-        - Include follow-up steps and responsible teams.
-        """
-      }
-    ]
-  end
-
-  defp default_schema do
-    %{
-      "type" => "object",
-      "properties" => %{
-        "title" => %{"type" => "string"},
-        "summary" => %{"type" => "string"},
-        "markdown" => %{"type" => "string"},
-        "citations" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "properties" => %{
-              "label" => %{"type" => "string"},
-              "document_id" => %{"type" => "string"},
-              "document_reference" => %{"type" => "string"},
-              "line_start" => %{"type" => "integer"},
-              "line_end" => %{"type" => "integer"},
-              "excerpt" => %{"type" => "string"}
-            }
-          },
-          "description" => "List of citations with label and document_id"
-        }
-      },
-      "required" => ["title", "summary", "markdown", "citations"]
-    }
-  end
-
-  defp default_ingestion_prompt do
-    """
-    You convert uploaded medical PDFs into structured markdown summaries.
-
-    - Read all textual content and preserve its order.
-    - Emit markdown with headings (##) for major sections you detect.
-    - Keep bullet lists when possible.
-    - Extract patient name and MRN if available. If missing, return "Unknown".
-    - Capture a short summary paragraph (2-3 sentences) highlighting key facts.
-    - Do not include commentary about being an AI.
-    """
-  end
-
-  defp section_prompt(focus, opts) do
-    instructions_block =
-      opts
-      |> Keyword.get(:instructions)
-      |> case do
-        nil ->
-          ""
-
-        text ->
-          trimmed = String.trim(text)
-
-          """
-
-          Clinical formatting guidance:
-          #{trimmed}
-          """
-      end
-
-    """
-    You are drafting the <%= section_title %> portion of a cardiology report focused on #{focus}.
-    Patient: <%= patient.full_name %> (MRN <%= patient.mrn %>, DOB <%= patient.date_of_birth %>)
-
-    Cite source evidence using the document IDs below. Inline citations must use the mock ID (e.g., [doc-101])
-    and each citation entry in the structured JSON output must include the matching `document_id` value.
-
-    #{instructions_block}
-
-    Document reference table:
-    <%= for doc <- documents do %>
-    - <%= doc["mock_id"] || doc["label"] %>: Document ID <%= doc["id"] %> · <%= doc["summary"] %>
-    <% end %>
-
-    Summaries:
-    <%= documents_summary %>
-
-    Source content:
-    <%= documents_text %>
-
-    Return JSON that matches the provided schema with keys `title`, `summary`, `markdown`, and `citations`.
-    The markdown must include inline citations matching `[mock_id]`. Each citation entry must provide
-    `label`, `document_id`, `document_reference`, `line_start`, `line_end`, and a short `excerpt`.
-    """
   end
 end
