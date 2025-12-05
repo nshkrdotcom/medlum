@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy script for Lumainus
+# Deploy script for MedLum AI
 # Usage: ./scripts/deploy.sh [--refresh-runtime]
 
 set -euo pipefail
@@ -65,7 +65,7 @@ fi
 EOF
 }
 
-echo "🚀 Deploying Lumainus to dev.lumainus.com..."
+echo "🚀 Deploying MedLum AI to dev.medlumai.com..."
 
 if $REFRESH_RUNTIME; then
   echo "🛑 Stopping service before build (refresh runtime)..."
