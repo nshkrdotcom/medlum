@@ -12,6 +12,7 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
     init_order: %{by: :inserted_at, direction: :desc}
 
   import Ecto.Query
+  import LumainusWeb.Admin.Db.BackpexHelpers
 
   def item_query(query, _live_action, _assigns) do
     from(q in query, preload: [:tenant, :patient])
@@ -44,10 +45,26 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
           {"Timed Out", "timed_out"}
         ]
       },
-      started_at: %{module: Backpex.Fields.DateTime, label: "Started At"},
-      finished_at: %{module: Backpex.Fields.DateTime, label: "Finished At"},
-      timeout_at: %{module: Backpex.Fields.DateTime, label: "Timeout At"},
-      last_activity_at: %{module: Backpex.Fields.DateTime, label: "Last Activity At"},
+      started_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Started At",
+        render: datetime_render()
+      },
+      finished_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Finished At",
+        render: datetime_render()
+      },
+      timeout_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Timeout At",
+        render: datetime_render()
+      },
+      last_activity_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Last Activity At",
+        render: datetime_render()
+      },
       tenant: %{
         module: Backpex.Fields.BelongsTo,
         label: "Tenant",
@@ -60,8 +77,18 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
         display_field: :patient_key,
         live_resource: LumainusWeb.Admin.Db.PatientLive
       },
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end

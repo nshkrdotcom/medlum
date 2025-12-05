@@ -234,6 +234,68 @@ defmodule Lumainus.Reports do
     end
   end
 
+  @doc """
+  Get a report run with full details including all section runs, LLM invocations,
+  and section templates. Used for the debug/introspection panel.
+  """
+  def get_report_run_with_details(%Scope{} = scope, run_id) do
+    tenant_id = tenant_id_from_scope(scope)
+
+    # Use shallow queries to exclude large fields (prompt_inputs is ~13MB per row)
+    section_runs_shallow =
+      from(sr in ReportSectionRun,
+        select: %ReportSectionRun{
+          id: sr.id,
+          status: sr.status,
+          output_markdown: sr.output_markdown,
+          output_object: sr.output_object,
+          confidence_score: sr.confidence_score,
+          error: sr.error,
+          report_run_id: sr.report_run_id,
+          section_template_id: sr.section_template_id,
+          llm_invocation_id: sr.llm_invocation_id,
+          inserted_at: sr.inserted_at,
+          updated_at: sr.updated_at
+        }
+      )
+
+    llm_shallow_query =
+      from(l in LlmInvocation,
+        select: %LlmInvocation{
+          id: l.id,
+          provider: l.provider,
+          model: l.model,
+          status: l.status,
+          error: l.error,
+          usage: l.usage,
+          req_duration_ms: l.req_duration_ms,
+          request_id: l.request_id,
+          tenant_id: l.tenant_id,
+          inserted_at: l.inserted_at,
+          updated_at: l.updated_at
+        }
+      )
+
+    result =
+      ReportRun
+      |> where([r], r.id == ^run_id and r.tenant_id == ^tenant_id)
+      |> preload([:template, section_runs: ^section_runs_shallow])
+      |> Repo.one()
+
+    # Load associations for section_runs separately
+    result =
+      if result do
+        section_runs =
+          Repo.preload(result.section_runs, [:section_template, llm_invocation: llm_shallow_query])
+
+        %{result | section_runs: section_runs}
+      else
+        result
+      end
+
+    result
+  end
+
   def run_sections(%Scope{} = scope, patient, record_set, template, section_ids, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
     ids = normalize_section_ids(section_ids)

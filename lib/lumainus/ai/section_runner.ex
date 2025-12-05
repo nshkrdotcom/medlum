@@ -192,7 +192,8 @@ defmodule Lumainus.AI.SectionRunner do
         response_object: normalized.object,
         usage: normalized.usage,
         status: "completed",
-        req_duration_ms: duration
+        req_duration_ms: duration,
+        repair_status: normalized.repair_status
       }
       |> maybe_put_request(normalized.request_id)
 
@@ -391,10 +392,19 @@ defmodule Lumainus.AI.SectionRunner do
     text = extract(response, :text) || extract(response, :response_text)
 
     # Defensive decoding: if object is a binary string (JSON wasn't parsed), try to decode it
-    object = ensure_decoded_object(raw_object, text)
+    {object, repair_status_from_object} = ensure_decoded_object(raw_object, text)
 
     # Handle nested JSON: if markdown field contains JSON with a markdown key, extract it
-    {markdown, citations, summary} = extract_content_from_object(object, text)
+    {markdown, citations, summary, repair_status_from_nested} =
+      extract_content_from_object(object, text)
+
+    # Determine final repair status (use the first non-"none" status)
+    repair_status =
+      cond do
+        repair_status_from_object != "none" -> repair_status_from_object
+        repair_status_from_nested != "none" -> repair_status_from_nested
+        true -> "none"
+      end
 
     %{
       object: object,
@@ -404,7 +414,8 @@ defmodule Lumainus.AI.SectionRunner do
       confidence: object["confidence"] || 0.9,
       citations: citations,
       summary: summary,
-      request_id: extract(response, :request_id)
+      request_id: extract(response, :request_id),
+      repair_status: repair_status
     }
   end
 
@@ -414,23 +425,23 @@ defmodule Lumainus.AI.SectionRunner do
 
     # Check if markdown field contains JSON (LLM returned nested JSON)
     case maybe_decode_nested_json(raw_markdown) do
-      {:ok, nested} when is_map(nested) ->
+      {:ok, nested, repair_status} when is_map(nested) ->
         # Successfully decoded nested JSON - extract fields from it
         markdown = nested["markdown"] || raw_markdown
         citations = nested["citations"] || object["citations"] || []
         summary = nested["summary"] || object["summary"] || String.slice(markdown, 0, 280)
-        {markdown, citations, summary}
+        {markdown, citations, summary, repair_status}
 
       _ ->
         # Normal case - use fields directly from object
         citations = object["citations"] || []
         summary = object["summary"] || String.slice(raw_markdown, 0, 280)
-        {raw_markdown, citations, summary}
+        {raw_markdown, citations, summary, "none"}
     end
   end
 
   defp extract_content_from_object(_, text),
-    do: {text || "", [], String.slice(text || "", 0, 280)}
+    do: {text || "", [], String.slice(text || "", 0, 280), "none"}
 
   # Try to decode a string as JSON if it looks like JSON
   defp maybe_decode_nested_json(str) when is_binary(str) do
@@ -439,14 +450,24 @@ defmodule Lumainus.AI.SectionRunner do
     if String.starts_with?(trimmed, "{") do
       case Jason.decode(trimmed) do
         {:ok, decoded} ->
-          {:ok, decoded}
+          # Jason decoded successfully - no repair needed
+          {:ok, decoded, "none"}
 
         _ ->
           # Use JsonRemedy for tolerant repair of malformed JSON (trailing junk, missing braces)
-          case JsonRemedy.repair(trimmed, fast_path_optimization: false) do
-            {:ok, decoded} -> {:ok, decoded}
-            {:ok, decoded, _logs} -> {:ok, decoded}
-            _ -> :not_json
+          case JsonRemedy.repair(trimmed, fast_path_optimization: false, logging: true) do
+            {:ok, decoded, logs} when is_list(logs) ->
+              # JsonRemedy with logs - check if repairs were made
+              repair_status = if length(logs) > 0, do: "repaired", else: "none"
+              {:ok, decoded, repair_status}
+
+            {:ok, decoded} ->
+              # JsonRemedy without logs - assume repair happened since Jason failed
+              {:ok, decoded, "repaired"}
+
+            {:error, _reason} ->
+              # JsonRemedy failed to repair
+              :not_json
           end
       end
     else
@@ -459,21 +480,27 @@ defmodule Lumainus.AI.SectionRunner do
   # Handle case where object is a binary string containing JSON
   defp ensure_decoded_object(object, _text) when is_binary(object) do
     case Jason.decode(object) do
-      {:ok, decoded} when is_map(decoded) -> stringify_keys(decoded)
-      _ -> %{"markdown" => object}
+      {:ok, decoded} when is_map(decoded) ->
+        {stringify_keys(decoded), "none"}
+
+      _ ->
+        {%{"markdown" => object}, "none"}
     end
   end
 
   # Handle case where object is nil but text contains JSON
   defp ensure_decoded_object(nil, text) when is_binary(text) do
     case Jason.decode(text) do
-      {:ok, decoded} when is_map(decoded) -> stringify_keys(decoded)
-      _ -> %{"markdown" => text}
+      {:ok, decoded} when is_map(decoded) ->
+        {stringify_keys(decoded), "none"}
+
+      _ ->
+        {%{"markdown" => text}, "none"}
     end
   end
 
-  defp ensure_decoded_object(object, _text) when is_map(object), do: object
-  defp ensure_decoded_object(_, _), do: %{}
+  defp ensure_decoded_object(object, _text) when is_map(object), do: {object, "none"}
+  defp ensure_decoded_object(_, _), do: {%{}, "none"}
 
   defp fallback_payload(section_template, context) do
     body =
@@ -923,8 +950,8 @@ defmodule Lumainus.AI.SectionRunner do
           }
         end)
 
-      parse[:parsed_text] ->
-        parse.parsed_text
+      parsed = Map.get(parse, :parsed_text) ->
+        parsed
         |> to_string()
         |> String.split("\n")
         |> Enum.with_index(1)

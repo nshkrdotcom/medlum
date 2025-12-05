@@ -9,6 +9,8 @@ defmodule LumainusWeb.Admin.Db.IngestionJobLive do
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "ingestion_jobs"]
 
+  import LumainusWeb.Admin.Db.BackpexHelpers
+
   @impl Backpex.LiveResource
   def singular_name, do: "Ingestion Job"
 
@@ -64,9 +66,23 @@ defmodule LumainusWeb.Admin.Db.IngestionJobLive do
       max_attempts: %{module: Backpex.Fields.Number, label: "Max Attempts"},
       last_message: %{module: Backpex.Fields.Text, label: "Last Message", readonly: true},
       last_error: %{module: Backpex.Fields.Textarea, label: "Last Error", readonly: true},
-      started_at: %{module: Backpex.Fields.DateTime, label: "Started At", readonly: true},
-      finished_at: %{module: Backpex.Fields.DateTime, label: "Finished At", readonly: true},
-      timeout_at: %{module: Backpex.Fields.DateTime, label: "Timeout At"},
+      started_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Started At",
+        readonly: true,
+        render: datetime_render()
+      },
+      finished_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Finished At",
+        readonly: true,
+        render: datetime_render()
+      },
+      timeout_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Timeout At",
+        render: datetime_render()
+      },
       tenant: %{
         module: Backpex.Fields.BelongsTo,
         label: "Tenant",
@@ -79,8 +95,18 @@ defmodule LumainusWeb.Admin.Db.IngestionJobLive do
         display_field: :filename,
         live_resource: LumainusWeb.Admin.Db.DocumentUploadLive
       },
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end

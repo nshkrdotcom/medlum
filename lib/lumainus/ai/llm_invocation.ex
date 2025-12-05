@@ -21,6 +21,7 @@ defmodule Lumainus.AI.LlmInvocation do
     field(:max_output_tokens, :integer)
     field(:req_duration_ms, :integer)
     field(:request_id, :string)
+    field(:repair_status, :string, default: "none")
 
     belongs_to(:tenant, Tenant)
     has_one(:section_run, ReportSectionRun)
@@ -44,8 +45,10 @@ defmodule Lumainus.AI.LlmInvocation do
       :max_output_tokens,
       :req_duration_ms,
       :request_id,
+      :repair_status,
       :tenant_id
     ])
     |> validate_required([:provider, :model, :prompt_text, :tenant_id])
+    |> validate_inclusion(:repair_status, ["none", "repaired", "failed"])
   end
 end

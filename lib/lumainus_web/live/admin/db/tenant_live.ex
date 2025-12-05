@@ -9,6 +9,8 @@ defmodule LumainusWeb.Admin.Db.TenantLive do
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "tenants"]
 
+  import LumainusWeb.Admin.Db.BackpexHelpers
+
   @impl Backpex.LiveResource
   def singular_name, do: "Tenant"
 
@@ -27,8 +29,18 @@ defmodule LumainusWeb.Admin.Db.TenantLive do
         options: [{"Active", "active"}, {"Inactive", "inactive"}, {"Suspended", "suspended"}]
       },
       primary_domain: %{module: Backpex.Fields.Text, label: "Primary Domain"},
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end

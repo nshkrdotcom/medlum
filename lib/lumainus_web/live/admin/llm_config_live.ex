@@ -15,7 +15,7 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
   use LumainusWeb, :live_view
 
   alias Lumainus.Reports
-  alias Lumainus.Reports.SchemaValidator
+  alias Lumainus.Reports.{CacheSetting, CacheSettings, SchemaValidator}
 
   @tabs ["prompts", "model", "generation", "output", "advanced"]
 
@@ -45,6 +45,9 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
     sections = template.sections
     selected = List.first(sections)
 
+    # Load cache settings
+    {:ok, cache_settings} = CacheSettings.fetch_or_init()
+
     {:ok,
      socket
      |> assign(:template, template)
@@ -53,6 +56,9 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
      |> assign(:active_tab, "prompts")
      |> assign(:section_form, section_form(selected))
      |> assign(:template_form, template_form(template))
+     |> assign(:cache_settings, cache_settings)
+     |> assign(:cache_form, cache_form(cache_settings))
+     |> assign(:cache_models, cache_model_options())
      |> assign(:schema_valid, validate_schema(selected))
      |> assign(:schema_error, nil)
      |> assign(:dirty, false)
@@ -159,6 +165,23 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
     end
   end
 
+  def handle_event("save_cache_settings", %{"cache" => params}, socket) do
+    case CacheSettings.update_settings(params) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Cache settings saved.")
+         |> assign(:cache_settings, updated)
+         |> assign(:cache_form, cache_form(updated))}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to save cache settings.")
+         |> assign(:cache_form, to_form(changeset, as: :cache))}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -173,8 +196,11 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
           Changes apply to the next report run.
         </p>
       </div>
+      
+    <!-- Cache Settings Card (Global) -->
+      <.cache_settings_card form={@cache_form} settings={@cache_settings} models={@cache_models} />
 
-      <div class="grid gap-6 lg:grid-cols-4">
+      <div class="grid gap-6 lg:grid-cols-4 mt-6">
         <!-- Sidebar -->
         <div class="space-y-4">
           <.section_list sections={@sections} selected={@selected_section} />
@@ -265,6 +291,86 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
         <div class="flex justify-end">
           <.button type="submit" class="btn btn-sm btn-primary">
             Save Template
+          </.button>
+        </div>
+      </.form>
+    </div>
+    """
+  end
+
+  defp cache_settings_card(assigns) do
+    ~H"""
+    <div class="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-white p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="p-2 bg-indigo-100 rounded-lg">
+          <.icon name="hero-bolt" class="size-5 text-indigo-600" />
+        </div>
+        <div>
+          <p class="text-lg font-semibold text-slate-900">Context Cache Settings</p>
+          <p class="text-sm text-slate-500">
+            Configure Gemini context caching for report generation
+          </p>
+        </div>
+      </div>
+
+      <.form for={@form} phx-submit="save_cache_settings" class="space-y-4">
+        <div class="grid gap-4 md:grid-cols-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Cache Model</label>
+            <select
+              name="cache[model]"
+              class="select w-full rounded-lg border border-slate-200 text-sm"
+            >
+              <%= for {label, value} <- @models do %>
+                <option value={value} selected={@settings.model == value}>{label}</option>
+              <% end %>
+            </select>
+            <p class="text-xs text-slate-400 mt-1">Min tokens shown in dropdown</p>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">TTL (seconds)</label>
+            <input
+              type="number"
+              name="cache[ttl_seconds]"
+              value={@settings.ttl_seconds}
+              min="60"
+              max="86400"
+              class="input w-full rounded-lg border border-slate-200 text-sm"
+            />
+            <p class="text-xs text-slate-400 mt-1">1 min - 24 hours</p>
+          </div>
+
+          <div class="flex items-center pt-6">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="cache[enabled]"
+                value="true"
+                checked={@settings.enabled}
+                class="checkbox checkbox-sm"
+              />
+              <span class="text-sm text-slate-700">Enable Caching</span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Cache System Prompt
+            <span class="text-slate-400 font-normal">(sent with cached document context)</span>
+          </label>
+          <textarea
+            name="cache[system_prompt]"
+            rows="3"
+            class="textarea w-full rounded-lg border border-slate-200 p-3 text-sm font-mono"
+            placeholder="System instructions for cached context..."
+          >{@settings.system_prompt}</textarea>
+        </div>
+
+        <div class="flex justify-end">
+          <.button type="submit" class="btn btn-sm btn-primary">
+            Save Cache Settings
           </.button>
         </div>
       </.form>
@@ -825,5 +931,26 @@ defmodule LumainusWeb.Admin.LlmConfigLive do
     Enum.map(sections, fn section ->
       if section.id == updated.id, do: updated, else: section
     end)
+  end
+
+  defp cache_form(settings) do
+    data = %{
+      "system_prompt" => settings.system_prompt,
+      "model" => settings.model,
+      "ttl_seconds" => settings.ttl_seconds,
+      "enabled" => settings.enabled
+    }
+
+    to_form(data, as: :cache)
+  end
+
+  defp cache_model_options do
+    # Get models from the schema - no hardcoded labels
+    # Display model name directly, with min tokens info
+    CacheSetting.cache_models()
+    |> Enum.map(fn {model, %{min_tokens: min}} ->
+      {"#{model} (min #{min} tokens)", model}
+    end)
+    |> Enum.sort_by(fn {_, model} -> model end)
   end
 end

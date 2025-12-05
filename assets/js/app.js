@@ -27,6 +27,25 @@ import {Hooks as BackpexHooks} from "backpex"
 
 const Hooks = {...BackpexHooks}
 
+// Detect browser timezone and store in cookie + hidden field
+// Used on login page - cookie is read by controller for magic link login,
+// hidden field is used for password form direct POST
+Hooks.TimezoneDetect = {
+  mounted() {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (tz) {
+      // Store in cookie for magic link login (controller reads it)
+      document.cookie = `browser_timezone=${encodeURIComponent(tz)}; path=/; max-age=3600; SameSite=Lax`
+
+      // Also populate hidden field if present (for password form direct POST)
+      const input = this.el.querySelector('input[name="user[timezone]"]')
+      if (input) {
+        input.value = tz
+      }
+    }
+  }
+}
+
 Hooks.IngestionCountdown = {
   mounted() {
     this.start()

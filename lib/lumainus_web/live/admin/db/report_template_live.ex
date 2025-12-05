@@ -11,6 +11,7 @@ defmodule LumainusWeb.Admin.Db.ReportTemplateLive do
     pubsub: [server: LumainusWeb.PubSub, topic: "report_templates"]
 
   import Ecto.Query
+  import LumainusWeb.Admin.Db.BackpexHelpers
 
   def item_query(query, _live_action, _assigns) do
     from(q in query, preload: [:tenant])
@@ -46,8 +47,18 @@ defmodule LumainusWeb.Admin.Db.ReportTemplateLive do
         display_field: :name,
         live_resource: LumainusWeb.Admin.Db.TenantLive
       },
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end

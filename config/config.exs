@@ -178,9 +178,9 @@ config :lumainus, :llm,
 #
 # See: https://hexdocs.pm/gemini_ex/rate_limiting.html
 config :gemini_ex, :rate_limiter,
-  # Use free_tier profile for conservative defaults (upgrade to :paid_tier_1 for production)
-  profile: :free_tier,
-  # Override: allow slightly more concurrency for report parallelism
+  # Paid tier profile to avoid concurrency-gate timeouts on multi-section reports
+  profile: :paid_tier_1,
+  # Limit concurrent requests per model
   max_concurrency_per_model: 2,
   # Retry up to 4 times on transient errors/rate limits
   max_attempts: 4,
@@ -191,7 +191,7 @@ config :gemini_ex, :rate_limiter,
   # Enable adaptive mode: reduces concurrency on 429s, increases on success
   adaptive_concurrency: true,
   # Max concurrency the adaptive mode can reach
-  adaptive_ceiling: 4
+  adaptive_ceiling: 10
 
 # Configures the endpoint
 config :lumainus, LumainusWeb.Endpoint,

@@ -490,7 +490,9 @@ defmodule LumainusWeb.UserLive.Login do
             id="login_form_magic"
             action={~p"/users/log-in"}
             phx-submit="submit_magic"
+            phx-hook="TimezoneDetect"
           >
+            <input type="hidden" name="user[timezone]" value="" />
             <.input
               readonly={!!@current_scope}
               field={f[:email]}
@@ -517,7 +519,9 @@ defmodule LumainusWeb.UserLive.Login do
             action={~p"/users/log-in"}
             phx-submit="submit_password"
             phx-trigger-action={@trigger_submit}
+            phx-hook="TimezoneDetect"
           >
+            <input type="hidden" name="user[timezone]" value="" />
             <.input
               readonly={!!@current_scope}
               field={f[:email]}

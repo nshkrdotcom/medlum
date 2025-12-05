@@ -38,9 +38,9 @@ defmodule LumainusWeb.ReportsLive do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    _t0 = System.monotonic_time(:millisecond)
+    t0 = System.monotonic_time(:millisecond)
     Reports.bootstrap_workspace!(scope)
-    _t1 = System.monotonic_time(:millisecond)
+    t1 = System.monotonic_time(:millisecond)
 
     socket =
       socket
@@ -54,7 +54,11 @@ defmodule LumainusWeb.ReportsLive do
       )
       |> load_workspace()
 
-    _t2 = System.monotonic_time(:millisecond)
+    t2 = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[ReportsLive] mount timing - bootstrap: #{t1 - t0}ms, load_workspace: #{t2 - t1}ms, total: #{t2 - t0}ms"
+    )
 
     socket =
       if connected?(socket) do
@@ -175,6 +179,30 @@ defmodule LumainusWeb.ReportsLive do
 
   @impl true
   def handle_event("noop", _params, socket), do: {:noreply, socket}
+
+  def handle_event("select_debug_run", %{"run-id" => run_id}, socket) do
+    scope = socket.assigns.current_scope
+    run_details = Reports.get_report_run_with_details(scope, run_id)
+
+    {:noreply,
+     socket
+     |> assign(:debug_selected_run_id, run_id)
+     |> assign(:debug_selected_run, run_details)
+     |> assign(:debug_expanded_sections, MapSet.new())}
+  end
+
+  def handle_event("toggle_debug_section", %{"section-id" => section_id}, socket) do
+    expanded = socket.assigns.debug_expanded_sections
+
+    updated =
+      if MapSet.member?(expanded, section_id) do
+        MapSet.delete(expanded, section_id)
+      else
+        MapSet.put(expanded, section_id)
+      end
+
+    {:noreply, assign(socket, :debug_expanded_sections, updated)}
+  end
 
   def handle_event("set_docling_backend", %{"backend" => backend}, socket) do
     # Only admins can change backend
@@ -576,6 +604,7 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   defp load_workspace(socket, opts \\ []) do
+    _t_start = System.monotonic_time(:millisecond)
     scope = socket.assigns.current_scope
     has_patient_override = Keyword.has_key?(opts, :patient_id)
 
@@ -589,7 +618,9 @@ defmodule LumainusWeb.ReportsLive do
     patient_id =
       Keyword.get(opts, :patient_id) || (socket.assigns[:patient] && socket.assigns.patient.id)
 
+    t1 = System.monotonic_time(:millisecond)
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)
+    t2 = System.monotonic_time(:millisecond)
     documents = format_documents(workspace.documents)
 
     sections = format_sections(workspace.sections)
@@ -648,10 +679,19 @@ defmodule LumainusWeb.ReportsLive do
       |> Enum.map(& &1.section.id)
       |> MapSet.new()
 
+    t3 = System.monotonic_time(:millisecond)
     record_sets = RecordSets.list_for_patient(workspace.patient)
+    t4 = System.monotonic_time(:millisecond)
     record_set_latest_runs = Reports.latest_runs_for_record_sets(scope, record_sets)
+    t5 = System.monotonic_time(:millisecond)
     recent_runs = Reports.list_runs_for_record_set(scope, workspace.record_set, limit: 5)
+    t6 = System.monotonic_time(:millisecond)
     patients = Reports.list_patients_for_scope(scope)
+    t7 = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[ReportsLive] load_workspace timing - workspace: #{t2 - t1}ms, record_sets: #{t4 - t3}ms, latest_runs: #{t5 - t4}ms, recent_runs: #{t6 - t5}ms, patients: #{t7 - t6}ms"
+    )
 
     socket =
       socket
@@ -686,12 +726,44 @@ defmodule LumainusWeb.ReportsLive do
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
       |> assign(:health_check_retry_count, 0)
+      |> assign_debug_panel(scope, recent_runs)
 
     socket
     |> maybe_refresh_document_modal()
     |> maybe_subscribe_record_set(workspace.record_set.id)
     |> maybe_subscribe_report_runs(workspace.record_set.id)
     |> subscribe_to_job_topics()
+  end
+
+  defp assign_debug_panel(socket, scope, _recent_runs) do
+    t1 = System.monotonic_time(:millisecond)
+    # Keep debug list light to avoid heavy preloads / JSON decode
+    all_runs = Reports.list_runs_for_record_set(scope, socket.assigns.record_set, limit: 8)
+    t2 = System.monotonic_time(:millisecond)
+
+    # Default to most recent run
+    selected_run_id =
+      socket.assigns[:debug_selected_run_id] ||
+        (List.first(all_runs) && List.first(all_runs).id)
+
+    selected_run_details =
+      if selected_run_id do
+        Reports.get_report_run_with_details(scope, selected_run_id)
+      else
+        nil
+      end
+
+    t3 = System.monotonic_time(:millisecond)
+
+    Logger.info(
+      "[ReportsLive] debug_panel timing - list_runs: #{t2 - t1}ms, get_details: #{t3 - t2}ms"
+    )
+
+    socket
+    |> assign(:debug_runs, all_runs)
+    |> assign(:debug_selected_run_id, selected_run_id)
+    |> assign(:debug_selected_run, selected_run_details)
+    |> assign_new(:debug_expanded_sections, fn -> MapSet.new() end)
   end
 
   @impl true
@@ -3124,6 +3196,239 @@ defmodule LumainusWeb.ReportsLive do
           height: auto;
         }
       }
+
+      /* Debug Panel Styles */
+      .debug-panel {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        margin-top: 24px;
+      }
+
+      .debug-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid #e2e8f0;
+        gap: 16px;
+      }
+
+      .debug-header h3 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #475569;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .debug-select {
+        padding: 6px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 13px;
+        background: #f8fafc;
+        color: #0f172a;
+        min-width: 280px;
+      }
+
+      .debug-run-meta {
+        display: flex;
+        gap: 16px;
+        padding: 12px 20px;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 12px;
+        flex-wrap: wrap;
+      }
+
+      .debug-meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .debug-meta-label {
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 10px;
+      }
+
+      .debug-meta-value {
+        color: #0f172a;
+        font-weight: 500;
+      }
+
+      .debug-sections {
+        max-height: 600px;
+        overflow-y: auto;
+      }
+
+      .debug-section {
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .debug-section:last-child {
+        border-bottom: none;
+      }
+
+      .debug-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 20px;
+        cursor: pointer;
+        transition: background 0.15s ease;
+        gap: 12px;
+      }
+
+      .debug-section-header:hover {
+        background: #f8fafc;
+      }
+
+      .debug-section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+        flex: 1;
+      }
+
+      .debug-section-status {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-weight: 500;
+      }
+
+      .debug-section-status[data-status="completed"] {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      .debug-section-status[data-status="error"] {
+        background: #fef2f2;
+        color: #b91c1c;
+      }
+
+      .debug-section-status[data-status="running"],
+      .debug-section-status[data-status="queued"] {
+        background: #fef3c7;
+        color: #b45309;
+      }
+
+      .debug-section-status[data-status="pending"] {
+        background: #f1f5f9;
+        color: #64748b;
+      }
+
+      .debug-chevron {
+        width: 16px;
+        height: 16px;
+        color: #94a3b8;
+        transition: transform 0.15s ease;
+      }
+
+      .debug-chevron.expanded {
+        transform: rotate(180deg);
+      }
+
+      .debug-section-content {
+        padding: 0 20px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .debug-block {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .debug-block-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: #f1f5f9;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .debug-block-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #e0e7ff;
+        color: #4338ca;
+        font-weight: 500;
+        text-transform: none;
+        letter-spacing: normal;
+      }
+
+      .debug-block-content {
+        padding: 12px;
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 300px;
+        overflow-y: auto;
+        color: #334155;
+        line-height: 1.5;
+      }
+
+      .debug-block-content.json {
+        color: #0f172a;
+      }
+
+      .debug-usage-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .debug-usage-item {
+        text-align: center;
+        padding: 8px;
+        background: #fff;
+        border-radius: 6px;
+      }
+
+      .debug-usage-value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .debug-usage-label {
+        font-size: 10px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 2px;
+      }
+
+      .debug-empty {
+        padding: 40px 20px;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 13px;
+      }
+
+      .debug-error-content {
+        background: #fef2f2;
+        color: #b91c1c;
+      }
     </style>
 
     <div class="reports-shell">
@@ -3769,6 +4074,337 @@ defmodule LumainusWeb.ReportsLive do
           <% end %>
         </section>
       </div>
+
+      <%!-- Debug Panel: Report Run Inspector --%>
+      <div class="debug-panel">
+        <div class="debug-header">
+          <h3>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 20h9" /><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z" /><path d="m15 5 3 3" />
+            </svg>
+            Report Run Inspector
+          </h3>
+          <%= if Enum.any?(@debug_runs) do %>
+            <form phx-change="select_debug_run">
+              <select name="run-id" class="debug-select">
+                <%= for run <- @debug_runs do %>
+                  <option value={run.id} selected={run.id == @debug_selected_run_id}>
+                    {String.capitalize(run.run_type || "full")} run · {String.capitalize(
+                      run.status || "pending"
+                    )} · {format_timestamp(run.inserted_at, @locale, @timezone)}
+                  </option>
+                <% end %>
+              </select>
+            </form>
+          <% end %>
+        </div>
+
+        <%= if @debug_selected_run do %>
+          <div class="debug-run-meta">
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Status</span>
+              <span class="debug-meta-value">
+                {String.capitalize(@debug_selected_run.status || "pending")}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Type</span>
+              <span class="debug-meta-value">
+                {String.capitalize(@debug_selected_run.run_type || "full")}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Template</span>
+              <span class="debug-meta-value">
+                {(@debug_selected_run.template && @debug_selected_run.template.name) || "—"}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Started</span>
+              <span class="debug-meta-value">
+                {format_timestamp(@debug_selected_run.started_at, @locale, @timezone)}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Finished</span>
+              <span class="debug-meta-value">
+                {format_timestamp(@debug_selected_run.finished_at, @locale, @timezone)}
+              </span>
+            </div>
+            <%= if @debug_selected_run.cached_content_name do %>
+              <div class="debug-meta-item">
+                <span class="debug-meta-label">Cache</span>
+                <span class="debug-meta-value" style="font-size: 11px; font-family: monospace;">
+                  {String.slice(@debug_selected_run.cached_content_name || "", -20, 20)}...
+                </span>
+              </div>
+            <% end %>
+          </div>
+
+          <div class="debug-sections">
+            <%= for section_run <- Enum.sort_by(@debug_selected_run.section_runs || [], & &1.section_template && &1.section_template.position) do %>
+              <% expanded? = MapSet.member?(@debug_expanded_sections, section_run.id) %>
+              <div class="debug-section">
+                <button
+                  type="button"
+                  class="debug-section-header"
+                  phx-click="toggle_debug_section"
+                  phx-value-section-id={section_run.id}
+                >
+                  <span class="debug-section-title">
+                    {(section_run.section_template && section_run.section_template.title) ||
+                      "Unknown Section"}
+                  </span>
+                  <span class="debug-section-status" data-status={section_run.status}>
+                    {String.capitalize(section_run.status || "pending")}
+                  </span>
+                  <svg
+                    class={"debug-chevron #{if expanded?, do: "expanded"}"}
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+
+                <%= if expanded? do %>
+                  <div class="debug-section-content">
+                    <%!-- Schema Definition --%>
+                    <%= if section_run.section_template && section_run.section_template.output_schema && map_size(section_run.section_template.output_schema) > 0 do %>
+                      <div class="debug-block">
+                        <div class="debug-block-header">
+                          <span>Output Schema</span>
+                          <span class="debug-block-badge">JSON Schema</span>
+                        </div>
+                        <div class="debug-block-content json">
+                          {Jason.encode!(section_run.section_template.output_schema, pretty: true)}
+                        </div>
+                      </div>
+                    <% end %>
+
+                    <%!-- Prompt Template --%>
+                    <%= if section_run.section_template && section_run.section_template.prompt_template do %>
+                      <div class="debug-block">
+                        <div class="debug-block-header">
+                          <span>Prompt Template</span>
+                          <span class="debug-block-badge">EEx</span>
+                        </div>
+                        <div class="debug-block-content">
+                          {section_run.section_template.prompt_template}
+                        </div>
+                      </div>
+                    <% end %>
+
+                    <%!-- LLM Invocation Details --%>
+                    <%= if section_run.llm_invocation do %>
+                      <% inv = section_run.llm_invocation %>
+
+                      <%!-- Model & Config --%>
+                      <div class="debug-block">
+                        <div class="debug-block-header">
+                          <span>LLM Configuration</span>
+                          <span class="debug-block-badge">{inv.provider}/{inv.model}</span>
+                        </div>
+                        <div class="debug-usage-grid">
+                          <div class="debug-usage-item">
+                            <div class="debug-usage-value">{inv.temperature || "—"}</div>
+                            <div class="debug-usage-label">Temperature</div>
+                          </div>
+                          <div class="debug-usage-item">
+                            <div class="debug-usage-value">{inv.max_output_tokens || "—"}</div>
+                            <div class="debug-usage-label">Max Tokens</div>
+                          </div>
+                          <div class="debug-usage-item">
+                            <div class="debug-usage-value">{inv.req_duration_ms || "—"}ms</div>
+                            <div class="debug-usage-label">Duration</div>
+                          </div>
+                          <div class="debug-usage-item">
+                            <div class="debug-usage-value">
+                              {String.capitalize(inv.status || "pending")}
+                            </div>
+                            <div class="debug-usage-label">Status</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <%!-- Token Usage --%>
+                      <%= if inv.usage && map_size(inv.usage) > 0 do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Token Usage</span>
+                          </div>
+                          <div class="debug-usage-grid">
+                            <div class="debug-usage-item">
+                              <div class="debug-usage-value">
+                                {format_token_count(
+                                  inv.usage["input_tokens"] || inv.usage["promptTokenCount"]
+                                )}
+                              </div>
+                              <div class="debug-usage-label">Input</div>
+                            </div>
+                            <div class="debug-usage-item">
+                              <div class="debug-usage-value">
+                                {format_token_count(
+                                  inv.usage["output_tokens"] || inv.usage["candidatesTokenCount"]
+                                )}
+                              </div>
+                              <div class="debug-usage-label">Output</div>
+                            </div>
+                            <%= if inv.usage["cachedContentTokenCount"] || inv.usage["cache_read_input_tokens"] do %>
+                              <div class="debug-usage-item">
+                                <div class="debug-usage-value">
+                                  {format_token_count(
+                                    inv.usage["cachedContentTokenCount"] ||
+                                      inv.usage["cache_read_input_tokens"]
+                                  )}
+                                </div>
+                                <div class="debug-usage-label">Cached</div>
+                              </div>
+                            <% end %>
+                            <div class="debug-usage-item">
+                              <div class="debug-usage-value">
+                                {format_token_count(inv.usage["totalTokenCount"])}
+                              </div>
+                              <div class="debug-usage-label">Total</div>
+                            </div>
+                          </div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Rendered Prompt --%>
+                      <%= if inv.prompt_text do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Rendered Prompt</span>
+                            <span class="debug-block-badge">
+                              {String.length(inv.prompt_text)} chars
+                            </span>
+                          </div>
+                          <div class="debug-block-content">{inv.prompt_text}</div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Prompt Context --%>
+                      <%= if inv.prompt_context && map_size(inv.prompt_context) > 0 do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Prompt Context</span>
+                            <span class="debug-block-badge">JSON</span>
+                          </div>
+                          <div class="debug-block-content json">
+                            {Jason.encode!(inv.prompt_context, pretty: true)}
+                          </div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Response Text --%>
+                      <%= if inv.response_text do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Response Text</span>
+                            <span class="debug-block-badge">
+                              {String.length(inv.response_text)} chars
+                            </span>
+                          </div>
+                          <div class="debug-block-content">{inv.response_text}</div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Response Object --%>
+                      <%= if inv.response_object && map_size(inv.response_object) > 0 do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Response Object</span>
+                            <span class="debug-block-badge">JSON</span>
+                          </div>
+                          <div class="debug-block-content json">
+                            {Jason.encode!(inv.response_object, pretty: true)}
+                          </div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Error --%>
+                      <%= if inv.error do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Error</span>
+                          </div>
+                          <div class="debug-block-content debug-error-content">
+                            {Jason.encode!(inv.error, pretty: true)}
+                          </div>
+                        </div>
+                      <% end %>
+                    <% else %>
+                      <div class="debug-empty">
+                        No LLM invocation recorded for this section run.
+                      </div>
+                    <% end %>
+
+                    <%!-- Section Run Output --%>
+                    <%= if section_run.output_markdown do %>
+                      <div class="debug-block">
+                        <div class="debug-block-header">
+                          <span>Output Markdown</span>
+                          <%= if section_run.confidence_score do %>
+                            <span class="debug-block-badge">
+                              Confidence: {Float.round(section_run.confidence_score * 100, 1)}%
+                            </span>
+                          <% end %>
+                        </div>
+                        <div class="debug-block-content">{section_run.output_markdown}</div>
+                      </div>
+                    <% end %>
+
+                    <%!-- Section Output Object --%>
+                    <%= if section_run.output_object && map_size(section_run.output_object) > 0 do %>
+                      <div class="debug-block">
+                        <div class="debug-block-header">
+                          <span>Output Object</span>
+                          <span class="debug-block-badge">JSON</span>
+                        </div>
+                        <div class="debug-block-content json">
+                          {Jason.encode!(section_run.output_object, pretty: true)}
+                        </div>
+                      </div>
+                    <% end %>
+
+                    <%!-- Section Run Error --%>
+                    <%= if section_run.error do %>
+                      <div class="debug-block">
+                        <div class="debug-block-header">
+                          <span>Section Error</span>
+                        </div>
+                        <div class="debug-block-content debug-error-content">
+                          {Jason.encode!(section_run.error, pretty: true)}
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="debug-empty">
+            No report runs yet for this workspace. Run a report to see execution details here.
+          </div>
+        <% end %>
+      </div>
     </div>
 
     <%= if @document_modal_open && @document_modal_document do %>
@@ -4187,4 +4823,13 @@ defmodule LumainusWeb.ReportsLive do
     |> String.replace("_", " ")
     |> String.capitalize()
   end
+
+  defp format_token_count(nil), do: "—"
+
+  defp format_token_count(count) when is_integer(count) and count >= 1000 do
+    "#{Float.round(count / 1000, 1)}k"
+  end
+
+  defp format_token_count(count) when is_integer(count), do: Integer.to_string(count)
+  defp format_token_count(_), do: "—"
 end

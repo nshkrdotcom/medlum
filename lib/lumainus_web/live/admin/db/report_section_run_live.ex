@@ -12,6 +12,7 @@ defmodule LumainusWeb.Admin.Db.ReportSectionRunLive do
     init_order: %{by: :inserted_at, direction: :desc}
 
   import Ecto.Query
+  import LumainusWeb.Admin.Db.BackpexHelpers
 
   def item_query(query, _live_action, _assigns) do
     from(q in query, preload: [:section_template, :report_run, :llm_invocation])
@@ -95,8 +96,18 @@ defmodule LumainusWeb.Admin.Db.ReportSectionRunLive do
         readonly: true,
         except: [:index]
       },
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end

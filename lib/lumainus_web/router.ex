@@ -121,7 +121,11 @@ defmodule LumainusWeb.Router do
     backpex_routes()
 
     live_session :admin_db,
-      on_mount: [Backpex.InitAssigns, {LumainusWeb.UserAuth, :ensure_authenticated}],
+      on_mount: [
+        Backpex.InitAssigns,
+        {LumainusWeb.UserAuth, :ensure_authenticated},
+        {LumainusWeb.Locale, :set_locale}
+      ],
       root_layout: {LumainusWeb.Layouts, :root} do
       live_resources("/users", Admin.Db.UserLive)
       live_resources("/tenants", Admin.Db.TenantLive)

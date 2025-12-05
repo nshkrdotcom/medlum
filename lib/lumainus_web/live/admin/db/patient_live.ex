@@ -9,6 +9,8 @@ defmodule LumainusWeb.Admin.Db.PatientLive do
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "patients"]
 
+  import LumainusWeb.Admin.Db.BackpexHelpers
+
   @impl Backpex.LiveResource
   def singular_name, do: "Patient"
 
@@ -31,8 +33,18 @@ defmodule LumainusWeb.Admin.Db.PatientLive do
         display_field: :name,
         live_resource: LumainusWeb.Admin.Db.TenantLive
       },
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end

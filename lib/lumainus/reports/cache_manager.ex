@@ -21,17 +21,19 @@ defmodule Lumainus.Reports.CacheManager do
 
   ## Requirements
 
-  - Model must support caching (gemini-2.0-flash, gemini-2.5-flash, etc.)
-  - Minimum 1024 tokens required for caching (documents must be substantial)
+  - Model must support caching (gemini-3.0-pro-preview, gemini-2.5-pro, gemini-2.5-flash)
+  - Minimum tokens required depends on model (1024-4096)
+
+  ## Configuration
+
+  Cache settings (model, TTL, system prompt, min tokens) are stored in the database
+  and can be configured at `/admin/llm-config`. See `Lumainus.Reports.CacheSettings`.
   """
 
   alias Gemini.APIs.ContextCache
   alias Lumainus.Documents.DocumentUpload
+  alias Lumainus.Reports.CacheSettings
   require Logger
-
-  @cache_ttl_seconds 3600
-  @cache_model "gemini-2.5-flash"
-  @min_cache_tokens 1024
 
   @doc """
   Creates a context cache for a report run.
@@ -42,19 +44,22 @@ defmodule Lumainus.Reports.CacheManager do
   - `documents` - List of DocumentUpload structs with parses/chunks preloaded
   - `system_prompt` - System instruction to include in cache
   - `opts` - Options:
-    - `:ttl` - Cache TTL in seconds (default: 3600)
-    - `:model` - Model to use for cache (default: "gemini-2.5-flash")
+    - `:ttl` - Cache TTL in seconds (default from DB settings)
+    - `:model` - Model to use for cache (default from DB settings)
 
   ## Returns
 
   - `{:ok, cache_name}` - Cache created successfully
+  - `{:skip, :content_too_small}` - Documents below min token threshold for model
   - `{:error, reason}` - Failed to create cache
   """
   @spec create_cache(String.t(), [DocumentUpload.t()], String.t(), keyword()) ::
-          {:ok, String.t()} | {:error, term()}
+          {:ok, String.t()} | {:error, term()} | {:skip, atom()}
   def create_cache(run_id, documents, system_prompt, opts \\ []) do
-    ttl = Keyword.get(opts, :ttl, @cache_ttl_seconds)
-    model = Keyword.get(opts, :model, @cache_model)
+    # Get configuration from database (with fallbacks)
+    ttl = Keyword.get(opts, :ttl, CacheSettings.cache_ttl())
+    model = Keyword.get(opts, :model, CacheSettings.cache_model())
+    min_tokens = CacheSettings.min_tokens()
 
     # Build the cacheable content: formatted documents
     documents_text = build_documents_text(documents)
@@ -72,9 +77,9 @@ defmodule Lumainus.Reports.CacheManager do
     display_name = "lumainus-report-#{run_id}"
     estimated_tokens = estimate_tokens(cache_contents, system_prompt)
 
-    if estimated_tokens < @min_cache_tokens do
+    if estimated_tokens < min_tokens do
       Logger.info(
-        "[CacheManager] Skipping cache creation (too small): #{estimated_tokens} tokens (<#{@min_cache_tokens})"
+        "[CacheManager] Skipping cache creation (too small): #{estimated_tokens} tokens (<#{min_tokens} for #{model})"
       )
 
       {:skip, :content_too_small}
@@ -140,10 +145,11 @@ defmodule Lumainus.Reports.CacheManager do
   @doc """
   Returns the model that should be used with a cache.
 
-  Ensures the generation model matches the cache model to avoid errors.
+  Reads from database settings. Ensures the generation model matches
+  the cache model to avoid errors.
   """
   @spec cache_model() :: String.t()
-  def cache_model, do: @cache_model
+  def cache_model, do: CacheSettings.cache_model()
 
   # Build the text representation of all documents
   # Matches the format used by SectionRunner.documents_text/1
@@ -202,8 +208,8 @@ defmodule Lumainus.Reports.CacheManager do
           }
         end)
 
-      parse[:parsed_text] ->
-        parse.parsed_text
+      parsed = Map.get(parse, :parsed_text) ->
+        parsed
         |> to_string()
         |> String.split("\n")
         |> Enum.with_index(1)

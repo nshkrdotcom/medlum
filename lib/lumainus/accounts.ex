@@ -393,6 +393,17 @@ defmodule Lumainus.Accounts do
     |> update_user_and_delete_all_tokens()
   end
 
+  @doc """
+  Updates the user's timezone preference.
+
+  This is called on login to sync the browser-detected timezone.
+  """
+  def update_user_timezone(user, timezone) when is_binary(timezone) do
+    user
+    |> Ecto.Changeset.change(timezone: timezone)
+    |> Repo.update()
+  end
+
   ## Session
 
   @doc """

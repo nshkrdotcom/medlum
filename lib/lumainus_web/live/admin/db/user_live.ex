@@ -9,6 +9,8 @@ defmodule LumainusWeb.Admin.Db.UserLive do
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "users"]
 
+  import LumainusWeb.Admin.Db.BackpexHelpers
+
   @impl Backpex.LiveResource
   def singular_name, do: "User"
 
@@ -63,7 +65,8 @@ defmodule LumainusWeb.Admin.Db.UserLive do
       confirmed_at: %{
         module: Backpex.Fields.DateTime,
         label: "Confirmed At",
-        readonly: true
+        readonly: true,
+        render: datetime_render()
       },
       tenant: %{
         module: Backpex.Fields.BelongsTo,
@@ -74,12 +77,14 @@ defmodule LumainusWeb.Admin.Db.UserLive do
       inserted_at: %{
         module: Backpex.Fields.DateTime,
         label: "Created At",
-        readonly: true
+        readonly: true,
+        render: datetime_render()
       },
       updated_at: %{
         module: Backpex.Fields.DateTime,
         label: "Updated At",
-        readonly: true
+        readonly: true,
+        render: datetime_render()
       }
     ]
   end

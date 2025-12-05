@@ -9,6 +9,8 @@ defmodule LumainusWeb.Admin.Db.DocumentUploadLive do
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "document_uploads"]
 
+  import LumainusWeb.Admin.Db.BackpexHelpers
+
   @impl Backpex.LiveResource
   def singular_name, do: "Document Upload"
 
@@ -39,7 +41,12 @@ defmodule LumainusWeb.Admin.Db.DocumentUploadLive do
         options: [{"Postgres", "postgres"}, {"S3", "s3"}, {"Local", "local"}]
       },
       sha256: %{module: Backpex.Fields.Text, label: "SHA256", readonly: true},
-      ingested_at: %{module: Backpex.Fields.DateTime, label: "Ingested At", readonly: true},
+      ingested_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Ingested At",
+        readonly: true,
+        render: datetime_render()
+      },
       tenant: %{
         module: Backpex.Fields.BelongsTo,
         label: "Tenant",
@@ -52,8 +59,18 @@ defmodule LumainusWeb.Admin.Db.DocumentUploadLive do
         display_field: :patient_key,
         live_resource: LumainusWeb.Admin.Db.PatientLive
       },
-      inserted_at: %{module: Backpex.Fields.DateTime, label: "Created At", readonly: true},
-      updated_at: %{module: Backpex.Fields.DateTime, label: "Updated At", readonly: true}
+      inserted_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Created At",
+        readonly: true,
+        render: datetime_render()
+      },
+      updated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Updated At",
+        readonly: true,
+        render: datetime_render()
+      }
     ]
   end
 end
