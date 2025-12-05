@@ -30,6 +30,13 @@ defmodule Lumainus.LLM do
       {:ok, %GenerateContentResponse{} = response} ->
         {:ok, normalize_response(response, schema)}
 
+      # Handle new proactive rate limiting errors (gemini_ex 0.6.1+)
+      {:error, {:rate_limited, retry_at, details}} ->
+        {:error, wrap_rate_limit_error(retry_at, details)}
+
+      {:error, {:transient_failure, attempts, original_error}} ->
+        {:error, wrap_transient_error(attempts, original_error)}
+
       {:error, error} ->
         {:error, error}
     end
@@ -40,6 +47,44 @@ defmodule Lumainus.LLM do
 
   defp do_generate(provider, _model, _prompt_text, _schema, _opts) do
     {:error, "Unsupported provider #{inspect(provider)}"}
+  end
+
+  # Wrap rate-limited tuple into a consistent error map for SectionRunner
+  defp wrap_rate_limit_error(retry_at, details) do
+    reason = Map.get(details, :reason, :unknown)
+
+    %{
+      type: :rate_limit,
+      message: rate_limit_message(reason, retry_at),
+      retry_at: retry_at,
+      reason: reason,
+      details: details
+    }
+  end
+
+  defp rate_limit_message(:over_budget, retry_at) do
+    "Token budget exceeded. Retry after #{format_retry_at(retry_at)}"
+  end
+
+  defp rate_limit_message(:retry_window, retry_at) do
+    "Rate limited by API. Retry after #{format_retry_at(retry_at)}"
+  end
+
+  defp rate_limit_message(_reason, retry_at) do
+    "Rate limited. Retry after #{format_retry_at(retry_at)}"
+  end
+
+  defp format_retry_at(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp format_retry_at(other), do: inspect(other)
+
+  # Wrap transient failure tuple into a consistent error map
+  defp wrap_transient_error(attempts, original_error) do
+    %{
+      type: :transient_failure,
+      message: "Request failed after #{attempts} attempts",
+      attempts: attempts,
+      original_error: original_error
+    }
   end
 
   defp parse_model_spec(model_spec) when is_binary(model_spec) do
@@ -65,6 +110,8 @@ defmodule Lumainus.LLM do
     # Context
     |> maybe_put(:system_instruction, Keyword.get(opts, :system_instruction))
     |> maybe_put(:seed, Keyword.get(opts, :seed))
+    # Context caching (gemini_ex 0.6.0+)
+    |> maybe_put(:cached_content, Keyword.get(opts, :cached_content))
     # Constraints
     |> maybe_put(:stop_sequences, Keyword.get(opts, :stop_sequences))
     |> maybe_put(:presence_penalty, Keyword.get(opts, :presence_penalty))

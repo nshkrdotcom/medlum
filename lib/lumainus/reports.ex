@@ -249,6 +249,23 @@ defmodule Lumainus.Reports do
       |> order_by([s], asc: s.position)
       |> Repo.all()
 
+    # Load documents for cache creation
+    documents = list_documents_with_chunks(scope, record_set)
+
+    cache_plan = cache_plan(sections, template, documents, opts)
+
+    cache_name =
+      case cache_plan do
+        {:ok, system_prompt} ->
+          run_id_for_cache = Ecto.UUID.generate()
+          cache_result = maybe_create_cache(run_id_for_cache, documents, system_prompt, opts)
+          cache_name_from_result(cache_result)
+
+        {:skip, reason} ->
+          log_cache_skip(reason)
+          nil
+      end
+
     case Repo.transaction(fn ->
            run =
              %ReportRun{}
@@ -261,7 +278,8 @@ defmodule Lumainus.Reports do
                status: "queued",
                triggered_by_user_id: scope.user && scope.user.id,
                timeout_at: timeout_at,
-               last_activity_at: now
+               last_activity_at: now,
+               cached_content_name: cache_name
              })
              |> Repo.insert!()
 
@@ -296,6 +314,66 @@ defmodule Lumainus.Reports do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # Attempt to create a cache, falling back gracefully on failure
+  defp maybe_create_cache(run_id, documents, system_prompt, opts) do
+    use_cache? = Keyword.get(opts, :use_cache, true)
+
+    if use_cache? and length(documents) > 0 do
+      alias Lumainus.Reports.CacheManager
+      CacheManager.create_cache(run_id, documents, system_prompt, opts)
+    else
+      {:skip, :caching_disabled}
+    end
+  end
+
+  defp cache_name_from_result({:ok, cache_name}), do: cache_name
+  defp cache_name_from_result(_), do: nil
+
+  defp cache_plan(sections, template, documents, opts) do
+    cond do
+      Keyword.get(opts, :use_cache, true) == false ->
+        {:skip, :caching_disabled}
+
+      sections == [] ->
+        {:skip, :no_sections}
+
+      documents == [] ->
+        {:skip, :no_documents}
+
+      not all_google_sections?(sections) ->
+        {:skip, :non_google_provider}
+
+      true ->
+        case shared_system_prompt(sections, template) do
+          {:ok, prompt} -> {:ok, prompt}
+          {:error, reason} -> {:skip, reason}
+        end
+    end
+  end
+
+  defp shared_system_prompt(sections, template) do
+    prompts =
+      sections
+      |> Enum.map(&Lumainus.AI.system_prompt(&1, template))
+      |> Enum.uniq()
+
+    case prompts do
+      [prompt] -> {:ok, prompt}
+      [] -> {:error, :no_prompt}
+      _ -> {:error, :mixed_system_prompts}
+    end
+  end
+
+  defp all_google_sections?(sections) do
+    Enum.all?(sections, fn section ->
+      section.provider in [nil, "google"]
+    end)
+  end
+
+  defp log_cache_skip(reason) do
+    Logger.debug("[Reports] Skipping Gemini context cache: #{inspect(reason)}")
   end
 
   defp enqueue_section_runs(run, section_runs, opts) do

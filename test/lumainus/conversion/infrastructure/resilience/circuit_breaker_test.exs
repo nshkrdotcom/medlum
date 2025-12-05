@@ -94,11 +94,11 @@ defmodule Lumainus.Conversion.Infrastructure.Resilience.CircuitBreakerTest do
       GenServer.stop(pid)
     end
 
-    test "transitions to half_open after timeout (30 seconds)" do
+    test "transitions to half_open after timeout window" do
       {:ok, pid} =
         CircuitBreaker.start_link(
           backend_name: :test_half_open,
-          open_timeout_ms: 50,
+          open_timeout_ms: 200,
           name: nil
         )
 
@@ -110,7 +110,7 @@ defmodule Lumainus.Conversion.Infrastructure.Resilience.CircuitBreakerTest do
       assert CircuitBreaker.state(pid) == :open
 
       # Wait for timeout
-      Process.sleep(60)
+      Process.sleep(250)
 
       # Should be half-open now
       assert CircuitBreaker.state(pid) == :half_open

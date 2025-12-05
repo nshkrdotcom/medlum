@@ -4,13 +4,19 @@ defmodule Lumainus.Reports.RunReconciler do
 
   Avoids race conditions by using row-level locking and
   always fetching fresh section statuses within transaction.
+
+  Also handles cleanup of context caches when runs complete.
   """
 
   import Ecto.Query
 
   alias Ecto.Changeset
   alias Lumainus.Repo
-  alias Lumainus.Reports.{ReportRun, ReportSectionRun}
+  alias Lumainus.Reports.{CacheManager, ReportRun, ReportSectionRun}
+
+  require Logger
+
+  @final_statuses ["completed", "error", "timed_out"]
 
   @doc """
   Atomically check and finalize a report run if all sections are done.
@@ -20,36 +26,14 @@ defmodule Lumainus.Reports.RunReconciler do
   """
   @spec maybe_finalize(Ecto.UUID.t()) :: {:ok, ReportRun} | {:error, term()}
   def maybe_finalize(report_run_id) do
-    Repo.transaction(fn ->
-      run =
-        ReportRun
-        |> where([r], r.id == ^report_run_id)
-        |> lock("FOR UPDATE")
-        |> Repo.one!()
+    case Repo.transaction(fn -> finalize_transaction(report_run_id) end) do
+      {:ok, {run, finalized?}} ->
+        maybe_cleanup_cache(run, finalized?)
+        {:ok, run}
 
-      if run.status in ["running", "pending", "queued"] do
-        section_statuses = fetch_section_statuses(report_run_id)
-        now = DateTime.utc_now(:second)
-
-        case compute_final_status(section_statuses) do
-          nil ->
-            run
-            |> Changeset.change(%{last_activity_at: now})
-            |> Repo.update!()
-
-          final_status ->
-            run
-            |> Changeset.change(%{
-              status: final_status,
-              finished_at: now,
-              last_activity_at: now
-            })
-            |> Repo.update!()
-        end
-      else
-        run
-      end
-    end)
+      other ->
+        other
+    end
   end
 
   @doc """
@@ -59,30 +43,45 @@ defmodule Lumainus.Reports.RunReconciler do
   def mark_timed_out(report_run_id) do
     now = DateTime.utc_now(:second)
 
-    Repo.transaction(fn ->
-      run =
-        ReportRun
-        |> where([r], r.id == ^report_run_id)
-        |> lock("FOR UPDATE")
-        |> Repo.one!()
+    case Repo.transaction(fn ->
+           run =
+             ReportRun
+             |> where([r], r.id == ^report_run_id)
+             |> lock("FOR UPDATE")
+             |> Repo.one!()
 
-      if run.status in ["running", "pending", "queued"] do
-        ReportSectionRun
-        |> where([s], s.report_run_id == ^report_run_id)
-        |> where([s], s.status in ["pending", "queued", "running"])
-        |> Repo.update_all(set: [status: "timed_out", updated_at: now])
+           cond do
+             run.status in @final_statuses ->
+               {run, true}
 
-        run
-        |> Changeset.change(%{
-          status: "timed_out",
-          finished_at: now,
-          last_activity_at: now
-        })
-        |> Repo.update!()
-      else
-        run
-      end
-    end)
+             run.status in ["running", "pending", "queued"] ->
+               ReportSectionRun
+               |> where([s], s.report_run_id == ^report_run_id)
+               |> where([s], s.status in ["pending", "queued", "running"])
+               |> Repo.update_all(set: [status: "timed_out", updated_at: now])
+
+               updated =
+                 run
+                 |> Changeset.change(%{
+                   status: "timed_out",
+                   finished_at: now,
+                   last_activity_at: now
+                 })
+                 |> Repo.update!()
+
+               {updated, true}
+
+             true ->
+               {run, false}
+           end
+         end) do
+      {:ok, {run, finalized?}} ->
+        maybe_cleanup_cache(run, finalized?)
+        {:ok, run}
+
+      other ->
+        other
+    end
   end
 
   defp fetch_section_statuses(report_run_id) do
@@ -115,4 +114,60 @@ defmodule Lumainus.Reports.RunReconciler do
         "error"
     end
   end
+
+  defp finalize_transaction(report_run_id) do
+    run =
+      ReportRun
+      |> where([r], r.id == ^report_run_id)
+      |> lock("FOR UPDATE")
+      |> Repo.one!()
+
+    cond do
+      run.status in @final_statuses ->
+        {run, true}
+
+      run.status in ["running", "pending", "queued"] ->
+        section_statuses = fetch_section_statuses(report_run_id)
+        now = DateTime.utc_now(:second)
+
+        case compute_final_status(section_statuses) do
+          nil ->
+            updated =
+              run
+              |> Changeset.change(%{last_activity_at: now})
+              |> Repo.update!()
+
+            {updated, false}
+
+          final_status ->
+            updated =
+              run
+              |> Changeset.change(%{
+                status: final_status,
+                finished_at: now,
+                last_activity_at: now
+              })
+              |> Repo.update!()
+
+            {updated, true}
+        end
+
+      true ->
+        {run, false}
+    end
+  end
+
+  defp maybe_cleanup_cache(%ReportRun{} = run, true) do
+    case CacheManager.delete_cache(run.cached_content_name) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[RunReconciler] Failed to delete cache for run #{run.id}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp maybe_cleanup_cache(_run, _finalized?), do: :ok
 end

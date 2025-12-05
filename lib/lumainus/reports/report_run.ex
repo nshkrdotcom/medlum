@@ -17,6 +17,8 @@ defmodule Lumainus.Reports.ReportRun do
     field(:finished_at, :utc_datetime)
     field(:timeout_at, :utc_datetime)
     field(:last_activity_at, :utc_datetime)
+    # Gemini context cache name for shared document context across sections
+    field(:cached_content_name, :string)
 
     belongs_to(:tenant, Tenant)
     belongs_to(:patient, Patient)
@@ -39,6 +41,7 @@ defmodule Lumainus.Reports.ReportRun do
       :finished_at,
       :timeout_at,
       :last_activity_at,
+      :cached_content_name,
       :tenant_id,
       :patient_id,
       :record_set_id,

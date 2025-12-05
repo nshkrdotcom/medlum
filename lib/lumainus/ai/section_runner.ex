@@ -23,30 +23,61 @@ defmodule Lumainus.AI.SectionRunner do
 
     section_template = section_run.section_template
     template = section_run.report_run.template
+    report_run = section_run.report_run
     doc_payloads = Enum.map(documents, &document_payload/1)
-    prompt_context = build_prompt_context(section_template, patient, doc_payloads)
+
+    # Check if we have a cached context for this report run
+    cached_content_name = report_run.cached_content_name
+
+    # Build context differently based on whether we're using cache
+    prompt_context =
+      if cached_content_name do
+        # With cache: documents are in the cache, don't include full text in prompt
+        build_prompt_context_cached(section_template, patient, doc_payloads)
+      else
+        # Without cache: include full document context in prompt
+        build_prompt_context(section_template, patient, doc_payloads)
+      end
 
     prompt_text =
       render_prompt(section_template.prompt_template, prompt_context, section_template.title)
 
     schema = schema_for_llm(section_template.output_schema)
-    model_spec = AI.model_spec(section_template)
+
+    # When using cache, use the cache model; otherwise use section-configured model
+    model_spec =
+      if cached_content_name do
+        # Override to use cache-compatible model
+        cache_model = Lumainus.Reports.CacheManager.cache_model()
+        "google:#{cache_model}"
+      else
+        AI.model_spec(section_template)
+      end
+
+    {provider_used, model_used} = resolve_provider_model(model_spec, section_template)
 
     # Get system prompt with proper precedence: section → template → default
-    system_prompt = AI.system_prompt(section_template, template)
+    # When using cache, system_prompt is already in the cache
+    system_prompt =
+      if cached_content_name do
+        nil
+      else
+        AI.system_prompt(section_template, template)
+      end
 
     # Get merged options with proper precedence: section → template defaults → app config
     options =
       AI.options(section_template, template)
       |> Keyword.put(:prompt_context, prompt_context)
-      |> Keyword.put(:system_instruction, system_prompt)
+      |> maybe_put_kw(:system_instruction, system_prompt)
+      |> maybe_put_kw(:cached_content, cached_content_name)
 
     llm =
       %LlmInvocation{}
       |> LlmInvocation.changeset(%{
         tenant_id: scope.tenant_id,
-        provider: section_template.provider,
-        model: section_template.model,
+        provider: provider_used,
+        model: model_used,
         prompt_text: prompt_text,
         prompt_context: prompt_context,
         status: "pending",
@@ -107,6 +138,31 @@ defmodule Lumainus.AI.SectionRunner do
       documents_text: documents_text(documents)
     }
   end
+
+  # Build context when using cache - documents are in the cache, not the prompt
+  defp build_prompt_context_cached(section_template, patient, documents) do
+    profile = Map.get(patient, :current_profile) || %{}
+
+    %{
+      section_title: section_template.title,
+      patient: %{
+        full_name: build_name(profile),
+        mrn: profile.mrn || "unknown",
+        date_of_birth: profile.date_of_birth && Date.to_iso8601(profile.date_of_birth),
+        sex: profile.sex
+      },
+      # Include document metadata for citations, but not full text (it's in cache)
+      documents: documents,
+      documents_summary: documents_summary(documents),
+      # When using cache, documents_text is stored in cached context
+      documents_text:
+        "[Documents provided via Gemini cached content. Use the labels above for citations.]"
+    }
+  end
+
+  # Helper to conditionally put a key-value pair (don't put nil values)
+  defp maybe_put_kw(opts, _key, nil), do: opts
+  defp maybe_put_kw(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp render_prompt(template, context, section_title) do
     patient = symbolize_keys(context[:patient] || %{})
@@ -962,6 +1018,21 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp doc_label(%DocumentUpload{metadata: metadata}) do
     (metadata && (metadata["label"] || metadata["mock_id"])) || "doc"
+  end
+
+  defp resolve_provider_model(model_spec, section_template) do
+    case String.split(to_string(model_spec), ":", parts: 2) do
+      [provider, model] when provider != "" and model != "" ->
+        {provider, model}
+
+      _ ->
+        fallback = AI.model_spec(section_template)
+
+        case String.split(fallback, ":", parts: 2) do
+          [provider, model] -> {provider, model}
+          _ -> {section_template.provider || "google", section_template.model || "unknown"}
+        end
+    end
   end
 
   defp normalize_label(nil), do: nil

@@ -3,6 +3,6 @@ defmodule LumainusWeb.PageControllerTest do
 
   test "GET /", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Welcome to Lumainus"
+    assert html_response(conn, 200) =~ "MEDLUM AI"
   end
 end

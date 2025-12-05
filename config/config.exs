@@ -148,25 +148,39 @@ config :lumainus, :llm,
   enabled: true,
   default_options: [temperature: 0.2, max_output_tokens: 2048]
 
-# Gemini rate limiter configuration (gemini_ex 0.5.0+)
+# Gemini rate limiter configuration (gemini_ex 0.6.1+)
 # =====================================================
-# Rate limiting is enabled by default in gemini_ex 0.5.0+.
+# Rate limiting is enabled by default with proactive token budgeting.
 # These settings tune the limiter for conservative production usage
 # to avoid 429 quota errors when multiple report sections run concurrently.
 #
+# New in 0.6.1 - Proactive Rate Limiting (ADR Implementation):
+# - Automatic token estimation before requests
+# - Token budget tracking per sliding window (TPM limits)
+# - Tier-based profiles: :free_tier, :paid_tier_1, :paid_tier_2
+# - Local :over_budget errors prevent unnecessary API calls
+#
 # Key behaviors:
-# - max_concurrency_per_model: Limits concurrent requests per model (default: 4)
-# - max_attempts: Number of retry attempts on transient errors (default: 3)
-# - base_backoff_ms: Base backoff duration between retries (default: 1000)
+# - max_concurrency_per_model: Limits concurrent requests per model
+# - token_budget_per_window: Max tokens per minute (proactive limiting)
+# - max_attempts: Number of retry attempts on transient errors
 # - adaptive_concurrency: Dynamically adjusts based on 429 responses
 #
 # Structured errors returned:
-# - {:error, {:rate_limited, retry_at, details}} - Rate limited with retry info
-# - {:error, {:transient_failure, attempts, original_error}} - Transient failure after retries
+# - {:error, {:rate_limited, retry_at, details}} - Rate limited (API 429 OR local budget)
+#   - details.reason: :over_budget (local) or :retry_window (API 429)
+# - {:error, {:transient_failure, attempts, original_error}} - After retries exhausted
+#
+# Profile selection (pick based on your Google Cloud tier):
+# - :free_tier     - 15 RPM / 1M TPM  (token_budget: 32,000)
+# - :paid_tier_1   - 500 RPM / 4M TPM (token_budget: 1,000,000)
+# - :paid_tier_2   - 1000 RPM / 8M TPM (token_budget: 2,000,000)
 #
 # See: https://hexdocs.pm/gemini_ex/rate_limiting.html
 config :gemini_ex, :rate_limiter,
-  # Conservative concurrency to avoid 429s when multiple sections run
+  # Use free_tier profile for conservative defaults (upgrade to :paid_tier_1 for production)
+  profile: :free_tier,
+  # Override: allow slightly more concurrency for report parallelism
   max_concurrency_per_model: 2,
   # Retry up to 4 times on transient errors/rate limits
   max_attempts: 4,
@@ -177,9 +191,7 @@ config :gemini_ex, :rate_limiter,
   # Enable adaptive mode: reduces concurrency on 429s, increases on success
   adaptive_concurrency: true,
   # Max concurrency the adaptive mode can reach
-  adaptive_ceiling: 4,
-  # Use prod profile defaults as baseline
-  profile: :prod
+  adaptive_ceiling: 4
 
 # Configures the endpoint
 config :lumainus, LumainusWeb.Endpoint,

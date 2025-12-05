@@ -8,8 +8,8 @@
       </div>
       <div class="text-xs font-bold text-white">Admin</div>
     </div>
-
-    <!-- Navigation -->
+    
+<!-- Navigation -->
     <nav class="flex-1 overflow-y-auto px-1 pt-3 pb-2">
       <div class="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         DB
@@ -21,8 +21,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/users"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-users h-3 w-3"></span>
-            Users
+            <span class="hero-users h-3 w-3"></span> Users
           </.link>
         </li>
         <li>
@@ -31,8 +30,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/tenants"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-building-office h-3 w-3"></span>
-            Tenants
+            <span class="hero-building-office h-3 w-3"></span> Tenants
           </.link>
         </li>
         <li>
@@ -41,8 +39,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/patients"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-user-circle h-3 w-3"></span>
-            Patients
+            <span class="hero-user-circle h-3 w-3"></span> Patients
           </.link>
         </li>
       </ul>
@@ -57,8 +54,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/report_runs") && !String.contains?(@current_url || "", "/report_section"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-play h-3 w-3"></span>
-            Runs
+            <span class="hero-play h-3 w-3"></span> Runs
           </.link>
         </li>
         <li>
@@ -67,8 +63,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/report_section_runs"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-document-text h-3 w-3"></span>
-            Sections
+            <span class="hero-document-text h-3 w-3"></span> Sections
           </.link>
         </li>
         <li>
@@ -77,8 +72,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/report_templates"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-document-duplicate h-3 w-3"></span>
-            Templates
+            <span class="hero-document-duplicate h-3 w-3"></span> Templates
           </.link>
         </li>
       </ul>
@@ -93,8 +87,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/llm_invocations"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-cpu-chip h-3 w-3"></span>
-            LLM
+            <span class="hero-cpu-chip h-3 w-3"></span> LLM
           </.link>
         </li>
         <li>
@@ -103,8 +96,7 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/document_uploads"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-document-arrow-up h-3 w-3"></span>
-            Docs
+            <span class="hero-document-arrow-up h-3 w-3"></span> Docs
           </.link>
         </li>
         <li>
@@ -113,26 +105,24 @@
             class={"flex items-center gap-1 rounded px-1 py-1 text-xs font-medium transition-colors " <>
               if String.contains?(@current_url || "", "/ingestion_jobs"), do: "bg-slate-700 text-white", else: "text-slate-300 hover:bg-slate-700 hover:text-white"}
           >
-            <span class="hero-arrow-path h-3 w-3"></span>
-            Ingest
+            <span class="hero-arrow-path h-3 w-3"></span> Ingest
           </.link>
         </li>
       </ul>
     </nav>
-
-    <!-- Back to App -->
+    
+<!-- Back to App -->
     <div class="border-t border-slate-700 p-1">
       <.link
         href={~p"/"}
         class="flex items-center gap-1 rounded px-1 py-1 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-white"
       >
-        <span class="hero-arrow-left h-3 w-3"></span>
-        Back
+        <span class="hero-arrow-left h-3 w-3"></span> Back
       </.link>
     </div>
   </aside>
-
-  <!-- Mobile Header -->
+  
+<!-- Mobile Header -->
   <div class="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden">
     <div class="flex items-center gap-2">
       <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500">
@@ -144,10 +134,14 @@
       <span class="hero-bars-3 h-6 w-6"></span>
     </label>
   </div>
-
-  <!-- Mobile Menu Drawer -->
+  
+<!-- Mobile Menu Drawer -->
   <input type="checkbox" id="admin-mobile-menu" class="peer hidden" />
-  <div class="fixed inset-0 z-40 hidden bg-black/50 peer-checked:block md:hidden" onclick="document.getElementById('admin-mobile-menu').checked = false"></div>
+  <div
+    class="fixed inset-0 z-40 hidden bg-black/50 peer-checked:block md:hidden"
+    onclick="document.getElementById('admin-mobile-menu').checked = false"
+  >
+  </div>
   <aside class="fixed inset-y-0 left-0 z-50 w-64 -translate-x-full bg-slate-800 transition-transform peer-checked:translate-x-0 md:hidden">
     <div class="flex h-16 items-center justify-between border-b border-slate-700 px-4">
       <div class="flex items-center gap-2">
@@ -162,40 +156,114 @@
     </div>
     <nav class="overflow-y-auto p-4">
       <ul class="space-y-1">
-        <li><.link navigate={~p"/admin/db/users"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-users h-5 w-5"></span>Users</.link></li>
-        <li><.link navigate={~p"/admin/db/tenants"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-building-office h-5 w-5"></span>Tenants</.link></li>
-        <li><.link navigate={~p"/admin/db/patients"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-user-circle h-5 w-5"></span>Patients</.link></li>
-        <li><.link navigate={~p"/admin/db/report_runs"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-play h-5 w-5"></span>Report Runs</.link></li>
-        <li><.link navigate={~p"/admin/db/report_section_runs"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-document-text h-5 w-5"></span>Section Runs</.link></li>
-        <li><.link navigate={~p"/admin/db/report_templates"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-document-duplicate h-5 w-5"></span>Templates</.link></li>
-        <li><.link navigate={~p"/admin/db/llm_invocations"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-cpu-chip h-5 w-5"></span>LLM Invocations</.link></li>
-        <li><.link navigate={~p"/admin/db/document_uploads"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-document-arrow-up h-5 w-5"></span>Documents</.link></li>
-        <li><.link navigate={~p"/admin/db/ingestion_jobs"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-arrow-path h-5 w-5"></span>Ingestion Jobs</.link></li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/users"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-users h-5 w-5"></span>Users
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/tenants"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-building-office h-5 w-5"></span>Tenants
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/patients"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-user-circle h-5 w-5"></span>Patients
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/report_runs"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-play h-5 w-5"></span>Report Runs
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/report_section_runs"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-document-text h-5 w-5"></span>Section Runs
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/report_templates"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-document-duplicate h-5 w-5"></span>Templates
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/llm_invocations"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-cpu-chip h-5 w-5"></span>LLM Invocations
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/document_uploads"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-document-arrow-up h-5 w-5"></span>Documents
+          </.link>
+        </li>
+        <li>
+          <.link
+            navigate={~p"/admin/db/ingestion_jobs"}
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <span class="hero-arrow-path h-5 w-5"></span>Ingestion Jobs
+          </.link>
+        </li>
       </ul>
       <div class="mt-6 border-t border-slate-700 pt-4">
-        <.link href={~p"/"} class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"><span class="hero-arrow-left h-5 w-5"></span>Back to App</.link>
+        <.link
+          href={~p"/"}
+          class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white"
+        >
+          <span class="hero-arrow-left h-5 w-5"></span>Back to App
+        </.link>
       </div>
     </nav>
   </aside>
-
-  <!-- Main Content -->
+  
+<!-- Main Content -->
   <main class="min-h-screen md:ml-36">
     <div class="p-1 md:p-2">
       <!-- Flash Messages -->
-      <div :if={Phoenix.Flash.get(@flash, :info)} class="mb-4 rounded-lg bg-blue-50 p-4 text-blue-800 border border-blue-200">
+      <div
+        :if={Phoenix.Flash.get(@flash, :info)}
+        class="mb-4 rounded-lg bg-blue-50 p-4 text-blue-800 border border-blue-200"
+      >
         <div class="flex items-center gap-2">
           <span class="hero-information-circle h-5 w-5"></span>
           {Phoenix.Flash.get(@flash, :info)}
         </div>
       </div>
-      <div :if={Phoenix.Flash.get(@flash, :error)} class="mb-4 rounded-lg bg-red-50 p-4 text-red-800 border border-red-200">
+      <div
+        :if={Phoenix.Flash.get(@flash, :error)}
+        class="mb-4 rounded-lg bg-red-50 p-4 text-red-800 border border-red-200"
+      >
         <div class="flex items-center gap-2">
           <span class="hero-x-circle h-5 w-5"></span>
           {Phoenix.Flash.get(@flash, :error)}
         </div>
       </div>
-
-      <!-- Content -->
+      
+<!-- Content -->
       <div class="backpex-content">
         {render_slot(@inner_block)}
       </div>
