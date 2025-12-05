@@ -11,14 +11,14 @@ defmodule Samples.RunSection do
   @moduledoc false
 
   def go do
-    email = System.get_env("LUMAINUS_SAMPLE_USER") || "admin@lumainus.local"
+    email = System.get_env("MEDLUMAI_SAMPLE_USER") || "admin@medlumai.local"
     IO.puts("\n== Running sample section as #{email}\n")
 
     user =
       Repo.get_by(User, email: email) ||
         raise """
         Could not find user with email #{email}.
-        Make sure you've run `mix run priv/repo/seeds.exs` or set LUMAINUS_SAMPLE_USER.
+        Make sure you've run `mix run priv/repo/seeds.exs` or set MEDLUMAI_SAMPLE_USER.
         """
 
     scope = Scope.for_user(user)

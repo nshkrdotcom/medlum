@@ -10,7 +10,7 @@ defmodule Lumainus.Accounts.UserNotifier do
     email =
       new()
       |> to(recipient)
-      |> from({"Lumainus", "noreply@lumainus.com"})
+      |> from({"MedLum AI", "noreply@medlumai.com"})
       |> subject(subject)
       |> text_body(body)
 

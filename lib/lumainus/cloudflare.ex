@@ -3,14 +3,14 @@ defmodule Lumainus.Cloudflare do
   Cloudflare DNS management for dynamic Vast.ai instance IPs.
 
   Requires environment variables:
-    - LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN: API token with DNS edit permissions
-    - LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID: Zone ID for lumainus.com
+    - MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN: API token with DNS edit permissions
+    - MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID: Zone ID for medlumai.com
 
   Or config:
     config :lumainus, :cloudflare,
       api_token: "...",
       zone_id: "...",
-      domain: "lumainus.com"
+      domain: "medlumai.com"
 
   DNS records are created with 60 second TTL for fast propagation.
   """
@@ -19,14 +19,14 @@ defmodule Lumainus.Cloudflare do
 
   @base_url "https://api.cloudflare.com/client/v4"
   @default_subdomain "docling"
-  @default_domain "lumainus.com"
+  @default_domain "medlumai.com"
 
   @doc """
   Update DNS A record to point subdomain to the given IP.
 
   ## Examples
 
-      # Update docling.lumainus.com to point to 192.168.1.1
+      # Update docling.medlumai.com to point to 192.168.1.1
       Cloudflare.update_dns_record("192.168.1.1")
 
       # Update custom subdomain
@@ -185,14 +185,14 @@ defmodule Lumainus.Cloudflare do
   end
 
   defp get_token do
-    case config(:api_token) || System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN") do
+    case config(:api_token) || System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN") do
       nil -> {:error, :missing_cloudflare_token}
       token -> {:ok, token}
     end
   end
 
   defp get_zone_id do
-    case config(:zone_id) || System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID") do
+    case config(:zone_id) || System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID") do
       nil -> {:error, :missing_cloudflare_zone_id}
       zone_id -> {:ok, zone_id}
     end

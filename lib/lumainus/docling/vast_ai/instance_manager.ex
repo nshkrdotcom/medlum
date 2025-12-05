@@ -1447,7 +1447,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     # Try to use the HTTPS endpoint via Cloudflare if configured,
     # otherwise fall back to direct HTTP
     fqdn =
-      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") ||
+      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") ||
          Lumainus.Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 

@@ -95,14 +95,14 @@ if vast_api_key || ghcr_token do
 end
 
 # Cloudflare DNS configuration (for HTTPS provisioning)
-# Uses LUMAINUS_DOT_COM_CLOUDFLARE_* env vars
-cloudflare_token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
-cloudflare_zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
-cloudflare_account_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ACCOUNT_ID")
+# Uses MEDLUMAI_DOT_COM_CLOUDFLARE_* env vars
+cloudflare_token = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")
+cloudflare_zone_id = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID")
+cloudflare_account_id = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ACCOUNT_ID")
 
 if cloudflare_token || cloudflare_zone_id do
   cloudflare_config =
-    [domain: "lumainus.com"]
+    [domain: "medlumai.com"]
     |> then(fn c ->
       if cloudflare_token, do: Keyword.put(c, :api_token, cloudflare_token), else: c
     end)

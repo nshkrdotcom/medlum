@@ -180,7 +180,7 @@ defmodule Mix.Tasks.VastAi.Start do
   defp build_endpoint(ip) do
     # Try to use HTTPS via Cloudflare if configured
     fqdn =
-      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") ||
+      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") ||
          Lumainus.Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 

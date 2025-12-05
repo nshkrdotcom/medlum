@@ -11,15 +11,15 @@ defmodule Lumainus.Cloudflare.Tunnel do
   2. Pass token to Vast.ai instance as env var
   3. Instance runs `cloudflared` with the token
   4. Cloudflared connects outbound to Cloudflare (no inbound ports needed)
-  5. Create CNAME: docling.lumainus.com → <tunnel-id>.cfargotunnel.com
+  5. Create CNAME: docling.medlumai.com → <tunnel-id>.cfargotunnel.com
 
   ## Configuration
 
       # Environment variables (recommended)
-      LUMAINUS_DOT_COM_CLOUDFLARE_ACCOUNT_ID=<account-id>
-      LUMAINUS_DOT_COM_CLOUDFLARE_ACCOUNT_API_TOKEN=<account-token-with-tunnel-edit>
-      LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN=<zone-token-with-dns-edit>
-      LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID=<zone-id>
+      MEDLUMAI_DOT_COM_CLOUDFLARE_ACCOUNT_ID=<account-id>
+      MEDLUMAI_DOT_COM_CLOUDFLARE_ACCOUNT_API_TOKEN=<account-token-with-tunnel-edit>
+      MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN=<zone-token-with-dns-edit>
+      MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID=<zone-id>
 
       # Or config
       config :lumainus, :cloudflare,
@@ -45,7 +45,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
 
       # Create DNS CNAME pointing to tunnel
       {:ok, _} = Tunnel.create_dns_route(tunnel.id, "docling")
-      # => docling.lumainus.com → abc123.cfargotunnel.com
+      # => docling.medlumai.com → abc123.cfargotunnel.com
 
       # Delete tunnel when instance is destroyed
       :ok = Tunnel.delete(tunnel.id)
@@ -55,7 +55,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
 
   @base_url "https://api.cloudflare.com/client/v4"
   @default_subdomain "docling"
-  @default_domain "lumainus.com"
+  @default_domain "medlumai.com"
 
   # Tunnel configuration for routing traffic to uvicorn
   @default_service_port 8044
@@ -132,7 +132,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
   @doc """
   Create a DNS CNAME record pointing to the tunnel.
 
-  This makes `<subdomain>.lumainus.com` route through the tunnel.
+  This makes `<subdomain>.medlumai.com` route through the tunnel.
 
   ## Options
 
@@ -563,7 +563,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
 
   # Zone-level API token for DNS operations
   defp get_zone_token do
-    case config(:api_token) || System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN") do
+    case config(:api_token) || System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN") do
       nil -> {:error, :missing_cloudflare_zone_token}
       "" -> {:error, :missing_cloudflare_zone_token}
       token -> {:ok, token}
@@ -571,7 +571,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
   end
 
   defp get_account_id do
-    case config(:account_id) || System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ACCOUNT_ID") do
+    case config(:account_id) || System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ACCOUNT_ID") do
       nil -> {:error, :missing_cloudflare_account_id}
       "" -> {:error, :missing_cloudflare_account_id}
       id -> {:ok, id}
@@ -579,7 +579,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
   end
 
   defp get_zone_id do
-    case config(:zone_id) || System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID") do
+    case config(:zone_id) || System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID") do
       nil -> {:error, :missing_cloudflare_zone_id}
       "" -> {:error, :missing_cloudflare_zone_id}
       id -> {:ok, id}

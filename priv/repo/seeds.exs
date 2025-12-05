@@ -15,9 +15,9 @@ alias Lumainus.Accounts
 alias Lumainus.Accounts.User
 alias Lumainus.Repo
 
-admin_email = System.get_env("LUMAINUS_ADMIN_EMAIL") || "admin@lumainus.local"
-admin_name = System.get_env("LUMAINUS_ADMIN_NAME") || "System Administrator"
-admin_password = System.get_env("LUMAINUS_ADMIN_PASSWORD") || "LumainusAdmin!reset"
+admin_email = System.get_env("MEDLUMAI_ADMIN_EMAIL") || "admin@medlumai.local"
+admin_name = System.get_env("MEDLUMAI_ADMIN_NAME") || "System Administrator"
+admin_password = System.get_env("MEDLUMAI_ADMIN_PASSWORD") || "MedLumAIAdmin!reset"
 
 Repo.transaction(fn ->
   admin =

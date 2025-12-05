@@ -55,13 +55,13 @@ defmodule Examples.GeminiUsageError do
   end
 
   defp scope! do
-    email = System.get_env("LUMAINUS_SAMPLE_USER") || "admin@lumainus.local"
+    email = System.get_env("MEDLUMAI_SAMPLE_USER") || "admin@medlumai.local"
 
     user =
       Repo.get_by(User, email: email) ||
         raise """
         Could not find user #{email}.
-        Run `mix run priv/repo/seeds.exs` or set LUMAINUS_SAMPLE_USER.
+        Run `mix run priv/repo/seeds.exs` or set MEDLUMAI_SAMPLE_USER.
         """
 
     IO.puts("Running as #{email}")
@@ -76,11 +76,11 @@ defmodule Examples.GeminiUsageError do
 
   defp pick_section_template(workspace) do
     identifier =
-      System.get_env("LUMAINUS_SECTION_IDENTIFIER") ||
+      System.get_env("MEDLUMAI_SECTION_IDENTIFIER") ||
         "diagnostics-overview"
 
     title =
-      System.get_env("LUMAINUS_SECTION_TITLE") ||
+      System.get_env("MEDLUMAI_SECTION_TITLE") ||
         "Diagnostics Overview"
 
     sections =
@@ -108,7 +108,7 @@ defmodule Examples.GeminiUsageError do
 
       true ->
         IO.puts(
-          "No section hint provided. Defaulting to first section (set LUMAINUS_SECTION_IDENTIFIER or LUMAINUS_SECTION_TITLE to override)."
+          "No section hint provided. Defaulting to first section (set MEDLUMAI_SECTION_IDENTIFIER or MEDLUMAI_SECTION_TITLE to override)."
         )
 
         List.first(sections) || raise("No sections found on template #{workspace.template.id}")

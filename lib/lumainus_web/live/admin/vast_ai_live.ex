@@ -347,11 +347,11 @@ defmodule LumainusWeb.Admin.VastAILive do
         {:noreply, put_flash(socket, :info, "Cloudflare connection successful!")}
 
       {:error, :missing_cloudflare_token} ->
-        socket = add_log(socket, :error, "Missing LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN env var")
+        socket = add_log(socket, :error, "Missing MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN env var")
         {:noreply, put_flash(socket, :error, "Missing Cloudflare API token")}
 
       {:error, :missing_cloudflare_zone_id} ->
-        socket = add_log(socket, :error, "Missing LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID env var")
+        socket = add_log(socket, :error, "Missing MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID env var")
         {:noreply, put_flash(socket, :error, "Missing Cloudflare Zone ID")}
 
       {:error, reason} ->
@@ -379,7 +379,7 @@ defmodule LumainusWeb.Admin.VastAILive do
       Task.start(fn ->
         ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
 
-        case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
+        case {Cloudflare.cloud_fqdn(), System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")} do
           {_fqdn, nil} ->
             ProvisioningState.add_log(
               :error,
@@ -582,7 +582,7 @@ defmodule LumainusWeb.Admin.VastAILive do
       ProvisioningState.add_log(:info, "Checking Cloudflare credentials...")
 
       # Verify Cloudflare is configured
-      case {Cloudflare.cloud_fqdn(), System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")} do
+      case {Cloudflare.cloud_fqdn(), System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")} do
         {_fqdn, nil} ->
           ProvisioningState.add_log(:error, "CLOUDFLARE_API_TOKEN not set! Cannot setup tunnel.")
           ProvisioningState.fail(:missing_cloudflare_token)
@@ -1066,11 +1066,11 @@ defmodule LumainusWeb.Admin.VastAILive do
 
   defp compute_dns_status do
     fqdn =
-      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 
-    zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
-    token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
+    zone_id = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID")
+    token = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")
 
     {dns_state, resolved_ips} =
       case fqdn do
@@ -1349,7 +1349,7 @@ defmodule LumainusWeb.Admin.VastAILive do
   defp build_cloud_endpoint(ip) do
     # Prefer Cloudflare tunnel endpoint; fall back to direct IP if FQDN missing
     fqdn =
-      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 
     if fqdn do

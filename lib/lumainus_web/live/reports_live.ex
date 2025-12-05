@@ -1530,11 +1530,11 @@ defmodule LumainusWeb.ReportsLive do
     ProvisioningState.add_log(:info, "=== PRE-FLIGHT CONFIG CHECK ===")
 
     vast_api_key = System.get_env("VAST_API_KEY")
-    cf_token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
-    cf_zone = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
+    cf_token = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")
+    cf_zone = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID")
 
     cf_fqdn =
-      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 
     ProvisioningState.add_log(
@@ -1649,13 +1649,13 @@ defmodule LumainusWeb.ReportsLive do
 
     ProvisioningState.add_log(
       :info,
-      "Calling VastAI.provision(offer_id: #{offer_id}, disk_gb: 20, label: lumainus-docling, onstart: <script>)"
+      "Calling VastAI.provision(offer_id: #{offer_id}, disk_gb: 20, label: medlumai-docling, onstart: <script>)"
     )
 
     case VastAI.provision(
            offer_id: offer_id,
            disk_gb: 20,
-           label: "lumainus-docling",
+           label: "medlumai-docling",
            onstart: onstart
          ) do
       {:ok, instance_id} ->
@@ -1772,11 +1772,11 @@ defmodule LumainusWeb.ReportsLive do
 
     # Log Cloudflare config
     fqdn =
-      (System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
+      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") || Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 
-    zone_id = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_ZONE_ID")
-    token = System.get_env("LUMAINUS_DOT_COM_CLOUDFLARE_API_TOKEN")
+    zone_id = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_ZONE_ID")
+    token = System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")
 
     missing_cloudflare? =
       is_nil(fqdn) or zone_id in [nil, ""] or token in [nil, ""]

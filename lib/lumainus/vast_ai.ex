@@ -28,7 +28,7 @@ defmodule Lumainus.VastAI do
   @cloud_port 8044
 
   # Default domain for HTTPS
-  @default_domain "lumainus.com"
+  @default_domain "medlumai.com"
   @default_subdomain "docling"
 
   def cloud_port, do: @cloud_port
