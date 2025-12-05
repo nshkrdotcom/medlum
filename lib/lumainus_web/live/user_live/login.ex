@@ -451,8 +451,8 @@ defmodule LumainusWeb.UserLive.Login do
       <div class="login-container">
         <!-- Logo and branding -->
         <div class="logo-container">
-          <img src={~p"/images/lumainus-logo-enhanced.svg"} alt="Lumainus" />
-          <h1 class="brand-name">LUMAINUS</h1>
+          <img src={~p"/images/medlumai-logo.svg"} alt="MedLum AI" />
+          <h1 class="brand-name">MEDLUM AI</h1>
           <p class="brand-tagline">
             Every token has a <em>traceable decision path</em>.<br />
             Every claim has <em>attributable evidence</em>.<br />
