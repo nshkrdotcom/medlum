@@ -47,6 +47,8 @@ defmodule Lumainus.Reports.CacheSetting do
     "gemini-2.5-flash" => %{min_tokens: 1024}
   }
 
+  # NOTE: This default system prompt is also defined in Blueprints.default_system_prompt/0
+  # The two MUST be kept in sync. This is the canonical system prompt for the application.
   @default_system_prompt """
   You are Lumainus, a clinical documentation system.
   Produce structured markdown with inline citations like [doc-001].
@@ -113,6 +115,11 @@ defmodule Lumainus.Reports.CacheSetting do
     end
   end
 
-  @doc "Default system prompt for cache context."
+  @doc """
+  Default system prompt for cache context.
+
+  NOTE: This is also defined in Blueprints.default_system_prompt/0.
+  The two MUST be kept in sync.
+  """
   def default_system_prompt, do: @default_system_prompt
 end

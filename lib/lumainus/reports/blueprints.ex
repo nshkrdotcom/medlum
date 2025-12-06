@@ -142,18 +142,47 @@ defmodule Lumainus.Reports.Blueprints do
 
   @doc """
   Schema for individual citation items in the citations array.
+
+  All citation objects MUST include:
+  - label: Citation label in format "doc-XXX" (e.g., "doc-001")
+  - document_id: UUID of the document
+  - document_reference: Mock ID matching the label
+  - line_start: Starting line number
+  - line_end: Ending line number
+
+  Optional:
+  - excerpt: Brief excerpt from the cited content
   """
   def citations_item_schema do
     %{
       "type" => "object",
       "properties" => %{
-        "label" => %{"type" => "string"},
-        "document_id" => %{"type" => "string"},
-        "document_reference" => %{"type" => "string"},
-        "line_start" => %{"type" => "integer"},
-        "line_end" => %{"type" => "integer"},
-        "excerpt" => %{"type" => "string"}
-      }
+        "label" => %{
+          "type" => "string",
+          "description" => "Citation label in format doc-XXX (e.g., doc-001, doc-002)"
+        },
+        "document_id" => %{
+          "type" => "string",
+          "description" => "UUID of the document being cited"
+        },
+        "document_reference" => %{
+          "type" => "string",
+          "description" => "Mock ID matching the label (same as label field)"
+        },
+        "line_start" => %{
+          "type" => "integer",
+          "description" => "Starting line number of the citation"
+        },
+        "line_end" => %{
+          "type" => "integer",
+          "description" => "Ending line number of the citation"
+        },
+        "excerpt" => %{
+          "type" => "string",
+          "description" => "Brief excerpt from the cited content"
+        }
+      },
+      "required" => ["label", "document_id", "document_reference", "line_start", "line_end"]
     }
   end
 
@@ -192,6 +221,9 @@ defmodule Lumainus.Reports.Blueprints do
 
   This prompt sets the overall behavior and output format expectations.
   It's stored in the database at the template level and can be overridden per-section.
+
+  NOTE: This is also defined in CacheSetting.default_system_prompt/0.
+  The two MUST be kept in sync. This is the canonical system prompt for the application.
   """
   def default_system_prompt do
     """
@@ -234,8 +266,16 @@ defmodule Lumainus.Reports.Blueprints do
     You are drafting the <%= section_title %> portion of a cardiology report focused on #{focus}.
     Patient: <%= patient.full_name %> (MRN <%= patient.mrn %>, DOB <%= patient.date_of_birth %>)
 
-    Cite source evidence using the document IDs below. Inline citations must use the mock ID (e.g., [doc-101])
-    and each citation entry in the structured JSON output must include the matching `document_id` value.
+    CITATION REQUIREMENTS (STRICT):
+    - Inline citations in markdown MUST use exactly the format [doc-XXX] where XXX is a zero-padded 3-digit number
+    - Each citation in the JSON `citations` array MUST include:
+      * `label`: The citation label matching the inline reference (MUST be format "doc-XXX", e.g., "doc-001", "doc-002")
+      * `document_id`: The UUID of the document (REQUIRED - this is the value after "Document ID" in the reference table below)
+      * `document_reference`: The mock_id matching the label (MUST be same as `label`)
+      * `line_start`: Starting line number (integer)
+      * `line_end`: Ending line number (integer)
+      * `excerpt`: Brief excerpt from the cited content
+    - The `label` field MUST exactly match the inline citation reference in the markdown
 
     #{instructions_block}
 
@@ -251,8 +291,8 @@ defmodule Lumainus.Reports.Blueprints do
     <%= documents_text %>
 
     Return JSON that matches the provided schema with keys `title`, `summary`, `markdown`, and `citations`.
-    The markdown must include inline citations matching `[mock_id]`. Each citation entry must provide
-    `label`, `document_id`, `document_reference`, `line_start`, `line_end`, and a short `excerpt`.
+    Every inline citation [doc-XXX] in the markdown MUST have a corresponding entry in the citations array
+    with matching label, document_id, document_reference, line numbers, and excerpt.
     """
   end
 

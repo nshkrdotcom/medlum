@@ -267,12 +267,16 @@ defmodule Lumainus.AI.SectionRunner do
            {:ok, {line_start, line_end}} <- citation_line_span(citation, doc),
            chunk <- find_chunk_for_line(doc, line_start),
            source_span <- build_source_span(doc, chunk, line_start, line_end, prompt_context) do
+        # Use document's mock_id as the canonical citation label
+        # This ensures consistency with the format "doc-XXX"
+        citation_label = doc["mock_id"] || doc["label"] || "doc-001"
+
         %ReportSectionCitation{}
         |> ReportSectionCitation.changeset(%{
           section_run_id: section_run.id,
           document_id: doc["id"],
           document_chunk_id: chunk && chunk["chunk_id"],
-          citation_label: citation["label"] || doc["label"] || doc["mock_id"] || "doc",
+          citation_label: citation_label,
           source_span: source_span
         })
         |> Repo.insert()
@@ -683,13 +687,32 @@ defmodule Lumainus.AI.SectionRunner do
   @citations_items_schema %{
     "type" => "object",
     "properties" => %{
-      "label" => %{"type" => "string"},
-      "document_id" => %{"type" => "string"},
-      "document_reference" => %{"type" => "string"},
-      "line_start" => %{"type" => "integer"},
-      "line_end" => %{"type" => "integer"},
-      "excerpt" => %{"type" => "string"}
-    }
+      "label" => %{
+        "type" => "string",
+        "description" => "Citation label in format doc-XXX (e.g., doc-001, doc-002)"
+      },
+      "document_id" => %{
+        "type" => "string",
+        "description" => "UUID of the document being cited"
+      },
+      "document_reference" => %{
+        "type" => "string",
+        "description" => "Mock ID matching the label (same as label field)"
+      },
+      "line_start" => %{
+        "type" => "integer",
+        "description" => "Starting line number of the citation"
+      },
+      "line_end" => %{
+        "type" => "integer",
+        "description" => "Ending line number of the citation"
+      },
+      "excerpt" => %{
+        "type" => "string",
+        "description" => "Brief excerpt from the cited content"
+      }
+    },
+    "required" => ["label", "document_id", "document_reference", "line_start", "line_end"]
   }
 
   defp default_items_schema("citations"), do: @citations_items_schema
@@ -977,14 +1000,61 @@ defmodule Lumainus.AI.SectionRunner do
 
     %{
       "id" => doc.id,
-      "mock_id" => metadata["mock_id"] || doc_label(doc),
-      "label" => doc_label(doc),
+      "mock_id" => generate_mock_id(doc),
+      "label" => generate_mock_id(doc),
       "summary" => metadata["summary"] || "Awaiting ingestion",
       "kind" => doc.document_kind,
       "provider" => metadata["provider"] || "Unknown source",
       "lines" => document_lines(parse, doc)
     }
   end
+
+  # Generate consistent mock_id in format "doc-XXX" with zero-padding
+  # Uses document sequence number if available, otherwise uses a hash of the ID
+  defp generate_mock_id(%DocumentUpload{} = doc) do
+    metadata = doc.metadata || %{}
+
+    # Priority 1: Use existing mock_id if it's already in the correct format
+    if existing = metadata["mock_id"] do
+      if String.match?(existing, ~r/^doc-\d{3}$/) do
+        existing
+      else
+        # Existing mock_id is in wrong format, generate new one
+        generate_mock_id_from_doc(doc)
+      end
+    else
+      generate_mock_id_from_doc(doc)
+    end
+  end
+
+  defp generate_mock_id_from_doc(doc) do
+    metadata = doc.metadata || %{}
+
+    # Priority 2: Use sequence number if available
+    cond do
+      seq = metadata["sequence"] ->
+        format_mock_id(seq)
+
+      # Priority 3: Use a deterministic hash of the document ID
+      true ->
+        # Use last 3 digits of a hash to ensure uniqueness within a report
+        hash = :erlang.phash2(doc.id, 999) + 1
+        format_mock_id(hash)
+    end
+  end
+
+  defp format_mock_id(number) when is_integer(number) do
+    "doc-#{String.pad_leading(Integer.to_string(number), 3, "0")}"
+  end
+
+  defp format_mock_id(number) when is_binary(number) do
+    case Integer.parse(number) do
+      {int, _} -> format_mock_id(int)
+      :error -> "doc-001"
+    end
+  end
+
+  defp format_mock_id(_), do: "doc-001"
 
   defp document_lines(nil, doc), do: fallback_lines(doc)
 
@@ -1093,10 +1163,6 @@ defmodule Lumainus.AI.SectionRunner do
   defp build_name(profile) do
     Enum.filter([profile.given_name, profile.family_name], & &1)
     |> Enum.join(" ")
-  end
-
-  defp doc_label(%DocumentUpload{metadata: metadata}) do
-    (metadata && (metadata["label"] || metadata["mock_id"])) || "doc"
   end
 
   defp resolve_provider_model(model_spec, section_template) do
