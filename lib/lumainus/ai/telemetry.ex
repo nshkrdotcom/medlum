@@ -33,6 +33,36 @@ defmodule Lumainus.AI.Telemetry do
 
   Measurements: `%{wait_ms: integer()}`
   Metadata: `%{model: string(), current: integer(), max: integer()}`
+
+  ### [:lumainus, :llm, :invocation, :created]
+  Emitted when an LLM invocation record is created.
+
+  Measurements: `%{system_time: integer()}`
+  Metadata: `%{invocation_id: string(), section_run_id: string(), model: string()}`
+
+  ### [:lumainus, :llm, :invocation, :linked]
+  Emitted when an LLM invocation is linked to a section_run.
+
+  Measurements: `%{}`
+  Metadata: `%{invocation_id: string(), section_run_id: string()}`
+
+  ### [:lumainus, :llm, :invocation, :started]
+  Emitted when an LLM invocation transitions to "running" (LLM call about to start).
+
+  Measurements: `%{pending_ms: integer()}`
+  Metadata: `%{invocation_id: string(), model: string()}`
+
+  ### [:lumainus, :llm, :invocation, :orphaned]
+  Emitted when an LLM invocation is detected as orphaned by StaleRunWorker.
+
+  Measurements: `%{age_minutes: integer()}`
+  Metadata: `%{invocation_id: string(), model: string(), reason: atom()}`
+
+  ### [:lumainus, :llm, :invocation, :cleaned]
+  Emitted when an orphaned LLM invocation is cleaned up.
+
+  Measurements: `%{}`
+  Metadata: `%{invocation_id: string(), cleanup_type: atom()}`
   """
 
   require Logger
@@ -121,6 +151,63 @@ defmodule Lumainus.AI.Telemetry do
       [:lumainus, :llm, :concurrency, :rejected],
       %{},
       %{model: model, reason: reason}
+    )
+  end
+
+  # --- Invocation lifecycle events ---
+
+  @doc """
+  Emit invocation created event.
+  """
+  def emit_invocation_created(invocation_id, section_run_id, model) do
+    :telemetry.execute(
+      [:lumainus, :llm, :invocation, :created],
+      %{system_time: System.system_time()},
+      %{invocation_id: invocation_id, section_run_id: section_run_id, model: model}
+    )
+  end
+
+  @doc """
+  Emit invocation linked event.
+  """
+  def emit_invocation_linked(invocation_id, section_run_id) do
+    :telemetry.execute(
+      [:lumainus, :llm, :invocation, :linked],
+      %{},
+      %{invocation_id: invocation_id, section_run_id: section_run_id}
+    )
+  end
+
+  @doc """
+  Emit invocation started event (transitioning to "running").
+  """
+  def emit_invocation_started(invocation_id, model, pending_ms) do
+    :telemetry.execute(
+      [:lumainus, :llm, :invocation, :started],
+      %{pending_ms: pending_ms},
+      %{invocation_id: invocation_id, model: model}
+    )
+  end
+
+  @doc """
+  Emit invocation orphaned event (detected by StaleRunWorker).
+  """
+  def emit_invocation_orphaned(invocation_id, model, age_minutes, reason \\ :stale) do
+    :telemetry.execute(
+      [:lumainus, :llm, :invocation, :orphaned],
+      %{age_minutes: age_minutes},
+      %{invocation_id: invocation_id, model: model, reason: reason}
+    )
+  end
+
+  @doc """
+  Emit invocation cleaned event.
+  """
+  def emit_invocation_cleaned(invocation_id, cleanup_type) do
+    :telemetry.execute(
+      [:lumainus, :llm, :invocation, :cleaned],
+      %{},
+      %{invocation_id: invocation_id, cleanup_type: cleanup_type}
     )
   end
 

@@ -41,6 +41,8 @@ defmodule Lumainus.AI.LlmInvocation do
     timestamps(type: :utc_datetime)
   end
 
+  @valid_statuses ["pending", "running", "completed", "error"]
+
   def changeset(invocation, attrs) do
     invocation
     |> cast(attrs, [
@@ -69,6 +71,9 @@ defmodule Lumainus.AI.LlmInvocation do
       :tenant_id
     ])
     |> validate_required([:provider, :model, :prompt_text, :tenant_id])
+    |> validate_inclusion(:status, @valid_statuses)
     |> validate_inclusion(:repair_status, ["none", "repaired", "failed"])
   end
+
+  def valid_statuses, do: @valid_statuses
 end

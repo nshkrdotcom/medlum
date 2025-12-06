@@ -8,6 +8,7 @@ defmodule Lumainus.AI.SectionRunner do
   alias Lumainus.AI.CitationSanitizer
   alias Lumainus.AI.LlmInvocation
   alias Lumainus.AI.RateLimitedExecutor
+  alias Lumainus.AI.Telemetry
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
 
@@ -16,7 +17,18 @@ defmodule Lumainus.AI.SectionRunner do
   require EEx
   require Logger
 
+  # If pending for longer than this, consider it orphaned and allow retry
+  @stale_pending_seconds 30
+
   def run_section(scope, %ReportSectionRun{} = section_run, patient, documents, _opts \\ []) do
+    # Idempotency check: prevent duplicate invocations, cleanup stale ones
+    case check_existing_invocation(section_run) do
+      :proceed -> do_run_section(scope, section_run, patient, documents)
+      {:skip, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_run_section(scope, section_run, patient, documents) do
     section_run =
       Repo.preload(section_run, [
         :section_template,
@@ -93,6 +105,8 @@ defmodule Lumainus.AI.SectionRunner do
       })
       |> Repo.insert!()
 
+    Telemetry.emit_invocation_created(llm.id, section_run.id, model_spec)
+
     section_run =
       section_run
       |> ReportSectionRun.changeset(%{
@@ -101,6 +115,13 @@ defmodule Lumainus.AI.SectionRunner do
         llm_invocation_id: llm.id
       })
       |> Repo.update!()
+
+    Telemetry.emit_invocation_linked(llm.id, section_run.id)
+
+    # Mark invocation as "running" before LLM call starts
+    pending_ms = DateTime.diff(DateTime.utc_now(), llm.inserted_at, :millisecond)
+    llm = llm |> LlmInvocation.changeset(%{status: "running"}) |> Repo.update!()
+    Telemetry.emit_invocation_started(llm.id, model_spec, pending_ms)
 
     started = System.monotonic_time()
 
@@ -144,6 +165,14 @@ defmodule Lumainus.AI.SectionRunner do
         documents,
         _opts \\ []
       ) do
+    # Idempotency check: prevent duplicate invocations, cleanup stale ones
+    case check_existing_invocation(section_run) do
+      :proceed -> do_run_section_streaming(scope, section_run, patient, documents)
+      {:skip, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_run_section_streaming(scope, section_run, patient, documents) do
     section_run =
       Repo.preload(section_run, [
         :section_template,
@@ -220,6 +249,8 @@ defmodule Lumainus.AI.SectionRunner do
       })
       |> Repo.insert!()
 
+    Telemetry.emit_invocation_created(llm.id, section_run.id, model_spec)
+
     section_run =
       section_run
       |> ReportSectionRun.changeset(%{
@@ -228,6 +259,13 @@ defmodule Lumainus.AI.SectionRunner do
         llm_invocation_id: llm.id
       })
       |> Repo.update!()
+
+    Telemetry.emit_invocation_linked(llm.id, section_run.id)
+
+    # Mark invocation as "running" before LLM call starts
+    pending_ms = DateTime.diff(DateTime.utc_now(), llm.inserted_at, :millisecond)
+    llm = llm |> LlmInvocation.changeset(%{status: "running"}) |> Repo.update!()
+    Telemetry.emit_invocation_started(llm.id, model_spec, pending_ms)
 
     started = System.monotonic_time()
 
@@ -1484,5 +1522,77 @@ defmodule Lumainus.AI.SectionRunner do
     String.to_existing_atom(key)
   rescue
     ArgumentError -> String.to_atom(key)
+  end
+
+  # --- Idempotency Check ---
+  # Prevents duplicate invocations and handles stale cleanup
+
+  defp check_existing_invocation(%ReportSectionRun{llm_invocation_id: nil}), do: :proceed
+
+  defp check_existing_invocation(%ReportSectionRun{llm_invocation_id: inv_id} = section_run) do
+    case Repo.get(LlmInvocation, inv_id) do
+      nil ->
+        # Invocation was deleted, clear the reference and proceed
+        section_run
+        |> ReportSectionRun.changeset(%{llm_invocation_id: nil})
+        |> Repo.update!()
+
+        :proceed
+
+      %LlmInvocation{status: status} when status in ["completed", "error"] ->
+        # Already finished (success or failure), don't retry
+        Logger.debug(
+          "[SectionRunner] Section #{section_run.id} already has #{status} invocation #{inv_id}"
+        )
+
+        {:skip, {:already_completed, status}}
+
+      %LlmInvocation{status: "running"} ->
+        # Currently running, don't duplicate
+        Logger.warning(
+          "[SectionRunner] Section #{section_run.id} already running with invocation #{inv_id}"
+        )
+
+        {:skip, :already_running}
+
+      %LlmInvocation{status: "pending"} = invocation ->
+        # Check if it's stale
+        age_seconds = DateTime.diff(DateTime.utc_now(), invocation.inserted_at, :second)
+
+        if age_seconds > @stale_pending_seconds do
+          # Stale pending - mark as orphaned and allow retry
+          Logger.warning(
+            "[SectionRunner] Cleaning up stale pending invocation #{inv_id} (age: #{age_seconds}s)"
+          )
+
+          model = "#{invocation.provider}:#{invocation.model}"
+          Telemetry.emit_invocation_orphaned(inv_id, model, div(age_seconds, 60), :retry_cleanup)
+          Telemetry.emit_invocation_cleaned(inv_id, :retry_cleanup)
+
+          invocation
+          |> LlmInvocation.changeset(%{
+            status: "error",
+            error: %{
+              "type" => "orphaned_on_retry",
+              "message" => "Cleaned up on retry - was pending for #{age_seconds}s"
+            }
+          })
+          |> Repo.update!()
+
+          # Clear the reference so we create a new invocation
+          section_run
+          |> ReportSectionRun.changeset(%{llm_invocation_id: nil})
+          |> Repo.update!()
+
+          :proceed
+        else
+          # Recent pending - probably still initializing, don't duplicate
+          Logger.warning(
+            "[SectionRunner] Section #{section_run.id} has recent pending invocation #{inv_id} (age: #{age_seconds}s)"
+          )
+
+          {:skip, :already_pending}
+        end
+    end
   end
 end

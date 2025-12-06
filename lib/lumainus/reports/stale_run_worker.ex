@@ -16,13 +16,18 @@ defmodule Lumainus.Reports.StaleRunWorker do
 
   alias Ecto.Changeset
   alias Lumainus.Repo
-  alias Lumainus.AI.LlmInvocation
+  alias Lumainus.AI.{LlmInvocation, Telemetry}
   alias Lumainus.Reports.{ReportRun, ReportSectionRun, RunReconciler}
 
   require Logger
 
   @stale_activity_minutes 10
-  @stale_llm_minutes 10
+  # Pending invocations should transition to running quickly (30 seconds)
+  # If still pending after this, the process crashed before LLM call started
+  @stale_pending_seconds 30
+  # Running invocations can take a long time for large documents
+  # 20 minutes allows for slow LLM responses
+  @stale_running_minutes 20
 
   @impl Oban.Worker
   def perform(_job) do
@@ -32,14 +37,15 @@ defmodule Lumainus.Reports.StaleRunWorker do
     orphaned_count = process_orphaned_running()
     stale_count = process_stale_activity(now)
     orphaned_sections_count = process_orphaned_section_runs()
-    stale_llm_count = process_stale_llm_invocations(now)
+    {stale_pending, stale_running} = process_stale_llm_invocations(now)
 
     if timed_out_count > 0 or orphaned_count > 0 or stale_count > 0 or
-         orphaned_sections_count > 0 or stale_llm_count > 0 do
+         orphaned_sections_count > 0 or stale_pending > 0 or stale_running > 0 do
       Logger.info(
         "StaleRunWorker: #{timed_out_count} timed out, " <>
           "#{orphaned_count} orphaned finalized, #{stale_count} stale marked, " <>
-          "#{orphaned_sections_count} orphaned sections, #{stale_llm_count} stale LLM invocations"
+          "#{orphaned_sections_count} orphaned sections, " <>
+          "#{stale_pending} stale pending LLM, #{stale_running} stale running LLM"
       )
     end
 
@@ -137,9 +143,16 @@ defmodule Lumainus.Reports.StaleRunWorker do
     length(orphaned)
   end
 
-  # Find LLM invocations stuck in "pending" for too long
+  # Find LLM invocations stuck in "pending" or "running" for too long
   defp process_stale_llm_invocations(now) do
-    stale_threshold = DateTime.add(now, -@stale_llm_minutes, :minute)
+    pending_count = process_stale_pending_invocations(now)
+    running_count = process_stale_running_invocations(now)
+    {pending_count, running_count}
+  end
+
+  # Pending > 30s means process crashed before LLM call started
+  defp process_stale_pending_invocations(now) do
+    stale_threshold = DateTime.add(now, -@stale_pending_seconds, :second)
 
     stale_invocations =
       LlmInvocation
@@ -148,18 +161,63 @@ defmodule Lumainus.Reports.StaleRunWorker do
       |> Repo.all()
 
     Enum.each(stale_invocations, fn invocation ->
+      age_seconds = DateTime.diff(now, invocation.inserted_at, :second)
+      model = "#{invocation.provider}:#{invocation.model}"
+
+      Telemetry.emit_invocation_orphaned(
+        invocation.id,
+        model,
+        div(age_seconds, 60),
+        :stale_pending
+      )
+
       Repo.update!(
         Changeset.change(invocation, %{
           status: "error",
           error: %{
-            "type" => "timeout",
-            "message" =>
-              "LLM invocation timed out - stuck pending for over #{@stale_llm_minutes} minutes"
+            "type" => "never_started",
+            "message" => "LLM invocation never started - stuck pending for #{age_seconds}s"
           }
         })
       )
 
-      Logger.warning("[StaleRunWorker] Marked stale LLM invocation #{invocation.id} as error")
+      Logger.warning(
+        "[StaleRunWorker] Invocation #{invocation.id} never started (pending #{age_seconds}s)"
+      )
+    end)
+
+    length(stale_invocations)
+  end
+
+  # Running > 20min means LLM call hung or process crashed during call
+  defp process_stale_running_invocations(now) do
+    stale_threshold = DateTime.add(now, -@stale_running_minutes, :minute)
+
+    stale_invocations =
+      LlmInvocation
+      |> where([i], i.status == "running")
+      |> where([i], i.updated_at < ^stale_threshold)
+      |> Repo.all()
+
+    Enum.each(stale_invocations, fn invocation ->
+      age_minutes = DateTime.diff(now, invocation.updated_at, :minute)
+      model = "#{invocation.provider}:#{invocation.model}"
+
+      Telemetry.emit_invocation_orphaned(invocation.id, model, age_minutes, :stale_running)
+
+      Repo.update!(
+        Changeset.change(invocation, %{
+          status: "error",
+          error: %{
+            "type" => "llm_timeout",
+            "message" => "LLM call timed out - running for over #{age_minutes} minutes"
+          }
+        })
+      )
+
+      Logger.warning(
+        "[StaleRunWorker] Invocation #{invocation.id} timed out (running #{age_minutes}min)"
+      )
     end)
 
     length(stale_invocations)
