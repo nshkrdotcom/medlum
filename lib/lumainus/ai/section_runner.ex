@@ -5,6 +5,7 @@ defmodule Lumainus.AI.SectionRunner do
 
   alias Ecto.Changeset
   alias Lumainus.AI
+  alias Lumainus.AI.CitationSanitizer
   alias Lumainus.AI.LlmInvocation
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
@@ -24,7 +25,12 @@ defmodule Lumainus.AI.SectionRunner do
     section_template = section_run.section_template
     template = section_run.report_run.template
     report_run = section_run.report_run
-    doc_payloads = Enum.map(documents, &document_payload/1)
+
+    # Generate document payloads with sequential mock_ids (doc-001, doc-002, etc.)
+    doc_payloads =
+      documents
+      |> Enum.with_index(1)
+      |> Enum.map(fn {doc, index} -> document_payload(doc, index) end)
 
     # Check if we have a cached context for this report run
     cached_content_name = report_run.cached_content_name
@@ -186,6 +192,18 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp persist_success(section_run, llm, normalized, prompt_context, documents, duration) do
+    # Sanitize citations before persisting
+    {sanitized_citations, citation_repair_logs} =
+      sanitize_citations(normalized.citations, documents)
+
+    # Log citation repairs if any were made
+    if not Enum.empty?(citation_repair_logs) do
+      CitationSanitizer.log_repairs(citation_repair_logs, %{
+        section_run_id: section_run.id,
+        citation_count: length(sanitized_citations)
+      })
+    end
+
     llm_attrs =
       %{
         response_text: normalized.text,
@@ -210,12 +228,12 @@ defmodule Lumainus.AI.SectionRunner do
           output_markdown: normalized.markdown,
           output_object: normalized.object,
           confidence_score: normalized.confidence,
-          inline_citations: wrap_citations(normalized.citations),
+          inline_citations: wrap_citations(sanitized_citations),
           error: nil
         })
       )
 
-    persist_citations(section_run, normalized.citations, documents, prompt_context)
+    persist_citations(section_run, sanitized_citations, documents, prompt_context)
     section_run
   end
 
@@ -228,6 +246,9 @@ defmodule Lumainus.AI.SectionRunner do
     Section: #{section_run.section_template.title}
     Error: #{inspect(error_payload)}
     """)
+
+    # Sanitize fallback citations too
+    {sanitized_fallback_citations, _logs} = sanitize_citations(fallback["citations"], documents)
 
     # Update LLM invocation with error status AND error details
     Repo.update!(
@@ -245,19 +266,89 @@ defmodule Lumainus.AI.SectionRunner do
           status: "error",
           output_markdown: fallback["markdown"],
           output_object: fallback,
-          inline_citations: wrap_citations(fallback["citations"]),
+          inline_citations: wrap_citations(sanitized_fallback_citations),
           error: error_payload
         })
       )
 
-    persist_citations(section_run, fallback["citations"], documents, prompt_context)
+    persist_citations(section_run, sanitized_fallback_citations, documents, prompt_context)
     section_run
   end
 
   defp maybe_put_request(attrs, nil), do: attrs
   defp maybe_put_request(attrs, request_id), do: Map.put(attrs, :request_id, request_id)
 
-  defp persist_citations(_section_run, nil, _documents, _context), do: :ok
+  # Sanitizes citations using CitationSanitizer, building proper document lookup maps
+  defp sanitize_citations(nil, _documents), do: {[], []}
+  defp sanitize_citations([], _documents), do: {[], []}
+
+  defp sanitize_citations(citations, documents) when is_list(citations) do
+    document_map = build_sanitizer_document_map(documents)
+
+    case CitationSanitizer.sanitize_citations(citations, document_map) do
+      {:ok, sanitized, repair_logs} ->
+        {sanitized, repair_logs}
+
+      {:error, failed_citations} ->
+        # Log failures but return original citations (citation validation will handle this downstream)
+        Logger.warning("""
+        [SectionRunner] Failed to sanitize some citations:
+        #{inspect(failed_citations, pretty: true)}
+        """)
+
+        {citations, []}
+    end
+  end
+
+  # Builds document lookup maps for CitationSanitizer
+  defp build_sanitizer_document_map(documents) do
+    mock_id_to_doc =
+      documents
+      |> Enum.filter(& &1["mock_id"])
+      |> Map.new(fn doc -> {doc["mock_id"], doc} end)
+
+    id_to_doc =
+      documents
+      |> Map.new(fn doc -> {doc["id"], doc} end)
+
+    # Build name lookups from various fields
+    name_to_doc =
+      documents
+      |> Enum.flat_map(fn doc ->
+        metadata = doc["metadata"] || %{}
+
+        names =
+          [
+            metadata["filename"],
+            metadata["title"],
+            metadata["name"],
+            doc["summary"]
+          ]
+          |> Enum.filter(&(&1 != nil and &1 != ""))
+          |> Enum.map(&normalize_for_lookup/1)
+          |> Enum.uniq()
+
+        Enum.map(names, fn name -> {name, doc} end)
+      end)
+      |> Map.new()
+
+    %{
+      mock_id_to_doc: mock_id_to_doc,
+      id_to_doc: id_to_doc,
+      name_to_doc: name_to_doc
+    }
+  end
+
+  defp normalize_for_lookup(str) when is_binary(str) do
+    str
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_for_lookup(_), do: ""
+
+  # Citations are always a list (from sanitize_citations which returns {[], []} for nil/empty)
+  defp persist_citations(_section_run, [], _documents, _context), do: :ok
 
   defp persist_citations(section_run, citations, documents, prompt_context) do
     lookups = build_document_lookup(documents)
@@ -389,9 +480,8 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp parse_line_hint(_), do: nil
 
-  defp wrap_citations(nil), do: %{"entries" => []}
+  # Citations are always a list from sanitize_citations
   defp wrap_citations(citations) when is_list(citations), do: %{"entries" => citations}
-  defp wrap_citations(other), do: other
 
   defp normalize_response(response) do
     raw_object = response |> extract(:object) |> stringify_keys()
@@ -994,14 +1084,17 @@ defmodule Lumainus.AI.SectionRunner do
     |> Enum.into(%{})
   end
 
-  defp document_payload(%DocumentUpload{} = doc) do
+  # Generate document payload with sequential mock_id based on position in list
+  defp document_payload(%DocumentUpload{} = doc, sequence_number)
+       when is_integer(sequence_number) do
     metadata = doc.metadata || %{}
     parse = if Ecto.assoc_loaded?(doc.parses), do: List.first(doc.parses), else: nil
+    mock_id = format_mock_id(sequence_number)
 
     %{
       "id" => doc.id,
-      "mock_id" => generate_mock_id(doc),
-      "label" => generate_mock_id(doc),
+      "mock_id" => mock_id,
+      "label" => mock_id,
       "summary" => metadata["summary"] || "Awaiting ingestion",
       "kind" => doc.document_kind,
       "provider" => metadata["provider"] || "Unknown source",
@@ -1009,49 +1102,10 @@ defmodule Lumainus.AI.SectionRunner do
     }
   end
 
-  # Generate consistent mock_id in format "doc-XXX" with zero-padding
-  # Uses document sequence number if available, otherwise uses a hash of the ID
-  defp generate_mock_id(%DocumentUpload{} = doc) do
-    metadata = doc.metadata || %{}
-
-    # Priority 1: Use existing mock_id if it's already in the correct format
-    if existing = metadata["mock_id"] do
-      if String.match?(existing, ~r/^doc-\d{3}$/) do
-        existing
-      else
-        # Existing mock_id is in wrong format, generate new one
-        generate_mock_id_from_doc(doc)
-      end
-    else
-      generate_mock_id_from_doc(doc)
-    end
-  end
-
-  defp generate_mock_id_from_doc(doc) do
-    metadata = doc.metadata || %{}
-
-    # Priority 2: Use sequence number if available
-    cond do
-      seq = metadata["sequence"] ->
-        format_mock_id(seq)
-
-      # Priority 3: Use a deterministic hash of the document ID
-      true ->
-        # Use last 3 digits of a hash to ensure uniqueness within a report
-        hash = :erlang.phash2(doc.id, 999) + 1
-        format_mock_id(hash)
-    end
-  end
-
-  defp format_mock_id(number) when is_integer(number) do
+  # Formats a sequence number as a zero-padded mock_id (doc-001, doc-002, etc.)
+  # Only called from document_payload with an integer sequence_number
+  defp format_mock_id(number) when is_integer(number) and number > 0 do
     "doc-#{String.pad_leading(Integer.to_string(number), 3, "0")}"
-  end
-
-  defp format_mock_id(number) when is_binary(number) do
-    case Integer.parse(number) do
-      {int, _} -> format_mock_id(int)
-      :error -> "doc-001"
-    end
   end
 
   defp format_mock_id(_), do: "doc-001"

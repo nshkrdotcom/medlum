@@ -155,25 +155,35 @@ defmodule Lumainus.Reports.CacheManager do
   # Matches the format used by SectionRunner.documents_text/1
   defp build_documents_text(documents) do
     documents
-    |> Enum.map(&build_document_payload/1)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {doc, index} -> build_document_payload(doc, index) end)
     |> Enum.map(&format_document/1)
     |> Enum.join("\n\n---\n\n")
   end
 
-  defp build_document_payload(%DocumentUpload{} = doc) do
+  defp build_document_payload(%DocumentUpload{} = doc, sequence_number)
+       when is_integer(sequence_number) do
     metadata = doc.metadata || %{}
     parse = if Ecto.assoc_loaded?(doc.parses), do: List.first(doc.parses), else: nil
+    mock_id = format_mock_id(sequence_number)
 
     %{
       "id" => doc.id,
-      "mock_id" => metadata["mock_id"] || doc_label(doc),
-      "label" => doc_label(doc),
+      "mock_id" => mock_id,
+      "label" => mock_id,
       "summary" => metadata["summary"] || "Awaiting ingestion",
       "kind" => doc.document_kind,
       "provider" => metadata["provider"] || "Unknown source",
       "lines" => document_lines(parse, doc)
     }
   end
+
+  # Formats a sequence number as a zero-padded mock_id (doc-001, doc-002, etc.)
+  defp format_mock_id(number) when is_integer(number) and number > 0 do
+    "doc-#{String.pad_leading(Integer.to_string(number), 3, "0")}"
+  end
+
+  defp format_mock_id(_), do: "doc-001"
 
   defp format_document(doc) do
     lines =
@@ -267,10 +277,6 @@ defmodule Lumainus.Reports.CacheManager do
   end
 
   defp pad_line(_), do: "000"
-
-  defp doc_label(%DocumentUpload{metadata: metadata}) do
-    (metadata && (metadata["label"] || metadata["mock_id"])) || "doc"
-  end
 
   # Rough token estimate to avoid attempting tiny caches (Gemini requires 1024 tokens+)
   defp estimate_tokens(cache_contents, system_prompt) do
