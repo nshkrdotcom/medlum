@@ -608,10 +608,31 @@ defmodule LumainusWeb.ReportsLive do
         end
       end)
 
+    updated_visible_sections =
+      Enum.map(socket.assigns.visible_sections, fn entry ->
+        section_id = get_section_id(entry)
+
+        if section_id && MapSet.member?(lock_set, to_string(section_id)) do
+          update_entry_status(entry, lock_status(Map.get(entry, :status)))
+        else
+          entry
+        end
+      end)
+
     socket
     |> assign(:running_sections, MapSet.union(socket.assigns.running_sections, lock_set))
     |> assign(:sections, updated_sections)
+    |> assign(:visible_sections, updated_visible_sections)
   end
+
+  # Get section ID from different entry formats (section_entry vs section_run)
+  defp get_section_id(%{section: %{id: id}}), do: id
+  defp get_section_id(%{section_template_id: id}), do: id
+  defp get_section_id(_), do: nil
+
+  # Update status in different entry formats
+  defp update_entry_status(%{status: _} = entry, new_status), do: %{entry | status: new_status}
+  defp update_entry_status(entry, _new_status), do: entry
 
   defp lock_status(status) when status in ["running", "queued"], do: status
   defp lock_status(_status), do: "queued"
@@ -624,7 +645,8 @@ defmodule LumainusWeb.ReportsLive do
            socket.assigns.patient,
            socket.assigns.record_set,
            socket.assigns.template,
-           section_ids
+           section_ids,
+           stream: true
          ) do
       {:ok, _run} ->
         load_workspace(socket)
@@ -764,6 +786,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:visible_run_id, fn -> nil end)
       |> assign_new(:document_modal_focus, fn -> nil end)
+      |> assign_new(:streaming_content, fn -> %{} end)
       |> assign(:health_check_retry_count, 0)
       |> assign_debug_panel(scope)
 
@@ -909,7 +932,44 @@ defmodule LumainusWeb.ReportsLive do
 
   def handle_info({:section_run_updated, record_set_id}, socket) do
     if socket.assigns.record_set.id == record_set_id do
-      {:noreply, load_workspace(socket)}
+      socket = load_workspace(socket)
+
+      # Clean up streaming content for sections no longer running
+      cleaned_streaming =
+        socket.assigns.streaming_content
+        |> Enum.filter(fn {section_id, _} ->
+          MapSet.member?(socket.assigns.running_sections, section_id)
+        end)
+        |> Map.new()
+
+      {:noreply, assign(socket, :streaming_content, cleaned_streaming)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Handle incoming LLM stream chunk
+  def handle_info({:llm_chunk, %{section_run_id: section_run_id, text: text}}, socket) do
+    section_id = find_section_id_for_run(socket, section_run_id)
+
+    if section_id && MapSet.member?(socket.assigns.running_sections, section_id) do
+      current = Map.get(socket.assigns.streaming_content, section_id, "")
+      updated_content = current <> text
+
+      # Truncate if too long (performance safeguard)
+      truncated =
+        if String.length(updated_content) > 10_000 do
+          "..." <> String.slice(updated_content, -8000, 8000)
+        else
+          updated_content
+        end
+
+      {:noreply,
+       assign(
+         socket,
+         :streaming_content,
+         Map.put(socket.assigns.streaming_content, section_id, truncated)
+       )}
     else
       {:noreply, socket}
     end
@@ -1470,8 +1530,6 @@ defmodule LumainusWeb.ReportsLive do
       }
     end
   end
-
-  defp build_focus_context(_content, _ranges), do: nil
 
   defp build_section_context(_sections, nil), do: nil
 
@@ -2907,6 +2965,42 @@ defmodule LumainusWeb.ReportsLive do
         transform: translateY(-1px);
       }
 
+      .run-progress-indicator {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 16px;
+        background: #f0fdf4;
+        border: 1px solid #86efac;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #166534;
+      }
+
+      .progress-pulse {
+        width: 8px;
+        height: 8px;
+        background: #22c55e;
+        border-radius: 50%;
+        animation: pulse-glow 1.5s ease-in-out infinite;
+      }
+
+      @keyframes pulse-glow {
+        0%, 100% {
+          opacity: 1;
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+        }
+        50% {
+          opacity: 0.8;
+          box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+        }
+      }
+
+      .progress-text {
+        letter-spacing: 0.02em;
+      }
+
       .reports-body {
         display: grid;
         grid-template-columns: 320px 1fr;
@@ -3751,6 +3845,165 @@ defmodule LumainusWeb.ReportsLive do
         background: #fef2f2;
         color: #b91c1c;
       }
+
+      /* Prompt tooltip */
+      .prompt-tooltip-wrapper {
+        position: relative;
+        display: inline-block;
+      }
+
+      .prompt-tooltip-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #6366f1;
+        background: #eef2ff;
+        border: 1px solid #c7d2fe;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      .prompt-tooltip-btn:hover {
+        background: #e0e7ff;
+        border-color: #a5b4fc;
+      }
+
+      .prompt-tooltip-content {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 8px;
+        width: 500px;
+        max-width: 90vw;
+        max-height: 400px;
+        overflow-y: auto;
+        padding: 16px;
+        background: #1e293b;
+        color: #f1f5f9;
+        border-radius: 12px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+        font-size: 13px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        z-index: 50;
+        line-height: 1.5;
+      }
+
+      .prompt-tooltip-wrapper:hover .prompt-tooltip-content {
+        display: block;
+      }
+
+      .prompt-tooltip-content::before {
+        content: '';
+        position: absolute;
+        top: -6px;
+        right: 20px;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-bottom: 6px solid #1e293b;
+      }
+
+      /* Streaming Section Styles */
+      .section-streaming {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .streaming-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0;
+      }
+
+      .streaming-label {
+        font-size: 13px;
+        color: #64748b;
+        font-weight: 500;
+      }
+
+      .streaming-content {
+        background: #1e293b;
+        border-radius: 8px;
+        padding: 16px;
+        max-height: 300px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        position: relative;
+      }
+
+      .streaming-content pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .streaming-content code {
+        font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #94a3b8;
+      }
+
+      /* Blinking cursor effect at the end */
+      .streaming-content::after {
+        content: '|';
+        color: #3b82f6;
+        animation: cursorBlink 1s step-end infinite;
+        font-family: monospace;
+      }
+
+      @keyframes cursorBlink {
+        50% { opacity: 0; }
+      }
+
+      /* Scrollbar styling for dark container */
+      .streaming-content::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .streaming-content::-webkit-scrollbar-track {
+        background: #334155;
+        border-radius: 4px;
+      }
+
+      .streaming-content::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 4px;
+      }
+
+      .streaming-content::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+      }
+
+      .streaming-waiting {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100px;
+        background: #f8fafc;
+        border-radius: 8px;
+        border: 1px dashed #e2e8f0;
+      }
+
+      /* Mobile responsiveness */
+      @media (max-width: 768px) {
+        .streaming-content {
+          max-height: 200px;
+          padding: 12px;
+        }
+
+        .streaming-content code {
+          font-size: 11px;
+        }
+      }
     </style>
 
     <div class="reports-shell">
@@ -3974,17 +4227,21 @@ defmodule LumainusWeb.ReportsLive do
           <button class="manage-btn" phx-click="open_patient_modal">
             Manage Workspace
           </button>
-          <button
-            class="btn btn-primary"
-            phx-click="run_full_report"
-            disabled={MapSet.size(@running_sections) > 0}
-          >
-            <%= if MapSet.size(@running_sections) > 0 do %>
-              Running…
-            <% else %>
+          <%= if MapSet.size(@running_sections) > 0 do %>
+            <div class="run-progress-indicator">
+              <span class="progress-pulse"></span>
+              <span class="progress-text">
+                {completed_section_count(@sections)}/{length(@sections)} sections
+              </span>
+            </div>
+          <% else %>
+            <button
+              class="btn btn-primary"
+              phx-click="run_full_report"
+            >
               Run All Sections
-            <% end %>
-          </button>
+            </button>
+          <% end %>
         </div>
       </section>
 
@@ -4360,6 +4617,33 @@ defmodule LumainusWeb.ReportsLive do
                   <span style="font-size: 12px; color: #475569;">
                     {status_label(section_entry)}
                   </span>
+                  <%= if section_entry.section && section_entry.section.prompt_template do %>
+                    <div class="prompt-tooltip-wrapper">
+                      <button type="button" class="prompt-tooltip-btn">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                          <line x1="10" y1="9" x2="8" y2="9" />
+                        </svg>
+                        Prompt
+                      </button>
+                      <div class="prompt-tooltip-content">
+                        {section_entry.section.prompt_template}
+                      </div>
+                    </div>
+                  <% end %>
                   <button
                     class={[
                       "btn btn-outline btn-sm border border-slate-300 text-slate-700 bg-white",
@@ -4379,8 +4663,25 @@ defmodule LumainusWeb.ReportsLive do
               </header>
 
               <%= if MapSet.member?(@running_sections, to_string(section_entry.section.id)) do %>
-                <div class="section-output flex justify-center items-center py-12">
-                  <span class="loading loading-spinner loading-lg text-slate-400"></span>
+                <div class="section-output section-streaming">
+                  <div class="streaming-header">
+                    <span class="loading loading-spinner loading-md text-slate-400"></span>
+                    <span class="streaming-label">Generating...</span>
+                  </div>
+
+                  <%= if Map.has_key?(@streaming_content, to_string(section_entry.section.id)) do %>
+                    <div
+                      class="streaming-content"
+                      id={"streaming-#{section_entry.section.id}"}
+                      phx-hook="StreamingScroll"
+                    >
+                      <pre><code>{Map.get(@streaming_content, to_string(section_entry.section.id), "")}</code></pre>
+                    </div>
+                  <% else %>
+                    <div class="streaming-waiting">
+                      <span class="text-slate-400 text-sm">Waiting for response...</span>
+                    </div>
+                  <% end %>
                 </div>
               <% else %>
                 <div class="section-output">
@@ -4466,7 +4767,7 @@ defmodule LumainusWeb.ReportsLive do
               <div class="flex items-center gap-2">
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs border border-slate-200"
+                  class="btn btn-ghost btn-xs border border-slate-200 text-slate-700"
                   phx-click="toggle_debug_sections_all"
                   phx-value-action="expand"
                 >
@@ -4474,7 +4775,7 @@ defmodule LumainusWeb.ReportsLive do
                 </button>
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs border border-slate-200"
+                  class="btn btn-ghost btn-xs border border-slate-200 text-slate-700"
                   phx-click="toggle_debug_sections_all"
                   phx-value-action="collapse"
                 >
@@ -5297,6 +5598,22 @@ defmodule LumainusWeb.ReportsLive do
   defp status_label(%{last_run: %{status: "running"}}), do: "Running"
   defp status_label(%{last_run: %{status: "error"}}), do: "Needs attention"
   defp status_label(%{last_run: %{status: status}}), do: status
+
+  # Helper to find section_id from section_run_id
+  defp find_section_id_for_run(socket, section_run_id) do
+    socket.assigns.sections
+    |> Enum.find_value(fn entry ->
+      if entry.last_run && to_string(entry.last_run.id) == to_string(section_run_id) do
+        to_string(entry.section.id)
+      end
+    end)
+  end
+
+  defp completed_section_count(sections) do
+    Enum.count(sections, fn entry ->
+      entry.status == "completed"
+    end)
+  end
 
   defp format_timestamp(nil, _locale, _timezone), do: "recently"
 

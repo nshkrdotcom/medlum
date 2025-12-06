@@ -12,7 +12,9 @@ defmodule Lumainus.Reports.SectionRunWorker do
   alias Lumainus.{Repo, Reports}
 
   @impl true
-  def perform(%Oban.Job{args: %{"section_run_id" => section_run_id}}) do
+  def perform(%Oban.Job{args: %{"section_run_id" => section_run_id} = args}) do
+    stream? = Map.get(args, "stream", false)
+
     section_run =
       ReportSectionRun
       |> Repo.get!(section_run_id)
@@ -26,7 +28,12 @@ defmodule Lumainus.Reports.SectionRunWorker do
     scope = %Scope{tenant_id: report_run.tenant_id}
     documents = Reports.list_documents_with_chunks(scope, report_run.record_set)
 
-    result = SectionRunner.run_section(scope, section_run, patient, documents)
+    result =
+      if stream? do
+        SectionRunner.run_section_streaming(scope, section_run, patient, documents)
+      else
+        SectionRunner.run_section(scope, section_run, patient, documents)
+      end
 
     RunReconciler.maybe_finalize(report_run.id)
     Reports.notify_section_run_update(report_run.record_set_id)

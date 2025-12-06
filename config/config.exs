@@ -180,8 +180,8 @@ config :lumainus, :llm,
 config :gemini_ex, :rate_limiter,
   # Paid tier profile to avoid concurrency-gate timeouts on multi-section reports
   profile: :paid_tier_1,
-  # Limit concurrent requests per model
-  max_concurrency_per_model: 7,
+  # Limit concurrent requests per model (set to 1 to avoid quota exhaustion)
+  max_concurrency_per_model: 1,
   # Retry up to 4 times on transient errors/rate limits
   max_attempts: 4,
   # 1.5 second base backoff (gemini_ex applies exponential + jitter)

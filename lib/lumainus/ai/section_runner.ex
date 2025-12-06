@@ -128,6 +128,226 @@ defmodule Lumainus.AI.SectionRunner do
     end
   end
 
+  @doc """
+  Run a section with streaming output.
+
+  Unlike `run_section/5`, this function:
+  1. Immediately marks the section as "running"
+  2. Broadcasts text chunks via PubSub as they arrive
+  3. Accumulates the full response for final persistence
+  """
+  def run_section_streaming(
+        scope,
+        %ReportSectionRun{} = section_run,
+        patient,
+        documents,
+        _opts \\ []
+      ) do
+    section_run =
+      Repo.preload(section_run, [
+        :section_template,
+        report_run: [:template]
+      ])
+
+    section_template = section_run.section_template
+    template = section_run.report_run.template
+    report_run = section_run.report_run
+
+    # Generate document payloads with sequential mock_ids (doc-001, doc-002, etc.)
+    doc_payloads =
+      documents
+      |> Enum.with_index(1)
+      |> Enum.map(fn {doc, index} -> document_payload(doc, index) end)
+
+    # Check if we have a cached context for this report run
+    cached_content_name = report_run.cached_content_name
+
+    # Build context differently based on whether we're using cache
+    prompt_context =
+      if cached_content_name do
+        # With cache: documents are in the cache, don't include full text in prompt
+        build_prompt_context_cached(section_template, patient, doc_payloads)
+      else
+        # Without cache: include full document context in prompt
+        build_prompt_context(section_template, patient, doc_payloads)
+      end
+
+    prompt_text =
+      render_prompt(section_template.prompt_template, prompt_context, section_template.title)
+
+    schema = schema_for_llm(section_template.output_schema)
+
+    # When using cache, use the cache model; otherwise use section-configured model
+    model_spec =
+      if cached_content_name do
+        # Override to use cache-compatible model
+        cache_model = Lumainus.Reports.CacheManager.cache_model()
+        "google:#{cache_model}"
+      else
+        AI.model_spec(section_template)
+      end
+
+    {provider_used, model_used} = resolve_provider_model(model_spec, section_template)
+
+    # Get system prompt with proper precedence: section → template → default
+    # When using cache, system_prompt is already in the cache
+    system_prompt =
+      if cached_content_name do
+        nil
+      else
+        AI.system_prompt(section_template, template)
+      end
+
+    # Get merged options with proper precedence: section → template defaults → app config
+    options =
+      AI.options(section_template, template)
+      |> Keyword.put(:prompt_context, prompt_context)
+      |> maybe_put_kw(:system_instruction, system_prompt)
+      |> maybe_put_kw(:cached_content, cached_content_name)
+
+    llm =
+      %LlmInvocation{}
+      |> LlmInvocation.changeset(%{
+        tenant_id: scope.tenant_id,
+        provider: provider_used,
+        model: model_used,
+        prompt_text: prompt_text,
+        prompt_context: prompt_context,
+        status: "pending",
+        temperature: section_template.temperature,
+        max_output_tokens: section_template.max_output_tokens
+      })
+      |> Repo.insert!()
+
+    section_run =
+      section_run
+      |> ReportSectionRun.changeset(%{
+        status: "running",
+        prompt_inputs: prompt_context,
+        llm_invocation_id: llm.id
+      })
+      |> Repo.update!()
+
+    started = System.monotonic_time()
+
+    record_set_id = report_run.record_set_id
+    section_run_id = section_run.id
+
+    case invoke_llm_streaming(model_spec, prompt_text, schema, options, %{
+           record_set_id: record_set_id,
+           section_run_id: section_run_id
+         }) do
+      {:ok, stream_id} ->
+        handle_stream_events(
+          stream_id,
+          section_run,
+          llm,
+          prompt_context,
+          doc_payloads,
+          started,
+          record_set_id
+        )
+
+      {:error, reason} ->
+        duration = duration_ms(started)
+        fallback = fallback_payload(section_template, prompt_context)
+
+        {:error,
+         persist_failure(
+           section_run,
+           llm,
+           reason,
+           fallback,
+           prompt_context,
+           doc_payloads,
+           duration
+         )}
+    end
+  end
+
+  defp invoke_llm_streaming(model_spec, prompt_text, schema, options, _context) do
+    AI.client().stream_generate(model_spec, prompt_text, schema, self(), options)
+  rescue
+    error ->
+      {:error, %{type: :exception, message: Exception.message(error), exception: inspect(error)}}
+  end
+
+  defp handle_stream_events(
+         stream_id,
+         section_run,
+         llm,
+         prompt_context,
+         doc_payloads,
+         started,
+         record_set_id
+       ) do
+    receive do
+      {:llm_stream_chunk, ^stream_id, chunk} ->
+        broadcast_chunk(record_set_id, section_run.id, chunk)
+
+        handle_stream_events(
+          stream_id,
+          section_run,
+          llm,
+          prompt_context,
+          doc_payloads,
+          started,
+          record_set_id
+        )
+
+      {:llm_stream_complete, ^stream_id, response} ->
+        duration = duration_ms(started)
+        normalized = normalize_response(response)
+
+        {:ok,
+         persist_success(section_run, llm, normalized, prompt_context, doc_payloads, duration)}
+
+      {:llm_stream_error, ^stream_id, reason} ->
+        duration = duration_ms(started)
+        fallback = fallback_payload(section_run.section_template, prompt_context)
+
+        {:error,
+         persist_failure(
+           section_run,
+           llm,
+           reason,
+           fallback,
+           prompt_context,
+           doc_payloads,
+           duration
+         )}
+    after
+      600_000 ->
+        duration = duration_ms(started)
+        fallback = fallback_payload(section_run.section_template, prompt_context)
+        timeout_error = %{type: :timeout, message: "Stream timed out after 10 minutes"}
+
+        {:error,
+         persist_failure(
+           section_run,
+           llm,
+           timeout_error,
+           fallback,
+           prompt_context,
+           doc_payloads,
+           duration
+         )}
+    end
+  end
+
+  defp broadcast_chunk(record_set_id, section_run_id, chunk) do
+    Phoenix.PubSub.broadcast(
+      LumainusWeb.PubSub,
+      "report-run:#{record_set_id}",
+      {:llm_chunk,
+       %{
+         section_run_id: section_run_id,
+         text: chunk.text,
+         usage: chunk.usage
+       }}
+    )
+  end
+
   defp build_prompt_context(section_template, patient, documents) do
     profile = Map.get(patient, :current_profile) || %{}
 

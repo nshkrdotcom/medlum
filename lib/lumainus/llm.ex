@@ -390,4 +390,239 @@ defmodule Lumainus.LLM do
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  @doc """
+  Start a streaming LLM generation.
+
+  Returns `{:ok, stream_id}` immediately. The caller process will receive
+  messages as chunks arrive:
+
+    - `{:llm_stream_chunk, stream_id, chunk_data}` - Text chunk received
+    - `{:llm_stream_complete, stream_id, final_response}` - Stream finished
+    - `{:llm_stream_error, stream_id, error}` - Stream failed
+
+  ## Parameters
+    - `model_spec` - Provider:model string (e.g., "google:gemini-2.0-flash")
+    - `prompt_text` - The prompt to send
+    - `schema` - JSON schema for structured output (or nil)
+    - `subscriber_pid` - Process to receive stream events
+    - `opts` - Options (same as generate_object/4)
+  """
+  @spec stream_generate(String.t(), String.t(), map() | nil, pid(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def stream_generate(model_spec, prompt_text, schema, subscriber_pid, opts \\ []) do
+    case parse_model_spec(model_spec) do
+      {:ok, {provider, model}} ->
+        do_stream_generate(provider, model, prompt_text, schema, subscriber_pid, opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp do_stream_generate("google", model, prompt_text, schema, subscriber_pid, opts) do
+    request_opts = build_request_opts(model, schema, opts)
+    request_body = build_stream_request_body(prompt_text, request_opts)
+
+    case Gemini.Streaming.UnifiedManager.start_stream(model, request_body, []) do
+      {:ok, stream_id} ->
+        # Spawn translator process and subscribe IT to receive events
+        spawn_link(fn ->
+          :ok = Gemini.Streaming.UnifiedManager.subscribe(stream_id, self())
+          stream_event_translator(stream_id, subscriber_pid, schema)
+        end)
+
+        {:ok, stream_id}
+
+      {:error, reason} ->
+        {:error, normalize_error(reason)}
+    end
+  end
+
+  defp do_stream_generate(provider, _model, _prompt_text, _schema, _subscriber_pid, _opts) do
+    {:error, "Unsupported provider #{inspect(provider)} for streaming"}
+  end
+
+  defp build_stream_request_body(prompt_text, request_opts) do
+    # Build contents array
+    contents = [%{parts: [%{text: prompt_text}]}]
+
+    # Extract system instruction if present
+    system_instruction = Keyword.get(request_opts, :system_instruction)
+    cached_content = Keyword.get(request_opts, :cached_content)
+
+    # Build generation config
+    generation_config =
+      []
+      |> maybe_put_generation(:temperature, Keyword.get(request_opts, :temperature))
+      |> maybe_put_generation(:maxOutputTokens, Keyword.get(request_opts, :max_output_tokens))
+      |> maybe_put_generation(:topP, Keyword.get(request_opts, :top_p))
+      |> maybe_put_generation(:topK, Keyword.get(request_opts, :top_k))
+      |> maybe_put_generation(:candidateCount, Keyword.get(request_opts, :candidate_count))
+      |> maybe_put_generation(:stopSequences, Keyword.get(request_opts, :stop_sequences))
+      |> maybe_put_generation(:presencePenalty, Keyword.get(request_opts, :presence_penalty))
+      |> maybe_put_generation(:frequencyPenalty, Keyword.get(request_opts, :frequency_penalty))
+      |> maybe_put_generation(:responseMimeType, Keyword.get(request_opts, :response_mime_type))
+      |> maybe_put_generation(:responseSchema, Keyword.get(request_opts, :response_schema))
+      |> maybe_put_generation(:seed, Keyword.get(request_opts, :seed))
+      |> maybe_put_generation(:thinkingConfig, Keyword.get(request_opts, :thinking_config))
+      |> Map.new()
+
+    # Build request body
+    body = %{contents: contents}
+
+    body =
+      if system_instruction do
+        Map.put(body, :systemInstruction, %{parts: [%{text: system_instruction}]})
+      else
+        body
+      end
+
+    body =
+      if cached_content do
+        Map.put(body, :cachedContent, cached_content)
+      else
+        body
+      end
+
+    body =
+      if map_size(generation_config) > 0 do
+        Map.put(body, :generationConfig, generation_config)
+      else
+        body
+      end
+
+    body
+  end
+
+  defp maybe_put_generation(list, _key, nil) when is_list(list), do: list
+
+  defp maybe_put_generation(list, key, value) when is_list(list) do
+    [{key, value} | list]
+  end
+
+  defp stream_event_translator(stream_id, subscriber_pid, schema) do
+    accumulator = %{
+      text_chunks: [],
+      usage: nil,
+      finish_reason: nil,
+      finish_message: nil
+    }
+
+    stream_event_loop(stream_id, subscriber_pid, schema, accumulator)
+  end
+
+  defp stream_event_loop(stream_id, subscriber_pid, schema, acc) do
+    receive do
+      {:stream_event, ^stream_id, %{type: :data, data: data}} ->
+        text = extract_chunk_text(data)
+        usage = extract_chunk_usage(data)
+        finish_reason = extract_chunk_finish_reason(data)
+        finish_message = extract_chunk_finish_message(data)
+
+        if text && text != "" do
+          send(
+            subscriber_pid,
+            {:llm_stream_chunk, stream_id,
+             %{
+               text: text,
+               usage: usage
+             }}
+          )
+        end
+
+        new_acc = %{
+          acc
+          | text_chunks: if(text, do: acc.text_chunks ++ [text], else: acc.text_chunks),
+            usage: usage || acc.usage,
+            finish_reason: finish_reason || acc.finish_reason,
+            finish_message: finish_message || acc.finish_message
+        }
+
+        stream_event_loop(stream_id, subscriber_pid, schema, new_acc)
+
+      {:stream_complete, ^stream_id} ->
+        full_text = Enum.join(acc.text_chunks, "")
+
+        final_response =
+          build_final_response(
+            full_text,
+            acc.usage,
+            acc.finish_reason,
+            acc.finish_message,
+            schema
+          )
+
+        send(subscriber_pid, {:llm_stream_complete, stream_id, final_response})
+
+      {:stream_error, ^stream_id, error} ->
+        send(subscriber_pid, {:llm_stream_error, stream_id, normalize_error(error)})
+    after
+      600_000 ->
+        send(
+          subscriber_pid,
+          {:llm_stream_error, stream_id,
+           %{
+             type: :timeout,
+             message: "Stream timed out after 10 minutes"
+           }}
+        )
+    end
+  end
+
+  defp extract_chunk_text(%{"candidates" => [%{"content" => %{"parts" => parts}} | _]}) do
+    parts
+    |> Enum.map_join("", fn
+      %{"text" => text} -> text
+      _ -> ""
+    end)
+  end
+
+  defp extract_chunk_text(_), do: nil
+
+  defp extract_chunk_usage(%{"usageMetadata" => usage}) when is_map(usage) do
+    %{
+      "total_tokens" => Map.get(usage, "totalTokenCount"),
+      "input_tokens" => Map.get(usage, "promptTokenCount"),
+      "output_tokens" => Map.get(usage, "candidatesTokenCount"),
+      "cached_input_tokens" => Map.get(usage, "cachedContentTokenCount")
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp extract_chunk_usage(_), do: nil
+
+  defp extract_chunk_finish_reason(%{"candidates" => [%{"finishReason" => reason} | _]}) do
+    reason
+  end
+
+  defp extract_chunk_finish_reason(_), do: nil
+
+  defp extract_chunk_finish_message(%{"candidates" => [%{"finishMessage" => msg} | _]})
+       when is_binary(msg) do
+    msg
+  end
+
+  defp extract_chunk_finish_message(_), do: nil
+
+  defp build_final_response(full_text, usage, finish_reason, finish_message, schema) do
+    {object, repair_status} = decode_object(full_text, schema)
+
+    %{
+      "object" => object,
+      "text" => full_text,
+      "usage" => usage || %{},
+      "request_id" => nil,
+      "repair_status" => repair_status,
+      "finish_reason" => finish_reason,
+      "finish_message" => finish_message,
+      "has_content" => full_text != "",
+      "parts_count" => if(full_text != "", do: 1, else: 0),
+      "response_id" => nil,
+      "model_version" => nil,
+      "thoughts_token_count" => nil,
+      "traffic_type" => nil
+    }
+  end
 end

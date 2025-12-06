@@ -467,9 +467,13 @@ defmodule Lumainus.Reports do
 
   defp enqueue_section_runs(run, section_runs, opts) do
     worker = Keyword.get(opts, :worker, SectionRunWorker)
+    stream? = Keyword.get(opts, :stream, false)
 
     Enum.reduce_while(section_runs, :ok, fn section_run, _acc ->
-      case worker.new(%{"section_run_id" => section_run.id}) |> Oban.insert() do
+      job_args = %{"section_run_id" => section_run.id}
+      job_args = if stream?, do: Map.put(job_args, "stream", true), else: job_args
+
+      case worker.new(job_args) |> Oban.insert() do
         {:ok, _job} ->
           {:cont, :ok}
 

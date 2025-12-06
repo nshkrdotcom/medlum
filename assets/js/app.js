@@ -166,6 +166,41 @@ Hooks.CopyInvitationLink = {
   },
 }
 
+Hooks.StreamingScroll = {
+  mounted() {
+    this.scrollToBottom()
+    this.observer = new MutationObserver(() => {
+      this.scrollToBottom()
+    })
+    this.observer.observe(this.el, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    })
+  },
+
+  updated() {
+    if (this.isNearBottom()) {
+      this.scrollToBottom()
+    }
+  },
+
+  destroyed() {
+    if (this.observer) {
+      this.observer.disconnect()
+    }
+  },
+
+  scrollToBottom() {
+    this.el.scrollTop = this.el.scrollHeight
+  },
+
+  isNearBottom() {
+    const threshold = 50
+    return (this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight) < threshold
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

@@ -57,7 +57,7 @@ defmodule Lumainus.Reports.CacheSetting do
 
   schema "cache_settings" do
     field(:system_prompt, :string, default: @default_system_prompt)
-    field(:model, :string, default: "gemini-2.5-flash")
+    field(:model, :string, default: "gemini-3-pro-preview")
     field(:ttl_seconds, :integer, default: 3600)
     field(:enabled, :boolean, default: true)
     field(:singleton, :boolean, default: true)

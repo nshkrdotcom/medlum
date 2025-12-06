@@ -125,7 +125,7 @@ defmodule Lumainus.Reports.CacheSettings do
   def defaults_from_env do
     %{
       system_prompt: CacheSetting.default_system_prompt(),
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       ttl_seconds: 3600,
       enabled: true,
       singleton: true
