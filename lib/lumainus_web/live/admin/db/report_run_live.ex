@@ -15,7 +15,9 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
   import LumainusWeb.Admin.Db.BackpexHelpers
 
   def item_query(query, _live_action, _assigns) do
-    from(q in query, preload: [:tenant, :patient])
+    from(q in query,
+      preload: [:tenant, :patient, :template, :triggered_by, :summary_invocation]
+    )
   end
 
   @impl Backpex.LiveResource
@@ -65,6 +67,20 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
         label: "Last Activity At",
         render: datetime_render()
       },
+      cached_content_name: %{
+        module: Backpex.Fields.Text,
+        label: "Cache Key",
+        readonly: true,
+        render: fn assigns ->
+          value = assigns.value || "--"
+
+          truncated =
+            if byte_size(value) > 36, do: "..." <> String.slice(value, -35, 35), else: value
+
+          assigns = Map.put(assigns, :truncated, truncated)
+          ~H(<span class="font-mono text-xs">{@truncated}</span>)
+        end
+      },
       tenant: %{
         module: Backpex.Fields.BelongsTo,
         label: "Tenant",
@@ -76,6 +92,29 @@ defmodule LumainusWeb.Admin.Db.ReportRunLive do
         label: "Patient",
         display_field: :patient_key,
         live_resource: LumainusWeb.Admin.Db.PatientLive
+      },
+      record_set_id: %{
+        module: Backpex.Fields.Text,
+        label: "Record Set ID",
+        readonly: true
+      },
+      template: %{
+        module: Backpex.Fields.BelongsTo,
+        label: "Template",
+        display_field: :name,
+        live_resource: LumainusWeb.Admin.Db.ReportTemplateLive
+      },
+      triggered_by: %{
+        module: Backpex.Fields.BelongsTo,
+        label: "Triggered By",
+        display_field: :email,
+        live_resource: LumainusWeb.Admin.Db.UserLive
+      },
+      summary_invocation: %{
+        module: Backpex.Fields.BelongsTo,
+        label: "Summary Invocation",
+        display_field: :id,
+        live_resource: LumainusWeb.Admin.Db.LlmInvocationLive
       },
       inserted_at: %{
         module: Backpex.Fields.DateTime,

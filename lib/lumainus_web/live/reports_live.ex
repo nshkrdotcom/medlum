@@ -25,8 +25,7 @@ defmodule LumainusWeb.ReportsLive do
 
   @document_modal_tabs [
     %{id: "summary", label: "Summary"},
-    %{id: "cleaned", label: "Cleaned text"},
-    %{id: "raw", label: "Raw PDF text"}
+    %{id: "cleaned", label: "Full document"}
   ]
   @document_modal_tab_ids Enum.map(@document_modal_tabs, & &1.id)
   @document_summary_preview_bytes 1_000
@@ -104,12 +103,17 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   @impl true
-  def handle_event("open_document_modal", %{"doc-id" => doc_id}, socket) do
+  def handle_event("open_document_modal", %{"doc-id" => doc_id} = params, socket) do
     Logger.debug("Looking for document with ID: #{inspect(doc_id)}")
 
     Logger.debug(
       "Available documents: #{inspect(Enum.map(socket.assigns.documents, &{&1.id, &1.sequence, &1.mock_id}))}"
     )
+
+    line_start = parse_int(params["line-start"])
+    line_end = parse_int(params["line-end"])
+    ranges = normalize_ranges(line_start, line_end, params["ranges"])
+    section_context = build_section_context(socket.assigns.visible_sections, params["section-id"])
 
     case find_document_by_id(socket.assigns.documents, doc_id) do
       nil ->
@@ -129,8 +133,8 @@ defmodule LumainusWeb.ReportsLive do
         content =
           Reports.get_document_content(doc.id,
             cleaned_limit: @document_modal_content_bytes,
-            raw_limit: @document_modal_content_bytes,
-            summary_limit: @document_modal_summary_bytes
+            summary_limit: @document_modal_summary_bytes,
+            include_raw?: false
           )
 
         doc_with_content =
@@ -141,14 +145,15 @@ defmodule LumainusWeb.ReportsLive do
           |> Map.put(:cleaned_content, content.cleaned_content)
           |> Map.put(:cleaned_truncated?, content.cleaned_truncated? || false)
           |> Map.put(:cleaned_limit, content.cleaned_limit || @document_modal_content_bytes)
-          |> Map.put(:raw_content, content.raw_content)
-          |> Map.put(:raw_truncated?, content.raw_truncated? || false)
-          |> Map.put(:raw_limit, content.raw_limit || @document_modal_content_bytes)
+
+        focus = build_focus_context(doc_with_content.cleaned_content, ranges)
 
         {:noreply,
          socket
          |> assign(:document_modal_document, doc_with_content)
-         |> assign(:document_modal_tab, "summary")
+         |> assign(:document_modal_section, section_context)
+         |> assign(:document_modal_focus, focus)
+         |> assign(:document_modal_tab, if(focus, do: "cleaned", else: "summary"))
          |> assign(:document_modal_open, true)}
     end
   end
@@ -158,6 +163,9 @@ defmodule LumainusWeb.ReportsLive do
     {:noreply,
      socket
      |> assign(:document_modal_document, nil)
+     |> assign(:document_modal_focus, nil)
+     |> assign(:document_modal_section, nil)
+     |> assign(:document_modal_tab, "summary")
      |> assign(:document_modal_open, false)}
   end
 
@@ -188,6 +196,8 @@ defmodule LumainusWeb.ReportsLive do
      socket
      |> assign(:debug_selected_run_id, run_id)
      |> assign(:debug_selected_run, run_details)
+     |> assign(:visible_sections, visible_sections(socket, run_details))
+     |> assign(:visible_run_id, run_id)
      |> assign(:debug_expanded_sections, MapSet.new())}
   end
 
@@ -199,6 +209,23 @@ defmodule LumainusWeb.ReportsLive do
         MapSet.delete(expanded, section_id)
       else
         MapSet.put(expanded, section_id)
+      end
+
+    {:noreply, assign(socket, :debug_expanded_sections, updated)}
+  end
+
+  def handle_event("toggle_debug_sections_all", %{"action" => action}, socket) do
+    ids =
+      case socket.assigns[:debug_selected_run] do
+        %{section_runs: runs} when is_list(runs) -> Enum.map(runs, &to_string(&1.id))
+        _ -> []
+      end
+
+    updated =
+      case action do
+        "expand" -> MapSet.new(ids)
+        "collapse" -> MapSet.new()
+        _ -> socket.assigns.debug_expanded_sections
       end
 
     {:noreply, assign(socket, :debug_expanded_sections, updated)}
@@ -713,6 +740,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:record_set_latest_runs, record_set_latest_runs)
       |> assign(:recent_runs, recent_runs)
       |> assign(:patients, patients)
+      |> assign(:visible_sections, sections)
       |> assign(:docling_health, docling_health)
       |> assign(:docling_backend, selected_backend)
       |> assign(:fast_available?, fast_available?)
@@ -724,6 +752,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:active_record_set_id, workspace.record_set.id)
       |> assign(:selected_document, nil)
       |> assign(:document_modal_document, nil)
+      |> assign(:document_modal_section, nil)
       |> assign(:document_modal_open, false)
       |> assign(:document_modal_tab, "summary")
       |> assign_new(:upload_blocked_reason, fn -> nil end)
@@ -733,8 +762,10 @@ defmodule LumainusWeb.ReportsLive do
       |> assign_new(:conversion_job_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:record_set_subscriptions, fn -> MapSet.new() end)
       |> assign_new(:report_run_subscriptions, fn -> MapSet.new() end)
+      |> assign_new(:visible_run_id, fn -> nil end)
+      |> assign_new(:document_modal_focus, fn -> nil end)
       |> assign(:health_check_retry_count, 0)
-      |> assign_debug_panel(scope, recent_runs)
+      |> assign_debug_panel(scope)
 
     socket
     |> maybe_refresh_document_modal()
@@ -743,7 +774,7 @@ defmodule LumainusWeb.ReportsLive do
     |> subscribe_to_job_topics()
   end
 
-  defp assign_debug_panel(socket, scope, _recent_runs) do
+  defp assign_debug_panel(socket, scope) do
     t1 = System.monotonic_time(:millisecond)
     # Keep debug list light to avoid heavy preloads / JSON decode
     all_runs = Reports.list_runs_for_record_set(scope, socket.assigns.record_set, limit: 8)
@@ -771,6 +802,8 @@ defmodule LumainusWeb.ReportsLive do
     |> assign(:debug_runs, all_runs)
     |> assign(:debug_selected_run_id, selected_run_id)
     |> assign(:debug_selected_run, selected_run_details)
+    |> assign(:visible_sections, visible_sections(socket, selected_run_details))
+    |> assign(:visible_run_id, selected_run_id)
     |> assign_new(:debug_expanded_sections, fn -> MapSet.new() end)
   end
 
@@ -1358,6 +1391,107 @@ defmodule LumainusWeb.ReportsLive do
       }
     end)
   end
+
+  defp visible_sections(socket, nil) do
+    socket.assigns.visible_sections || socket.assigns.sections
+  end
+
+  defp visible_sections(_socket, run_details), do: sections_from_run(run_details)
+
+  defp sections_from_run(%{section_runs: section_runs}) when is_list(section_runs) do
+    section_runs
+    |> Enum.sort_by(fn sr ->
+      if sr.section_template, do: sr.section_template.position || 0, else: 0
+    end)
+    |> Enum.map(fn sr ->
+      %{
+        section: sr.section_template,
+        last_run: format_run(sr),
+        status: sr.status || (sr.output_markdown && "completed") || "pending"
+      }
+    end)
+  end
+
+  defp sections_from_run(_), do: []
+
+  defp build_focus_context(_content, ranges) when ranges == [] or is_nil(ranges), do: nil
+
+  defp build_focus_context(content, ranges) when is_list(ranges) do
+    {min_start, max_end} =
+      ranges
+      |> Enum.reduce({nil, nil}, fn {s, e}, {min_acc, max_acc} ->
+        {
+          if(min_acc, do: min(min_acc, s), else: s),
+          if(max_acc, do: max(max_acc, e), else: e)
+        }
+      end)
+
+    min_start = min_start || 1
+    max_end = max_end || min_start
+
+    numbered =
+      (content || "")
+      |> to_string()
+      |> String.split("\n")
+      |> Enum.reduce({[], 1}, fn line, {acc, idx} ->
+        trimmed = String.trim_trailing(line)
+
+        if String.trim(trimmed) == "" do
+          {acc, idx}
+        else
+          {[{idx, trimmed} | acc], idx + 1}
+        end
+      end)
+      |> elem(0)
+      |> Enum.reverse()
+
+    window_start = max(min_start - 2, 1)
+    window_end = max_end + 2
+
+    lines =
+      numbered
+      |> Enum.filter(fn {num, _} -> num >= window_start and num <= window_end end)
+      |> Enum.map(fn {num, text} ->
+        %{
+          number: num,
+          text: text,
+          highlight: Enum.any?(ranges, fn {s, e} -> num >= s and num <= e end)
+        }
+      end)
+
+    if lines == [] do
+      nil
+    else
+      %{
+        line_start: min_start,
+        line_end: max_end,
+        lines: lines,
+        ranges: ranges
+      }
+    end
+  end
+
+  defp build_focus_context(_content, _ranges), do: nil
+
+  defp build_section_context(_sections, nil), do: nil
+
+  defp build_section_context(sections, section_id) when is_list(sections) do
+    section =
+      Enum.find(sections, fn entry ->
+        entry.section && to_string(entry.section.id) == to_string(section_id)
+      end)
+
+    if section && section.last_run && section.last_run.output_markdown do
+      %{
+        title: section.section && section.section.title,
+        excerpt: section_excerpt(section.last_run.output_markdown)
+      }
+    else
+      nil
+    end
+  end
+
+  defp build_section_context(_sections, _), do: nil
 
   defp find_document_by_id(documents, doc_id) do
     doc_id = to_string(doc_id)
@@ -2471,6 +2605,7 @@ defmodule LumainusWeb.ReportsLive do
 
   defp format_run(run) do
     citations = Enum.map(run.citations || [], &format_citation/1)
+    inline = format_inline_citations(run.inline_citations, citations)
 
     %{
       id: run.id,
@@ -2478,7 +2613,8 @@ defmodule LumainusWeb.ReportsLive do
       output_markdown: run.output_markdown,
       updated_at: run.updated_at,
       citations: citations,
-      inline_citations: format_inline_citations(run.inline_citations, citations)
+      inline_citations: inline,
+      doc_citations: aggregate_doc_citations(inline, citations)
     }
   end
 
@@ -2486,7 +2622,9 @@ defmodule LumainusWeb.ReportsLive do
     %{
       id: citation.id,
       label: citation.citation_label,
-      document_id: citation.document_id
+      document_id: citation.document_id,
+      line_start: get_in(citation.source_span || %{}, ["line_start"]),
+      line_end: get_in(citation.source_span || %{}, ["line_end"])
     }
   end
 
@@ -2538,15 +2676,85 @@ defmodule LumainusWeb.ReportsLive do
 
   defp inline_from_persisted(citations) when is_list(citations) do
     Enum.map(citations, fn citation ->
+      source_span = citation.source_span || %{}
+
       %{
         document_reference: citation.label,
         document_id: citation.document_id,
         label: citation.label,
-        line_start: nil,
-        line_end: nil
+        line_start: source_span["line_start"],
+        line_end: source_span["line_end"]
       }
     end)
   end
+
+  defp aggregate_doc_citations(inline_citations, persisted_citations) do
+    labels =
+      persisted_citations
+      |> Enum.reduce(%{}, fn c, acc -> Map.put_new(acc, c.document_id, c.label) end)
+
+    inline_citations
+    |> Enum.group_by(& &1.document_id)
+    |> Enum.map(fn {doc_id, entries} ->
+      ranges =
+        entries
+        |> Enum.map(fn c ->
+          {
+            c[:line_start] || c["line_start"],
+            c[:line_end] || c["line_end"] || c[:line_start] || c["line_start"]
+          }
+        end)
+        |> Enum.filter(fn {s, _e} -> is_integer(s) end)
+        |> merge_ranges()
+
+      label =
+        entries
+        |> Enum.find_value(fn c -> c[:label] || c["label"] end) ||
+          Map.get(labels, doc_id) || "doc"
+
+      %{
+        document_id: doc_id,
+        label: label,
+        ranges: ranges
+      }
+    end)
+    |> Enum.sort_by(& &1.label)
+  end
+
+  defp merge_ranges(ranges) do
+    ranges
+    |> Enum.map(fn {s, e} -> {s, e || s} end)
+    |> Enum.sort()
+    |> Enum.reduce([], fn {s, e}, acc ->
+      case acc do
+        [] ->
+          [{s, e}]
+
+        [{ps, pe} | rest] ->
+          if s <= pe + 1 do
+            [{ps, max(pe, e)} | rest]
+          else
+            [{s, e} | acc]
+          end
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp section_citation_docs(%{doc_citations: citations}, documents) when is_list(citations) do
+    Enum.map(citations, fn cite ->
+      doc = find_document_by_id(documents, cite.document_id)
+      display_label = format_doc_button_label(doc, cite.label)
+
+      %{
+        document_id: cite.document_id,
+        label: display_label,
+        ranges: cite.ranges || []
+      }
+    end)
+  end
+
+  defp section_citation_docs(_, _), do: []
 
   defp lookup_citation_doc_id(citations, ref, label) do
     Enum.find_value(citations, fn
@@ -2877,6 +3085,78 @@ defmodule LumainusWeb.ReportsLive do
         color: #0f172a;
       }
 
+      .document-focus {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px;
+        background: #f8fafc;
+        margin-bottom: 12px;
+      }
+
+      .document-focus-header {
+        font-size: 12px;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 8px;
+      }
+
+      .document-section-snippet {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #fff;
+        margin-bottom: 10px;
+      }
+
+      .document-section-snippet h4 {
+        margin: 0 0 4px 0;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #94a3b8;
+      }
+
+      .document-section-snippet .snippet-text {
+        font-size: 12px;
+        color: #475569;
+      }
+
+      .document-focus-lines {
+        max-height: 220px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .focus-line {
+        display: flex;
+        gap: 8px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 8px;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+      }
+
+      .focus-line.active {
+        border-color: #2563eb;
+        background: #e0e7ff;
+      }
+
+      .focus-line-number {
+        width: 52px;
+        color: #475569;
+        flex-shrink: 0;
+      }
+
+      .focus-line pre {
+        margin: 0;
+        white-space: pre-wrap;
+      }
+
       .document-modal-content pre {
         white-space: pre-wrap;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
@@ -3129,17 +3409,17 @@ defmodule LumainusWeb.ReportsLive do
       .provenance-link {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
+        gap: 3px;
         border-radius: 999px;
         border: 1px solid #c7d2fe;
         background: #edf2ff;
         color: #3730a3;
-        padding: 2px 12px;
-        font-size: 12px;
+        padding: 1px 8px;
+        font-size: 11px;
         font-weight: 500;
         cursor: pointer;
         transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 100ms ease;
-        margin: 0 4px;
+        margin: 0 2px;
         white-space: nowrap;
       }
 
@@ -3275,6 +3555,15 @@ defmodule LumainusWeb.ReportsLive do
         overflow-y: auto;
       }
 
+      .debug-footer-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px 20px 16px;
+        border-top: 1px solid #e2e8f0;
+        background: #f8fafc;
+      }
+
       .debug-section {
         border-bottom: 1px solid #e2e8f0;
       }
@@ -3396,6 +3685,31 @@ defmodule LumainusWeb.ReportsLive do
 
       .debug-block-content.json {
         color: #0f172a;
+      }
+
+      .debug-citation-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+
+      .debug-citation-chip {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: #e0f2fe;
+        color: #075985;
+        border: 1px solid #bae6fd;
+      }
+
+      .debug-citation-excerpt {
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #475569;
+        border: 1px dashed #e2e8f0;
       }
 
       .debug-usage-grid {
@@ -3629,6 +3943,27 @@ defmodule LumainusWeb.ReportsLive do
               <% end %>
             </select>
           </form>
+          <%= if Enum.any?(@debug_runs) do %>
+            <form
+              id="report-run-switcher"
+              phx-change="select_debug_run"
+              class="flex items-center gap-2"
+            >
+              <label class="text-xs font-medium text-slate-600">Report run</label>
+              <select
+                name="run-id"
+                class="select select-sm w-64 bg-white text-slate-900 border-slate-300"
+              >
+                <%= for run <- @debug_runs do %>
+                  <option value={run.id} selected={run.id == @visible_run_id}>
+                    {String.capitalize(run.run_type || "full")} · {String.capitalize(
+                      run.status || "pending"
+                    )} · {format_timestamp(run.inserted_at, @locale, @timezone)}
+                  </option>
+                <% end %>
+              </select>
+            </form>
+          <% end %>
           <button
             type="button"
             class="btn btn-outline btn-sm text-slate-700 border-slate-300 bg-slate-50 hover:bg-slate-100"
@@ -4010,7 +4345,7 @@ defmodule LumainusWeb.ReportsLive do
         </aside>
 
         <section class="section-grid">
-          <%= for section_entry <- @sections do %>
+          <%= for section_entry <- @visible_sections do %>
             <article class="section-card" data-status={section_entry.status}>
               <header style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
@@ -4032,9 +4367,9 @@ defmodule LumainusWeb.ReportsLive do
                     ]}
                     phx-click="run_section"
                     phx-value-section-id={section_entry.section.id}
-                    disabled={MapSet.member?(@running_sections, section_entry.section.id)}
+                    disabled={MapSet.member?(@running_sections, to_string(section_entry.section.id))}
                   >
-                    <%= if MapSet.member?(@running_sections, section_entry.section.id) do %>
+                    <%= if MapSet.member?(@running_sections, to_string(section_entry.section.id)) do %>
                       Running…
                     <% else %>
                       Run Section
@@ -4043,40 +4378,50 @@ defmodule LumainusWeb.ReportsLive do
                 </div>
               </header>
 
-              <div class="section-output">
-                <%= if section_entry.last_run do %>
-                  <div style="margin-bottom: 12px; font-size: 12px; color: #94a3b8;">
-                    Updated {format_timestamp(section_entry.last_run.updated_at, @locale, @timezone)}
-                  </div>
-                  <Markdown.markdown
-                    content={section_entry.last_run.output_markdown}
-                    fallback="Awaiting output"
-                    class="report-markdown"
-                    inline_citations={section_entry.last_run.inline_citations}
-                  />
-                <% else %>
-                  <div style="font-size: 13px; color: #94a3b8;">
-                    No output generated yet. Run this section to produce the initial draft.
-                  </div>
-                <% end %>
-              </div>
-
-              <%= if section_entry.last_run && Enum.any?(section_entry.last_run.citations) do %>
-                <div class="citations">
-                  <%= for citation <- Enum.uniq_by(section_entry.last_run.citations, & &1.document_id) do %>
-                    <%= if citation.document_id do %>
-                      <button
-                        type="button"
-                        phx-click="open_document_modal"
-                        phx-value-doc-id={citation.document_id}
-                      >
-                        {citation.label}
-                      </button>
-                    <% else %>
-                      <span>{citation.label}</span>
-                    <% end %>
+              <%= if MapSet.member?(@running_sections, to_string(section_entry.section.id)) do %>
+                <div class="section-output flex justify-center items-center py-12">
+                  <span class="loading loading-spinner loading-lg text-slate-400"></span>
+                </div>
+              <% else %>
+                <div class="section-output">
+                  <%= if section_entry.last_run do %>
+                    <div style="margin-bottom: 12px; font-size: 12px; color: #94a3b8;">
+                      Updated {format_timestamp(section_entry.last_run.updated_at, @locale, @timezone)}
+                    </div>
+                    <Markdown.markdown
+                      content={section_entry.last_run.output_markdown}
+                      fallback="Awaiting output"
+                      class="report-markdown"
+                      inline_citations={section_entry.last_run.inline_citations}
+                      section_id={section_entry.section.id}
+                    />
+                  <% else %>
+                    <div style="font-size: 13px; color: #94a3b8;">
+                      No output generated yet. Run this section to produce the initial draft.
+                    </div>
                   <% end %>
                 </div>
+
+                <%= if section_entry.last_run &&
+                        Enum.any?(section_citation_docs(section_entry.last_run, @documents)) do %>
+                  <div class="citations">
+                    <%= for citation <- section_citation_docs(section_entry.last_run, @documents) do %>
+                      <%= if citation.document_id do %>
+                        <button
+                          type="button"
+                          phx-click="open_document_modal"
+                          phx-value-doc-id={citation.document_id}
+                          phx-value-ranges={encode_ranges(citation.ranges)}
+                          phx-value-section-id={section_entry.section.id}
+                        >
+                          {citation.label}
+                        </button>
+                      <% else %>
+                        <span>{citation.label}</span>
+                      <% end %>
+                    <% end %>
+                  </div>
+                <% end %>
               <% end %>
             </article>
           <% end %>
@@ -4102,19 +4447,42 @@ defmodule LumainusWeb.ReportsLive do
             </svg>
             Report Run Inspector
           </h3>
-          <%= if Enum.any?(@debug_runs) do %>
-            <form phx-change="select_debug_run">
-              <select name="run-id" class="debug-select">
-                <%= for run <- @debug_runs do %>
-                  <option value={run.id} selected={run.id == @debug_selected_run_id}>
-                    {String.capitalize(run.run_type || "full")} run · {String.capitalize(
-                      run.status || "pending"
-                    )} · {format_timestamp(run.inserted_at, @locale, @timezone)}
-                  </option>
-                <% end %>
-              </select>
-            </form>
-          <% end %>
+          <div class="flex items-center gap-3">
+            <%= if Enum.any?(@debug_runs) do %>
+              <form phx-change="select_debug_run">
+                <select name="run-id" class="debug-select">
+                  <%= for run <- @debug_runs do %>
+                    <option value={run.id} selected={run.id == @debug_selected_run_id}>
+                      {String.capitalize(run.run_type || "full")} run · {String.capitalize(
+                        run.status || "pending"
+                      )} · {format_timestamp(run.inserted_at, @locale, @timezone)}
+                    </option>
+                  <% end %>
+                </select>
+              </form>
+            <% end %>
+
+            <%= if @debug_selected_run && Enum.any?(@debug_selected_run.section_runs || []) do %>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs border border-slate-200"
+                  phx-click="toggle_debug_sections_all"
+                  phx-value-action="expand"
+                >
+                  Expand all
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs border border-slate-200"
+                  phx-click="toggle_debug_sections_all"
+                  phx-value-action="collapse"
+                >
+                  Collapse all
+                </button>
+              </div>
+            <% end %>
+          </div>
         </div>
 
         <%= if @debug_selected_run do %>
@@ -4132,9 +4500,34 @@ defmodule LumainusWeb.ReportsLive do
               </span>
             </div>
             <div class="debug-meta-item">
+              <span class="debug-meta-label">Run ID</span>
+              <span class="debug-meta-value" style="font-size: 11px; font-family: monospace;">
+                {@debug_selected_run.id}
+              </span>
+            </div>
+            <div class="debug-meta-item">
               <span class="debug-meta-label">Template</span>
               <span class="debug-meta-value">
                 {(@debug_selected_run.template && @debug_selected_run.template.name) || "—"}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Patient</span>
+              <span class="debug-meta-value">
+                {(@debug_selected_run.patient && @debug_selected_run.patient.patient_key) ||
+                  (@debug_selected_run.patient && @debug_selected_run.patient.id) || "—"}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Record Set</span>
+              <span class="debug-meta-value">
+                {@debug_selected_run.record_set_id || "—"}
+              </span>
+            </div>
+            <div class="debug-meta-item">
+              <span class="debug-meta-label">Triggered By</span>
+              <span class="debug-meta-value">
+                {(@debug_selected_run.triggered_by && @debug_selected_run.triggered_by.email) || "—"}
               </span>
             </div>
             <div class="debug-meta-item">
@@ -4157,11 +4550,21 @@ defmodule LumainusWeb.ReportsLive do
                 </span>
               </div>
             <% end %>
+            <%= if @debug_selected_run.summary_invocation do %>
+              <div class="debug-meta-item">
+                <span class="debug-meta-label">Summary Invocation</span>
+                <span class="debug-meta-value" style="font-size: 11px; font-family: monospace;">
+                  {@debug_selected_run.summary_invocation.id} ({String.capitalize(
+                    @debug_selected_run.summary_invocation.status || "pending"
+                  )})
+                </span>
+              </div>
+            <% end %>
           </div>
 
           <div class="debug-sections">
             <%= for section_run <- Enum.sort_by(@debug_selected_run.section_runs || [], & &1.section_template && &1.section_template.position) do %>
-              <% expanded? = MapSet.member?(@debug_expanded_sections, section_run.id) %>
+              <% expanded? = MapSet.member?(@debug_expanded_sections, to_string(section_run.id)) %>
               <div class="debug-section">
                 <button
                   type="button"
@@ -4346,6 +4749,44 @@ defmodule LumainusWeb.ReportsLive do
                         </div>
                       <% end %>
 
+                      <%!-- Persisted Citations --%>
+                      <%= if section_run.citations && section_run.citations != [] do %>
+                        <div class="debug-block">
+                          <div class="debug-block-header">
+                            <span>Persisted Citations</span>
+                            <span class="debug-block-badge">report_section_citations</span>
+                          </div>
+                          <div class="debug-block-content">
+                            <%= for cite <- section_run.citations do %>
+                              <div class="debug-citation-row">
+                                <span class="debug-citation-chip">
+                                  {cite.citation_label || "—"}
+                                </span>
+                                <span class="debug-citation-chip">
+                                  Doc: {cite.document_id || "—"}
+                                </span>
+                                <span class="debug-citation-chip">
+                                  Lines: {format_line_range(
+                                    get_in(cite.source_span || %{}, ["line_start"]),
+                                    get_in(cite.source_span || %{}, ["line_end"])
+                                  )}
+                                </span>
+                                <%= if chunk_id = get_in(cite.source_span || %{}, ["chunk_id"]) do %>
+                                  <span class="debug-citation-chip">
+                                    Chunk: {chunk_id}
+                                  </span>
+                                <% end %>
+                                <%= if excerpt = get_in(cite.source_span || %{}, ["excerpt"]) do %>
+                                  <span class="debug-citation-excerpt">
+                                    {String.slice(excerpt, 0, 160)}
+                                  </span>
+                                <% end %>
+                              </div>
+                            <% end %>
+                          </div>
+                        </div>
+                      <% end %>
+
                       <%!-- Error --%>
                       <%= if inv.error do %>
                         <div class="debug-block">
@@ -4407,6 +4848,27 @@ defmodule LumainusWeb.ReportsLive do
               </div>
             <% end %>
           </div>
+
+          <%= if @debug_selected_run && Enum.any?(@debug_selected_run.section_runs || []) do %>
+            <div class="debug-footer-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs border border-slate-200"
+                phx-click="toggle_debug_sections_all"
+                phx-value-action="expand"
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs border border-slate-200"
+                phx-click="toggle_debug_sections_all"
+                phx-value-action="collapse"
+              >
+                Collapse all
+              </button>
+            </div>
+          <% end %>
         <% else %>
           <div class="debug-empty">
             No report runs yet for this workspace. Run a report to see execution details here.
@@ -4467,6 +4929,37 @@ defmodule LumainusWeb.ReportsLive do
             </div>
           </div>
 
+          <%= if @document_modal_focus do %>
+            <div class="document-focus">
+              <div class="document-focus-header">
+                Reference {format_line_range(
+                  @document_modal_focus.line_start,
+                  @document_modal_focus.line_end
+                )}
+              </div>
+              <div class="document-focus-lines">
+                <%= for line <- @document_modal_focus.lines do %>
+                  <div class={["focus-line", line.highlight && "active"]}>
+                    <span class="focus-line-number">L{pad_line(line.number)}</span>
+                    <pre>{line.text}</pre>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
+          <%= if @document_modal_section do %>
+            <div class="document-section-snippet">
+              <h4>Report section</h4>
+              <div class="snippet-text">
+                <strong>{@document_modal_section.title || "Section"}</strong>
+                <%= if @document_modal_section.excerpt do %>
+                  — {@document_modal_section.excerpt}
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
           <div class="document-modal-tabs">
             <%= for tab <- document_modal_tabs() do %>
               <button
@@ -4499,20 +4992,11 @@ defmodule LumainusWeb.ReportsLive do
                 <%= if @document_modal_document.cleaned_truncated? do %>
                   <div class="text-xs text-amber-600 mb-2">
                     Showing first {format_byte_size(@document_modal_document.cleaned_limit)} of
-                    cleaned markdown.
+                    the document text.
                   </div>
                 <% end %>
                 <pre>{@document_modal_document.cleaned_content ||
       "Cleaned markdown will be available when ingestion completes."}</pre>
-              <% "raw" -> %>
-                <%= if @document_modal_document.raw_truncated? do %>
-                  <div class="text-xs text-amber-600 mb-2">
-                    Showing first {format_byte_size(@document_modal_document.raw_limit)} of raw PDF
-                    content.
-                  </div>
-                <% end %>
-                <pre>{@document_modal_document.raw_content ||
-      "Raw PDF text stream not available yet for this upload."}</pre>
               <% _ -> %>
                 <div>Document preview unavailable.</div>
             <% end %>
@@ -4748,6 +5232,15 @@ defmodule LumainusWeb.ReportsLive do
     |> truncate(260)
   end
 
+  defp section_excerpt(nil), do: nil
+
+  defp section_excerpt(text) when is_binary(text) do
+    text
+    |> String.replace(~r/[\r\n]+/, " ")
+    |> String.trim()
+    |> truncate(240)
+  end
+
   defp truncate(text, limit) do
     if String.length(text) <= limit do
       text
@@ -4830,6 +5323,142 @@ defmodule LumainusWeb.ReportsLive do
     |> Atom.to_string()
     |> String.replace("_", " ")
     |> String.capitalize()
+  end
+
+  defp pad_line(line) when is_integer(line) do
+    line
+    |> Integer.to_string()
+    |> String.pad_leading(3, "0")
+  end
+
+  defp pad_line(_), do: "000"
+
+  defp parse_int(nil), do: nil
+  defp parse_int(""), do: nil
+  defp parse_int(value) when is_integer(value), do: value
+
+  defp parse_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, _} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_int(_), do: nil
+
+  defp parse_ranges(nil), do: []
+  defp parse_ranges(""), do: []
+
+  defp parse_ranges(ranges) when is_binary(ranges) do
+    ranges
+    |> String.split(";", trim: true)
+    |> Enum.map(fn part ->
+      case String.split(part, "-", parts: 2) do
+        [single] ->
+          with {s, _} <- Integer.parse(single) do
+            {s, s}
+          else
+            _ -> nil
+          end
+
+        [s, e] ->
+          with {start, _} <- Integer.parse(s),
+               {endv, _} <- Integer.parse(e) do
+            {start, max(endv, start)}
+          else
+            _ -> nil
+          end
+      end
+    end)
+    |> Enum.filter(& &1)
+  end
+
+  defp parse_ranges(_), do: []
+
+  defp normalize_ranges(line_start, line_end, ranges_param) do
+    parsed = parse_ranges(ranges_param)
+
+    cond do
+      parsed != [] ->
+        parsed
+
+      is_integer(line_start) ->
+        [{line_start, line_end || line_start}]
+
+      true ->
+        []
+    end
+  end
+
+  defp encode_ranges([]), do: ""
+
+  defp encode_ranges(ranges) when is_list(ranges) do
+    ranges
+    |> Enum.map(fn {s, e} -> "#{s}-#{e}" end)
+    |> Enum.join(";")
+  end
+
+  defp format_line_range(nil, nil), do: "—"
+
+  defp format_line_range(start_line, nil) when is_integer(start_line) do
+    "L#{pad_line(start_line)}"
+  end
+
+  defp format_line_range(nil, end_line) when is_integer(end_line) do
+    "L#{pad_line(end_line)}"
+  end
+
+  defp format_line_range(start_line, end_line) when start_line == end_line do
+    "L#{pad_line(start_line)}"
+  end
+
+  defp format_line_range(start_line, end_line) do
+    "L#{pad_line(start_line)}-L#{pad_line(end_line)}"
+  end
+
+  defp strip_leading_zeros(rest) do
+    case Integer.parse(rest) do
+      {num, _} -> Integer.to_string(num)
+      _ -> rest
+    end
+  end
+
+  defp format_citation_label(nil), do: "id"
+
+  defp format_citation_label(label) do
+    label
+    |> to_string()
+    |> case do
+      <<"doc-", rest::binary>> -> strip_leading_zeros(rest)
+      <<"id-", rest::binary>> -> strip_leading_zeros(rest)
+      other -> other
+    end
+  end
+
+  defp format_doc_button_label(nil, label), do: format_citation_label(label)
+
+  defp format_doc_button_label(doc, fallback_label) do
+    number =
+      doc.sequence ||
+        case doc.mock_id do
+          <<"doc-", rest::binary>> ->
+            case Integer.parse(rest) do
+              {num, _} -> num
+              _ -> doc.mock_id
+            end
+
+          _ ->
+            doc.mock_id
+        end
+
+    name =
+      doc.label ||
+        (doc.metadata && doc.metadata["label"]) ||
+        doc.filename ||
+        fallback_label ||
+        "Document"
+
+    "#{number}-#{name}"
   end
 
   defp format_token_count(nil), do: "—"

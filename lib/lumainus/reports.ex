@@ -250,6 +250,7 @@ defmodule Lumainus.Reports do
           output_markdown: sr.output_markdown,
           output_object: sr.output_object,
           confidence_score: sr.confidence_score,
+          inline_citations: sr.inline_citations,
           error: sr.error,
           report_run_id: sr.report_run_id,
           section_template_id: sr.section_template_id,
@@ -276,17 +277,43 @@ defmodule Lumainus.Reports do
         }
       )
 
+    summary_invocation_shallow =
+      from(l in LlmInvocation,
+        select: %LlmInvocation{
+          id: l.id,
+          provider: l.provider,
+          model: l.model,
+          status: l.status,
+          error: l.error,
+          usage: l.usage,
+          req_duration_ms: l.req_duration_ms,
+          inserted_at: l.inserted_at,
+          updated_at: l.updated_at
+        }
+      )
+
     result =
       ReportRun
       |> where([r], r.id == ^run_id and r.tenant_id == ^tenant_id)
-      |> preload([:template, section_runs: ^section_runs_shallow])
+      |> preload([
+        :template,
+        :patient,
+        :record_set,
+        :triggered_by,
+        summary_invocation: ^summary_invocation_shallow,
+        section_runs: ^section_runs_shallow
+      ])
       |> Repo.one()
 
     # Load associations for section_runs separately
     result =
       if result do
         section_runs =
-          Repo.preload(result.section_runs, [:section_template, llm_invocation: llm_shallow_query])
+          Repo.preload(result.section_runs, [
+            :section_template,
+            :citations,
+            llm_invocation: llm_shallow_query
+          ])
 
         %{result | section_runs: section_runs}
       else
