@@ -97,12 +97,14 @@ defmodule Lumainus.Reports.RunReconciler do
       statuses == [] ->
         "error"
 
-      # Any section still processing -> not done yet
-      Enum.any?(statuses, &(&1 in ["pending", "queued", "running"])) ->
+      # Any section still processing or retryable -> not done yet
+      # "error" means Oban may still retry, so don't finalize
+      Enum.any?(statuses, &(&1 in ["pending", "queued", "running", "error"])) ->
         nil
 
-      # All done, any errors -> error
-      Enum.any?(statuses, &(&1 in ["error", "timed_out"])) ->
+      # All done, any terminal failures -> error
+      # "failed" = Oban exhausted retries, "timed_out" = timeout reached
+      Enum.any?(statuses, &(&1 in ["failed", "timed_out"])) ->
         "error"
 
       # All completed successfully

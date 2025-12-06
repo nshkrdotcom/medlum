@@ -27,10 +27,24 @@ defmodule Lumainus.Reports.RunReconcilerTest do
       assert updated_run.finished_at != nil
     end
 
-    test "marks run as error when any section has error", %{workspace: workspace} do
+    test "does NOT finalize run when section has error (Oban may retry)", %{workspace: workspace} do
       run = create_run(workspace, status: "running")
       create_section_run(run, workspace, status: "completed")
       create_section_run(run, workspace, status: "error")
+
+      assert {:ok, updated_run} = RunReconciler.maybe_finalize(run.id)
+
+      # Run stays in "running" because "error" means Oban may still retry
+      assert updated_run.status == "running"
+      assert updated_run.finished_at == nil
+    end
+
+    test "marks run as error when any section has failed (exhausted retries)", %{
+      workspace: workspace
+    } do
+      run = create_run(workspace, status: "running")
+      create_section_run(run, workspace, status: "completed")
+      create_section_run(run, workspace, status: "failed")
 
       assert {:ok, updated_run} = RunReconciler.maybe_finalize(run.id)
 

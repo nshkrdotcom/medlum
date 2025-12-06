@@ -13,6 +13,12 @@ defmodule LumainusWeb.Admin.VastAILive do
   alias Lumainus.Cloudflare.Tunnel
   alias Lumainus.VastAI.Availability
 
+  alias LumainusWeb.Admin.VastAILive.Helpers
+  alias LumainusWeb.Admin.VastAILive.Styles
+
+  import Helpers
+  import Styles
+
   @cloudflare_api "https://api.cloudflare.com/client/v4"
 
   # Port used by cloud instances (from VastAI module)
@@ -950,46 +956,6 @@ defmodule LumainusWeb.Admin.VastAILive do
     end
   end
 
-  defp status_classes(status) do
-    cond do
-      status.operational? ->
-        "bg-green-50 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-100 dark:border-green-800"
-
-      status.enabled? ->
-        "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800"
-
-      true ->
-        "bg-red-50 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-100 dark:border-red-800"
-    end
-  end
-
-  defp status_dot_classes(status) do
-    cond do
-      status.operational? -> "bg-green-500"
-      status.enabled? -> "bg-amber-500"
-      true -> "bg-red-500"
-    end
-  end
-
-  defp status_label(status) do
-    cond do
-      status.operational? ->
-        "Vast.ai ready"
-
-      status.enabled? and not status.instance_manager_alive? ->
-        "Instance manager offline"
-
-      status.enabled? and not status.provisioning_state_alive? ->
-        "Provisioning offline"
-
-      status.enabled? ->
-        "Vast.ai configured"
-
-      true ->
-        "Vast.ai disabled"
-    end
-  end
-
   defp add_log(socket, level, message) do
     log_entry = %{
       level: level,
@@ -1040,32 +1006,6 @@ defmodule LumainusWeb.Admin.VastAILive do
       {:error, reason} ->
         assign(socket, offers: [], error: reason)
     end
-  end
-
-  defp build_filters_from_params(params) do
-    %{
-      gpu_name: params["gpu_name"] || "RTX 3090",
-      num_gpus: parse_int(params["num_gpus"], 1),
-      max_price: parse_float(params["max_price"], 0.25),
-      disk_gb: parse_int(params["disk_gb"], 16),
-      min_ram_gb: parse_int(params["min_ram_gb"], 16),
-      min_cpu_cores: parse_int(params["min_cpu_cores"], 4),
-      min_inet_down: parse_int(params["min_inet_down"], 100),
-      geolocation: parse_geolocation(params["geolocation"])
-    }
-  end
-
-  defp default_filters do
-    %{
-      gpu_name: "RTX 3090",
-      num_gpus: 1,
-      max_price: 0.25,
-      disk_gb: 16,
-      min_ram_gb: 16,
-      min_cpu_cores: 4,
-      min_inet_down: 100,
-      geolocation: ["US", "CA"]
-    }
   end
 
   defp compute_dns_status do
@@ -1230,126 +1170,6 @@ defmodule LumainusWeb.Admin.VastAILive do
     socket
   end
 
-  defp tuple_to_ip(tuple) do
-    tuple
-    |> :inet.ntoa()
-    |> to_string()
-  end
-
-  defp strip_trailing_dot(nil), do: nil
-
-  defp strip_trailing_dot(value) when is_binary(value) do
-    String.replace_suffix(value, ".", "")
-  end
-
-  defp mask_zone_id(nil), do: nil
-  defp mask_zone_id(""), do: nil
-
-  defp mask_zone_id(zone_id) when is_binary(zone_id) do
-    prefix = String.slice(zone_id, 0, 6)
-    suffix = String.slice(zone_id, -4, 4)
-    "#{prefix}...#{suffix}"
-  end
-
-  defp format_timestamp(nil, _locale, _timezone), do: ""
-
-  defp format_timestamp(%DateTime{} = dt, locale, timezone) do
-    format_datetime(dt, locale: locale, timezone: timezone, format: :medium) ||
-      dt
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
-  end
-
-  defp format_location(nil), do: "Unknown"
-
-  defp format_location(loc) when is_binary(loc) do
-    loc
-    |> String.trim()
-    |> String.trim_leading(",")
-    |> String.trim()
-    |> case do
-      "" -> "Unknown"
-      value -> value
-    end
-  end
-
-  defp format_location(list) when is_list(list) do
-    list
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.map(&String.trim/1)
-    |> Enum.join(", ")
-    |> case do
-      "" -> "Unknown"
-      value -> value
-    end
-  end
-
-  defp format_location(other), do: to_string(other)
-
-  defp normalize_price(nil), do: nil
-  defp normalize_price(val) when is_integer(val), do: val * 1.0
-  defp normalize_price(val) when is_float(val), do: val
-
-  defp normalize_price(val) when is_binary(val) do
-    case Float.parse(val) do
-      {n, _} -> n
-      :error -> nil
-    end
-  end
-
-  defp normalize_price(%Decimal{} = dec), do: Decimal.to_float(dec)
-  defp normalize_price(_), do: nil
-
-  defp format_price(price) do
-    case normalize_price(price) do
-      nil -> "—"
-      num -> "$" <> :erlang.float_to_binary(num, decimals: 3)
-    end
-  end
-
-  defp offer_gpu_price(offer) do
-    offer["dph_total_gpu"] ||
-      offer["dph_gpu"] ||
-      offer["gpu_total_cost"]
-  end
-
-  defp offer_disk_price(offer) do
-    offer["dph_total_disk"] ||
-      offer["dph_disk"] ||
-      offer["storage_dph"]
-  end
-
-  defp parse_int(nil, default), do: default
-  defp parse_int("", default), do: default
-  defp parse_int(val, _default) when is_integer(val), do: val
-
-  defp parse_int(val, default) when is_binary(val) do
-    case Integer.parse(val) do
-      {n, _} -> n
-      :error -> default
-    end
-  end
-
-  defp parse_float(nil, default), do: default
-  defp parse_float("", default), do: default
-  defp parse_float(val, _default) when is_float(val), do: val
-
-  defp parse_float(val, default) when is_binary(val) do
-    case Float.parse(val) do
-      {n, _} -> n
-      :error -> default
-    end
-  end
-
-  defp parse_geolocation(nil), do: ["US", "CA"]
-  defp parse_geolocation(""), do: ["US", "CA"]
-
-  defp parse_geolocation(val) when is_binary(val) do
-    val |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-  end
-
-  defp parse_geolocation(val) when is_list(val), do: val
-
   defp build_cloud_endpoint(ip) do
     # Prefer Cloudflare tunnel endpoint; fall back to direct IP if FQDN missing
     fqdn =
@@ -1363,51 +1183,8 @@ defmodule LumainusWeb.Admin.VastAILive do
     end
   end
 
-  defp normalize_fqdn(fqdn) do
-    case fqdn do
-      nil ->
-        nil
-
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-    end
-  end
-
   defp docling_image, do: @docling_image
   defp pytorch_image, do: @pytorch_image
-
-  defp has_active_instances?(instances) do
-    Enum.any?(instances, &(&1["actual_status"] in ["running", "loading"]))
-  end
-
-  defp status_badge_class("running") do
-    "inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800"
-  end
-
-  defp status_badge_class("loading") do
-    "inline-flex items-center rounded-full bg-yellow-100 px-2 py-1 text-xs font-semibold text-yellow-800"
-  end
-
-  defp status_badge_class("exited") do
-    "inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800"
-  end
-
-  defp status_badge_class(_) do
-    "inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-800"
-  end
-
-  defp log_level_class(:success), do: "text-green-400"
-  defp log_level_class(:error), do: "text-red-400"
-  defp log_level_class(:warning), do: "text-yellow-400"
-  defp log_level_class(_), do: "text-blue-400"
-
-  defp log_level_icon(:success), do: "✓"
-  defp log_level_icon(:error), do: "✗"
-  defp log_level_icon(:warning), do: "⚠"
-  defp log_level_icon(_), do: "→"
 
   defp get_auto_shutdown_status do
     config = Application.get_env(:lumainus, :vast_ai_auto_shutdown, [])

@@ -473,11 +473,14 @@ defmodule Lumainus.Reports do
     worker = Keyword.get(opts, :worker, SectionRunWorker)
     stream? = Keyword.get(opts, :stream, false)
 
-    Enum.reduce_while(section_runs, :ok, fn section_run, _acc ->
+    # Use index as priority so sections run in order (lower priority = picked first)
+    section_runs
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {section_run, index}, _acc ->
       job_args = %{"section_run_id" => section_run.id}
       job_args = if stream?, do: Map.put(job_args, "stream", true), else: job_args
 
-      case worker.new(job_args) |> Oban.insert() do
+      case worker.new(job_args, priority: index) |> Oban.insert() do
         {:ok, _job} ->
           {:cont, :ok}
 

@@ -118,6 +118,46 @@ defmodule Lumainus.Docling.VastAI.ActivityTracker do
     }
   end
 
+  @doc """
+  Calculate idle time in milliseconds from a given timestamp or state.
+
+  Accepts:
+  - An integer timestamp (monotonic milliseconds)
+  - A map with `:last_activity` field
+  - `nil` (returns 0)
+
+  ## Examples
+
+      iex> calculate_idle_time(System.monotonic_time(:millisecond) - 60_000)
+      60000
+
+      iex> calculate_idle_time(%{last_activity: timestamp})
+      # Returns ms since timestamp
+
+      iex> calculate_idle_time(nil)
+      0
+  """
+  def calculate_idle_time(timestamp) when is_integer(timestamp) do
+    now = System.monotonic_time(:millisecond)
+    now - timestamp
+  end
+
+  def calculate_idle_time(%{last_activity: timestamp}) when is_integer(timestamp) do
+    calculate_idle_time(timestamp)
+  end
+
+  def calculate_idle_time(%{last_activity: nil}), do: 0
+  def calculate_idle_time(nil), do: 0
+
+  @doc """
+  Schedule an idle check message to be sent after the given interval.
+
+  Sends `:check_idle` message to the calling process after `interval_ms` milliseconds.
+  """
+  def schedule_idle_check(interval_ms \\ 60_000) do
+    Process.send_after(self(), :check_idle, interval_ms)
+  end
+
   # =============================================================================
   # GenServer Callbacks
   # =============================================================================

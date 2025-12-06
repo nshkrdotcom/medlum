@@ -68,7 +68,7 @@ defmodule Lumainus.MixProject do
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.5"},
-      {:gemini_ex, "~> 0.7.2"},
+      {:gemini_ex, "~> 0.7.3"},
       {:earmark, "~> 1.4"},
       {:oban, "~> 2.17"},
       {:telemetry_metrics, "~> 1.0"},

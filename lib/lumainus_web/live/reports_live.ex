@@ -1,7 +1,6 @@
 defmodule LumainusWeb.ReportsLive do
   use LumainusWeb, :live_view
 
-  alias Ecto.Changeset
   alias Lumainus.Accounts
   alias Lumainus.Conversion.CloudStatus
   alias Lumainus.Conversion.Service, as: ConversionService
@@ -20,6 +19,8 @@ defmodule LumainusWeb.ReportsLive do
   alias Path
   alias Phoenix.LiveView.JS
   alias LumainusWeb.Markdown
+  import LumainusWeb.ReportsLive.Formatting
+  import LumainusWeb.ReportsLive.CitationHelpers
   import LumainusWeb.Components.ProgressStages
   require Logger
 
@@ -730,9 +731,11 @@ defmodule LumainusWeb.ReportsLive do
         :local
       end
 
+    # Only include truly active sections - not "error" or "failed" which are terminal states
+    # Error sections should show their error state, not pretend to be running
     running_sections =
       sections
-      |> Enum.filter(&(&1.status in ["pending", "queued", "running", "error"]))
+      |> Enum.filter(&(&1.status in ["pending", "queued", "running"]))
       |> Enum.map(& &1.section.id)
       |> MapSet.new()
 
@@ -2632,213 +2635,6 @@ defmodule LumainusWeb.ReportsLive do
     end
   end
 
-  defp format_byte_size(nil), do: "—"
-
-  defp format_byte_size(bytes) when is_integer(bytes) do
-    cond do
-      bytes >= 1_048_576 ->
-        value = bytes / 1_048_576
-        :erlang.float_to_binary(value, decimals: 1) <> " MB"
-
-      bytes >= 1024 ->
-        value = bytes / 1024
-        :erlang.float_to_binary(value, decimals: 1) <> " KB"
-
-      true ->
-        Integer.to_string(bytes) <> " B"
-    end
-  end
-
-  defp truncate_with_flag(nil, _limit), do: {nil, false}
-
-  defp truncate_with_flag(value, limit) when is_integer(limit) and limit > 0 do
-    text = to_string(value)
-    truncated = String.slice(text, 0, limit)
-    {truncated, byte_size(text) > byte_size(truncated)}
-  end
-
-  defp truncate_with_flag(value, _limit), do: {value, false}
-
-  defp format_run(nil), do: nil
-
-  defp format_run(run) do
-    citations = Enum.map(run.citations || [], &format_citation/1)
-    inline = format_inline_citations(run.inline_citations, citations)
-
-    %{
-      id: run.id,
-      status: run.status,
-      output_markdown: run.output_markdown,
-      updated_at: run.updated_at,
-      citations: citations,
-      inline_citations: inline,
-      doc_citations: aggregate_doc_citations(inline, citations)
-    }
-  end
-
-  defp format_citation(citation) do
-    %{
-      id: citation.id,
-      label: citation.citation_label,
-      document_id: citation.document_id,
-      line_start: get_in(citation.source_span || %{}, ["line_start"]),
-      line_end: get_in(citation.source_span || %{}, ["line_end"])
-    }
-  end
-
-  defp format_inline_citations(inline_citations, persisted_citations)
-
-  defp format_inline_citations(nil, persisted_citations),
-    do: inline_from_persisted(persisted_citations)
-
-  defp format_inline_citations(%{"entries" => entries}, persisted_citations)
-       when is_list(entries),
-       do: format_inline_citations(entries, persisted_citations)
-
-  defp format_inline_citations(entries, persisted_citations) when is_list(entries) do
-    formatted =
-      Enum.map(entries, fn citation ->
-        ref =
-          citation["document_reference"] || citation[:document_reference] || citation["label"] ||
-            citation[:label]
-
-        base_label = citation["label"] || citation[:label]
-
-        doc_id =
-          citation["document_id"] ||
-            citation[:document_id] ||
-            lookup_citation_doc_id(persisted_citations, ref, base_label)
-
-        %{
-          document_reference: ref,
-          document_id: doc_id,
-          label:
-            base_label ||
-              lookup_citation_label(persisted_citations, ref) ||
-              lookup_citation_label(persisted_citations, doc_id),
-          line_start: citation["line_start"] || citation[:line_start],
-          line_end: citation["line_end"] || citation[:line_end]
-        }
-      end)
-
-    case formatted do
-      [] -> inline_from_persisted(persisted_citations)
-      list -> list
-    end
-  end
-
-  defp format_inline_citations(_other, persisted_citations),
-    do: inline_from_persisted(persisted_citations)
-
-  defp inline_from_persisted([]), do: []
-
-  defp inline_from_persisted(citations) when is_list(citations) do
-    Enum.map(citations, fn citation ->
-      source_span = citation.source_span || %{}
-
-      %{
-        document_reference: citation.label,
-        document_id: citation.document_id,
-        label: citation.label,
-        line_start: source_span["line_start"],
-        line_end: source_span["line_end"]
-      }
-    end)
-  end
-
-  defp aggregate_doc_citations(inline_citations, persisted_citations) do
-    labels =
-      persisted_citations
-      |> Enum.reduce(%{}, fn c, acc -> Map.put_new(acc, c.document_id, c.label) end)
-
-    inline_citations
-    |> Enum.group_by(& &1.document_id)
-    |> Enum.map(fn {doc_id, entries} ->
-      ranges =
-        entries
-        |> Enum.map(fn c ->
-          {
-            c[:line_start] || c["line_start"],
-            c[:line_end] || c["line_end"] || c[:line_start] || c["line_start"]
-          }
-        end)
-        |> Enum.filter(fn {s, _e} -> is_integer(s) end)
-        |> merge_ranges()
-
-      label =
-        entries
-        |> Enum.find_value(fn c -> c[:label] || c["label"] end) ||
-          Map.get(labels, doc_id) || "doc"
-
-      %{
-        document_id: doc_id,
-        label: label,
-        ranges: ranges
-      }
-    end)
-    |> Enum.sort_by(& &1.label)
-  end
-
-  defp merge_ranges(ranges) do
-    ranges
-    |> Enum.map(fn {s, e} -> {s, e || s} end)
-    |> Enum.sort()
-    |> Enum.reduce([], fn {s, e}, acc ->
-      case acc do
-        [] ->
-          [{s, e}]
-
-        [{ps, pe} | rest] ->
-          if s <= pe + 1 do
-            [{ps, max(pe, e)} | rest]
-          else
-            [{s, e} | acc]
-          end
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp section_citation_docs(%{doc_citations: citations}, documents) when is_list(citations) do
-    Enum.map(citations, fn cite ->
-      doc = find_document_by_id(documents, cite.document_id)
-      display_label = format_doc_button_label(doc, cite.label)
-
-      %{
-        document_id: cite.document_id,
-        label: display_label,
-        ranges: cite.ranges || []
-      }
-    end)
-  end
-
-  defp section_citation_docs(_, _), do: []
-
-  defp lookup_citation_doc_id(citations, ref, label) do
-    Enum.find_value(citations, fn
-      %{label: candidate_label, document_id: doc_id}
-      when doc_id and (candidate_label == label or candidate_label == ref) ->
-        doc_id
-
-      _ ->
-        nil
-    end)
-  end
-
-  defp lookup_citation_label(citations, ref_or_id) do
-    Enum.find_value(citations, fn citation ->
-      candidate_label = citation[:label] || citation["label"]
-      doc_id = citation[:document_id] || citation["document_id"]
-
-      cond do
-        is_nil(ref_or_id) -> nil
-        candidate_label && candidate_label == ref_or_id -> candidate_label
-        doc_id && doc_id == ref_or_id -> candidate_label
-        true -> nil
-      end
-    end)
-  end
-
   defp run_status(%{latest_run: nil}), do: "not_started"
   defp run_status(%{latest_run: %{status: status}}), do: status
 
@@ -2864,56 +2660,6 @@ defmodule LumainusWeb.ReportsLive do
   # Show "no instance" message when admin hasn't provisioned
   defp show_gpu_no_instance_message?(gpu_status, dismissed) do
     not dismissed and gpu_status.status == :no_instance
-  end
-
-  defp format_health_timestamp(nil, _locale, _timezone), do: "no recent checks"
-
-  defp format_health_timestamp(%{responded_at: %DateTime{} = dt}, locale, timezone) do
-    format_timestamp(dt, locale, timezone)
-  end
-
-  defp format_health_timestamp(%{inserted_at: %DateTime{} = dt}, locale, timezone) do
-    format_timestamp(dt, locale, timezone)
-  end
-
-  defp format_health_timestamp(_, _locale, _timezone), do: "no recent checks"
-
-  defp format_timeout_remaining(nil), do: "expired"
-
-  defp format_timeout_remaining(%DateTime{} = dt) do
-    diff = DateTime.diff(dt, DateTime.utc_now(), :second)
-    format_timeout_diff(diff)
-  end
-
-  defp format_timeout_remaining(iso_string) when is_binary(iso_string) do
-    with {:ok, datetime, _offset} <- DateTime.from_iso8601(iso_string) do
-      diff = DateTime.diff(datetime, DateTime.utc_now(), :second)
-      format_timeout_diff(diff)
-    else
-      _ -> "—"
-    end
-  end
-
-  defp format_timeout_remaining(_), do: "—"
-
-  defp format_timeout_diff(diff) do
-    cond do
-      diff <= 0 ->
-        "expired"
-
-      diff < 60 ->
-        "#{diff}s"
-
-      diff < 3600 ->
-        minutes = div(diff, 60)
-        seconds = rem(diff, 60)
-        "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
-
-      true ->
-        minutes = div(diff, 60)
-        seconds = rem(diff, 60)
-        "#{minutes}:#{String.pad_leading(Integer.to_string(seconds), 2, "0")}"
-    end
   end
 
   @impl true
@@ -5560,14 +5306,6 @@ defmodule LumainusWeb.ReportsLive do
     |> truncate(240)
   end
 
-  defp truncate(text, limit) do
-    if String.length(text) <= limit do
-      text
-    else
-      String.slice(text, 0, limit) <> "…"
-    end
-  end
-
   defp patient_name(%{current_profile: nil}), do: "Patient"
 
   defp patient_name(%{current_profile: profile}) do
@@ -5614,7 +5352,7 @@ defmodule LumainusWeb.ReportsLive do
   defp status_label(%{last_run: %{status: "completed"}}), do: "Ready"
   defp status_label(%{last_run: %{status: "queued"}}), do: "Queued"
   defp status_label(%{last_run: %{status: "running"}}), do: "Running"
-  defp status_label(%{last_run: %{status: "error"}}), do: "Retrying"
+  defp status_label(%{last_run: %{status: "error"}}), do: "Error"
   defp status_label(%{last_run: %{status: "failed"}}), do: "Failed"
   defp status_label(%{last_run: %{status: status}}), do: status
 
@@ -5649,176 +5387,4 @@ defmodule LumainusWeb.ReportsLive do
       entry.status == "completed"
     end)
   end
-
-  defp format_timestamp(nil, _locale, _timezone), do: "recently"
-
-  defp format_timestamp(dt, locale, timezone) do
-    format_datetime(dt, locale: locale, timezone: timezone, format: :medium) ||
-      Calendar.strftime(dt, "%b %d · %H:%M UTC")
-  end
-
-  defp humanize_errors(%Changeset{} = changeset) do
-    changeset
-    |> Changeset.traverse_errors(fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-    |> Enum.map(fn {field, messages} ->
-      "#{humanize_field(field)} #{List.first(messages)}"
-    end)
-    |> Enum.join(", ")
-  end
-
-  defp humanize_field(field) when is_atom(field) do
-    field
-    |> Atom.to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
-  end
-
-  defp pad_line(line) when is_integer(line) do
-    line
-    |> Integer.to_string()
-    |> String.pad_leading(3, "0")
-  end
-
-  defp pad_line(_), do: "000"
-
-  defp parse_int(nil), do: nil
-  defp parse_int(""), do: nil
-  defp parse_int(value) when is_integer(value), do: value
-
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, _} -> parsed
-      _ -> nil
-    end
-  end
-
-  defp parse_int(_), do: nil
-
-  defp parse_ranges(nil), do: []
-  defp parse_ranges(""), do: []
-
-  defp parse_ranges(ranges) when is_binary(ranges) do
-    ranges
-    |> String.split(";", trim: true)
-    |> Enum.map(fn part ->
-      case String.split(part, "-", parts: 2) do
-        [single] ->
-          with {s, _} <- Integer.parse(single) do
-            {s, s}
-          else
-            _ -> nil
-          end
-
-        [s, e] ->
-          with {start, _} <- Integer.parse(s),
-               {endv, _} <- Integer.parse(e) do
-            {start, max(endv, start)}
-          else
-            _ -> nil
-          end
-      end
-    end)
-    |> Enum.filter(& &1)
-  end
-
-  defp parse_ranges(_), do: []
-
-  defp normalize_ranges(line_start, line_end, ranges_param) do
-    parsed = parse_ranges(ranges_param)
-
-    cond do
-      parsed != [] ->
-        parsed
-
-      is_integer(line_start) ->
-        [{line_start, line_end || line_start}]
-
-      true ->
-        []
-    end
-  end
-
-  defp encode_ranges([]), do: ""
-
-  defp encode_ranges(ranges) when is_list(ranges) do
-    ranges
-    |> Enum.map(fn {s, e} -> "#{s}-#{e}" end)
-    |> Enum.join(";")
-  end
-
-  defp format_line_range(nil, nil), do: "—"
-
-  defp format_line_range(start_line, nil) when is_integer(start_line) do
-    "L#{pad_line(start_line)}"
-  end
-
-  defp format_line_range(nil, end_line) when is_integer(end_line) do
-    "L#{pad_line(end_line)}"
-  end
-
-  defp format_line_range(start_line, end_line) when start_line == end_line do
-    "L#{pad_line(start_line)}"
-  end
-
-  defp format_line_range(start_line, end_line) do
-    "L#{pad_line(start_line)}-L#{pad_line(end_line)}"
-  end
-
-  defp strip_leading_zeros(rest) do
-    case Integer.parse(rest) do
-      {num, _} -> Integer.to_string(num)
-      _ -> rest
-    end
-  end
-
-  defp format_citation_label(nil), do: "id"
-
-  defp format_citation_label(label) do
-    label
-    |> to_string()
-    |> case do
-      <<"doc-", rest::binary>> -> strip_leading_zeros(rest)
-      <<"id-", rest::binary>> -> strip_leading_zeros(rest)
-      other -> other
-    end
-  end
-
-  defp format_doc_button_label(nil, label), do: format_citation_label(label)
-
-  defp format_doc_button_label(doc, fallback_label) do
-    number =
-      doc.sequence ||
-        case doc.mock_id do
-          <<"doc-", rest::binary>> ->
-            case Integer.parse(rest) do
-              {num, _} -> num
-              _ -> doc.mock_id
-            end
-
-          _ ->
-            doc.mock_id
-        end
-
-    name =
-      doc.label ||
-        (doc.metadata && doc.metadata["label"]) ||
-        doc.filename ||
-        fallback_label ||
-        "Document"
-
-    "#{number}-#{name}"
-  end
-
-  defp format_token_count(nil), do: "—"
-
-  defp format_token_count(count) when is_integer(count) and count >= 1000 do
-    "#{Float.round(count / 1000, 1)}k"
-  end
-
-  defp format_token_count(count) when is_integer(count), do: Integer.to_string(count)
-  defp format_token_count(_), do: "—"
 end

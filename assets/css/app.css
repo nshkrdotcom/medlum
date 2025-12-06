@@ -2,6 +2,7 @@
    https://tailwindcss.com/docs/configuration */
 
 @import "tailwindcss" source(none);
+@import "./reports_live.css";
 @source "../css";
 @source "../js";
 @source "../../lib/lumainus_web";

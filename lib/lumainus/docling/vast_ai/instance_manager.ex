@@ -49,15 +49,13 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   alias Lumainus.VastAI
   alias Lumainus.VastAI.RemoteDiagnostics
   alias Lumainus.Cloudflare
-  alias Lumainus.Cloudflare.Tunnel
-  alias Lumainus.Docling.Settings, as: DoclingSettings
   alias Lumainus.Docling.VastAI.StartTracker
   alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Lumainus.Docling.VastAI.InstanceHealth
+  alias Lumainus.Docling.VastAI.EndpointManager
   alias Phoenix.PubSub
   @compile {:no_warn_undefined, Lumainus.VastAI}
 
-  @idle_check_interval_ms 60_000
-  @health_check_interval_ms 30_000
   @pubsub_topic "gpu_instance_status"
 
   # Instance status values
@@ -346,14 +344,14 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         case wait_for_instance_running(id) do
           {:ok, endpoint, ip} ->
             # Update DNS to point to the started instance (skip A-record when tunnel-managed)
-            if state.tunnel_id || tunnel_present?() do
+            if state.tunnel_id || EndpointManager.tunnel_present?() do
               tunnel_suffix = if(state.tunnel_id, do: " (#{state.tunnel_id})", else: "")
 
               Logger.info(
                 "[InstanceManager] Instance #{id} is tunnel-managed#{tunnel_suffix}; skipping A-record DNS update"
               )
             else
-              update_dns_for_instance(ip, id)
+              EndpointManager.update_dns(ip, id)
             end
 
             # Start services inside container (onstart only runs on first provision)
@@ -378,8 +376,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
               session -> GPU.update_session_status(session, "running")
             end
 
-            schedule_idle_check()
-            schedule_health_check()
+            ActivityTracker.schedule_idle_check()
+            InstanceHealth.schedule_check()
             broadcast_status_change(new_state)
             {:reply, {:ok, endpoint}, new_state}
 
@@ -471,8 +469,14 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         case check_vast_ai_for_instances(config) do
           {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
             # Found running instance - check if we should recover or cleanup
-            case maybe_recover_or_cleanup_orphan(instance_id, ip) do
+            case EndpointManager.maybe_recover_with_tunnel(instance_id, ip) do
               {:ok, endpoint, tunnel_id} ->
+                # Ensure services are running after recovery
+                ensure_services_after_start(instance_id, ip)
+
+                # Persist endpoint to database for health checks
+                EndpointManager.persist_endpoint(endpoint)
+
                 # Seed activity/start time on recovery
                 ActivityTracker.record_activity_if_missing()
                 StartTracker.record_first_seen(instance_id)
@@ -493,7 +497,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
                     last_activity: System.monotonic_time(:millisecond)
                 }
 
-                schedule_idle_check()
+                ActivityTracker.schedule_idle_check()
                 {:reply, {:ok, endpoint}, state}
 
               {:error, :no_tunnel} ->
@@ -555,17 +559,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       destroy_vast_instance(state.instance_id, "admin_manual")
 
       # Clean up Cloudflare Tunnel if present
-      if state.tunnel_id do
-        Logger.info("[InstanceManager] Cleaning up Cloudflare Tunnel #{state.tunnel_id}")
-
-        case Tunnel.cleanup_for_vast_ai(state.tunnel_id) do
-          :ok ->
-            Logger.info("[InstanceManager] Tunnel #{state.tunnel_id} cleaned up")
-
-          {:error, reason} ->
-            Logger.warning("[InstanceManager] Failed to cleanup tunnel: #{inspect(reason)}")
-        end
-      end
+      EndpointManager.cleanup_tunnel(state.tunnel_id)
     end
 
     new_state = %{
@@ -594,21 +588,15 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
     # Update DNS when we know the IP (either provided or extracted from endpoint)
     # Note: With Cloudflare Tunnel, DNS is a CNAME to the tunnel, not A record to IP
-    ip_for_dns = ip || extract_ip_from_endpoint(endpoint)
+    ip_for_dns = ip || EndpointManager.extract_ip(endpoint)
 
     if ip_for_dns && is_nil(tunnel_id) do
       # Only update A record if not using tunnel (tunnel uses CNAME)
-      update_dns_for_instance(ip_for_dns, instance_id)
+      EndpointManager.update_dns(ip_for_dns, instance_id)
     end
 
     # IMPORTANT: Persist cloud_url to database for health checks
-    case DoclingSettings.update_cloud_url(endpoint) do
-      {:ok, _} ->
-        Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
-
-      {:error, reason} ->
-        Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
-    end
+    EndpointManager.persist_endpoint(endpoint)
 
     GPU.log(:lifecycle, :endpoint_set, "Instance endpoint set from external provisioning",
       instance_id: instance_id,
@@ -628,8 +616,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         health_check_error: nil
     }
 
-    schedule_idle_check()
-    schedule_health_check()
+    ActivityTracker.schedule_idle_check()
+    InstanceHealth.schedule_check()
     broadcast_status_change(new_state)
     {:reply, :ok, new_state}
   end
@@ -691,7 +679,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, :stopped, instance_id} ->
         # Stopped instance exists; mark settings and local state so admin UI knows it's available
         endpoint = Cloudflare.cloud_url()
-        maybe_persist_cloud_url(endpoint)
+        EndpointManager.maybe_persist_endpoint(endpoint)
 
         new_state = %{
           state
@@ -705,15 +693,15 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, instance_id, ip} when is_binary(ip) and ip != "" ->
         if state.instance_id == instance_id and state.endpoint do
           # Already tracking this instance; ensure DB state is in sync
-          maybe_persist_cloud_url(state.endpoint)
+          EndpointManager.maybe_persist_endpoint(state.endpoint)
           {:reply, {:ok, :unchanged}, state}
         else
           # Found a running instance - adopt it
-          endpoint = recover_endpoint(ip)
+          endpoint = EndpointManager.recover_endpoint(ip)
           Logger.info("[InstanceManager] Adopting running instance #{instance_id} at #{endpoint}")
 
           # Update cloud_url for health checks
-          maybe_persist_cloud_url(endpoint)
+          EndpointManager.maybe_persist_endpoint(endpoint)
 
           GPU.log(:lifecycle, :instance_adopted, "Adopted existing Vast.ai instance",
             instance_id: instance_id,
@@ -728,7 +716,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
               last_activity: System.monotonic_time(:millisecond)
           }
 
-          schedule_idle_check()
+          ActivityTracker.schedule_idle_check()
           {:reply, {:ok, :synced, endpoint}, new_state}
         end
 
@@ -825,11 +813,11 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
         {:error, reason} ->
           Logger.error("[InstanceManager] Failed to stop idle instance: #{inspect(reason)}")
-          schedule_idle_check()
+          ActivityTracker.schedule_idle_check()
           {:noreply, state}
       end
     else
-      schedule_idle_check()
+      ActivityTracker.schedule_idle_check()
       {:noreply, state}
     end
   end
@@ -846,8 +834,14 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
       {:ok, :running, instance_id, ip} when is_binary(ip) and ip != "" ->
         # Check if we should recover or cleanup orphan
-        case maybe_recover_or_cleanup_orphan(instance_id, ip) do
+        case EndpointManager.maybe_recover_with_tunnel(instance_id, ip) do
           {:ok, endpoint, tunnel_id} ->
+            # Ensure services are running after recovery
+            ensure_services_after_start(instance_id, ip)
+
+            # Persist endpoint to database for health checks
+            EndpointManager.persist_endpoint(endpoint)
+
             # Seed activity/start time on recovery
             ActivityTracker.record_activity_if_missing()
             StartTracker.record_first_seen(instance_id)
@@ -872,8 +866,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
                 last_activity: System.monotonic_time(:millisecond)
             }
 
-            schedule_idle_check()
-            schedule_health_check()
+            ActivityTracker.schedule_idle_check()
+            InstanceHealth.schedule_check()
             broadcast_status_change(new_state)
             {:noreply, new_state}
 
@@ -888,7 +882,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
         Logger.info("[InstanceManager] Found stopped instance #{instance_id} on startup")
 
         # Look up tunnel_id so we don't create A-records when starting
-        tunnel_id = find_tunnel_id_for_instance()
+        tunnel_id = EndpointManager.find_tunnel_id_for_instance()
 
         GPU.log(:lifecycle, :startup_sync, "Found stopped instance on startup",
           instance_id: instance_id,
@@ -909,7 +903,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, :loading, instance_id} ->
         Logger.info("[InstanceManager] Found loading instance #{instance_id} on startup")
         # Look up tunnel_id so we don't create A-records when it becomes running
-        tunnel_id = find_tunnel_id_for_instance()
+        tunnel_id = EndpointManager.find_tunnel_id_for_instance()
 
         new_state = %{
           state
@@ -934,42 +928,33 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       parent = self()
 
       Task.start(fn ->
-        result = do_health_check(state.endpoint)
+        result = InstanceHealth.check_health(state.endpoint)
         send(parent, {:health_check_result, result})
       end)
     end
 
     # Always reschedule if we have a running instance
     if state.status == @status_running do
-      schedule_health_check()
+      InstanceHealth.schedule_check()
     end
 
     {:noreply, state}
   end
 
   def handle_info({:health_check_result, result}, state) do
-    now = DateTime.utc_now()
-
-    {healthy, error} =
-      case result do
-        {:ok, _} -> {true, nil}
-        {:error, reason} -> {false, inspect(reason)}
-      end
-
+    health_state = InstanceHealth.parse_result(result)
     old_healthy = state.healthy
 
-    new_state = %{
-      state
-      | healthy: healthy,
-        last_health_check: now,
-        health_check_error: error
-    }
+    new_state = Map.merge(state, health_state)
 
     # Only broadcast if health status changed
-    if old_healthy != healthy do
+    if InstanceHealth.status_changed?(state, new_state) do
       Logger.info(
-        "[InstanceManager] Health status changed: #{inspect(old_healthy)} -> #{healthy}" <>
-          if(error, do: " (#{error})", else: "")
+        "[InstanceManager] Health status changed: #{inspect(old_healthy)} -> #{health_state.healthy}" <>
+          if(health_state.health_check_error,
+            do: " (#{health_state.health_check_error})",
+            else: ""
+          )
       )
 
       broadcast_status_change(new_state)
@@ -981,144 +966,6 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
   # =============================================================================
   # Private Functions
   # =============================================================================
-
-  # Self-healing: decide whether to recover an instance or destroy it as orphaned
-  # Orphaned instances are those without cloudflared when we're using tunnel-based setup
-  defp maybe_recover_or_cleanup_orphan(instance_id, ip) do
-    # Check if there's an active tunnel for our domain
-    case Tunnel.find_by_name("docling-vast") do
-      {:ok, [%{"id" => tunnel_id, "name" => tunnel_name} | _]} ->
-        Logger.info(
-          "[InstanceManager] Found Cloudflare tunnel #{tunnel_name} (#{tunnel_id}); adopting instance #{instance_id} via tunnel"
-        )
-
-        # Ensure services (uvicorn + cloudflared) are running
-        ensure_services_after_start(instance_id, ip)
-
-        endpoint = "https://#{Cloudflare.cloud_fqdn()}"
-
-        # IMPORTANT: Update cloud_url in database so health checks find it
-        # Without this, ReportsLive health check will fail with "Cloud URL not configured"
-        case DoclingSettings.update_cloud_url(endpoint) do
-          {:ok, _} ->
-            Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
-
-          {:error, reason} ->
-            Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
-        end
-
-        GPU.log(:lifecycle, :instance_recovered, "Adopted instance via tunnel",
-          instance_id: instance_id,
-          endpoint: endpoint,
-          tunnel_id: tunnel_id,
-          source: "instance_manager"
-        )
-
-        {:ok, endpoint, tunnel_id}
-
-      {:ok, []} ->
-        Logger.warning(
-          "[InstanceManager] No Cloudflare tunnel found; cannot adopt instance #{instance_id}"
-        )
-
-        {:error, :no_tunnel}
-
-      {:error, reason} ->
-        Logger.warning(
-          "[InstanceManager] Tunnel lookup failed (#{inspect(reason)}); cannot adopt instance #{instance_id}"
-        )
-
-        {:error, {:tunnel_lookup_failed, reason}}
-    end
-  end
-
-  defp tunnel_present? do
-    case Tunnel.find_by_name("docling-vast") do
-      {:ok, [_ | _]} ->
-        true
-
-      {:ok, []} ->
-        false
-
-      {:error, reason} ->
-        Logger.warning(
-          "[InstanceManager] Tunnel presence check failed: #{inspect(reason)}; assuming tunnel mode to avoid legacy DNS changes"
-        )
-
-        true
-    end
-  end
-
-  # Look up tunnel ID for stopped instance recovery
-  # This ensures we don't create A-records when starting a tunnel-managed instance
-  defp find_tunnel_id_for_instance do
-    case Tunnel.find_by_name("docling-vast") do
-      {:ok, [%{"id" => tunnel_id} | _]} ->
-        Logger.info("[InstanceManager] Found tunnel #{tunnel_id} for stopped instance")
-        tunnel_id
-
-      {:ok, []} ->
-        Logger.info("[InstanceManager] No tunnel found for stopped instance")
-        nil
-
-      {:error, reason} ->
-        Logger.warning(
-          "[InstanceManager] Tunnel lookup failed: #{inspect(reason)}; tunnel_id will be nil"
-        )
-
-        nil
-    end
-  end
-
-  defp extract_ip_from_endpoint(endpoint) when is_binary(endpoint) do
-    case Regex.run(~r/(\d{1,3}(?:\.\d{1,3}){3})/, endpoint) do
-      [_, ip] ->
-        case :inet.parse_address(String.to_charlist(ip)) do
-          {:ok, _tuple} -> ip
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp extract_ip_from_endpoint(_), do: nil
-
-  # Update Cloudflare DNS to point to the instance IP
-  defp update_dns_for_instance(ip, instance_id) when is_binary(ip) and ip != "" do
-    Logger.info("[InstanceManager] Updating DNS for instance #{instance_id} to IP #{ip}")
-
-    case Cloudflare.update_dns_record(ip) do
-      {:ok, %{fqdn: fqdn}} ->
-        Logger.info("[InstanceManager] DNS updated: #{fqdn} → #{ip}")
-
-        GPU.log(:lifecycle, :dns_updated, "DNS updated for instance",
-          instance_id: instance_id,
-          ip: ip,
-          fqdn: fqdn,
-          source: "instance_manager"
-        )
-
-        :ok
-
-      {:error, reason} ->
-        Logger.error("[InstanceManager] Failed to update DNS: #{inspect(reason)}")
-
-        GPU.log_error(:lifecycle, :dns_update_failed, "Failed to update DNS", reason,
-          instance_id: instance_id,
-          ip: ip,
-          source: "instance_manager"
-        )
-
-        {:error, reason}
-    end
-  end
-
-  defp update_dns_for_instance(ip, _instance_id) do
-    Logger.warning("[InstanceManager] Cannot update DNS - invalid IP: #{inspect(ip)}")
-    {:error, :invalid_ip}
-  end
 
   # Ensure services are running after instance start/restart
   # The onstart script only runs on first provision, not on restart
@@ -1195,14 +1042,6 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     end
   end
 
-  defp schedule_idle_check do
-    Process.send_after(self(), :check_idle, @idle_check_interval_ms)
-  end
-
-  defp schedule_health_check do
-    Process.send_after(self(), :periodic_health_check, @health_check_interval_ms)
-  end
-
   # Broadcast status change to all subscribers
   defp broadcast_status_change(state) do
     status_map = %{
@@ -1218,42 +1057,6 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
 
     PubSub.broadcast(LumainusWeb.PubSub, @pubsub_topic, {:gpu_status_changed, status_map})
   end
-
-  # Perform HTTP health check against endpoint
-  defp do_health_check(endpoint) when is_binary(endpoint) do
-    url = "#{endpoint}/health"
-
-    case Req.get(url, receive_timeout: 5_000, connect_options: [timeout: 5_000]) do
-      {:ok, %{status: 200, body: body}} ->
-        {:ok, body}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http_status, status}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    e -> {:error, {:exception, Exception.message(e)}}
-  end
-
-  defp do_health_check(_), do: {:error, :no_endpoint}
-
-  defp maybe_persist_cloud_url(endpoint) when is_binary(endpoint) and endpoint != "" do
-    with {:ok, setting} <- DoclingSettings.fetch_or_init() do
-      if is_nil(setting.cloud_url) or setting.cloud_url == "" do
-        case DoclingSettings.update_cloud_url(endpoint) do
-          {:ok, _} ->
-            Logger.info("[InstanceManager] Updated cloud_url to #{endpoint}")
-
-          {:error, reason} ->
-            Logger.warning("[InstanceManager] Failed to update cloud_url: #{inspect(reason)}")
-        end
-      end
-    end
-  end
-
-  defp maybe_persist_cloud_url(_), do: :ok
 
   # Check Vast.ai for any instances (running, stopped, or loading)
   # Returns:
@@ -1358,8 +1161,8 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
                 health_check_error: nil
             }
 
-            schedule_idle_check()
-            schedule_health_check()
+            ActivityTracker.schedule_idle_check()
+            InstanceHealth.schedule_check()
             broadcast_status_change(new_state)
             {:ok, endpoint, new_state}
 
@@ -1407,7 +1210,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       case VastAI.status(instance_id) do
         {:ok, %{"actual_status" => "running", "public_ipaddr" => ip}}
         when is_binary(ip) and ip != "" ->
-          endpoint = recover_endpoint(ip)
+          endpoint = EndpointManager.recover_endpoint(ip)
           {:ok, endpoint, ip}
 
         {:ok, %{"actual_status" => "running"}} ->
@@ -1440,23 +1243,6 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
       {:ok, :stopped, instance_id} -> {:ok, :stopped, instance_id}
       {:ok, :none} -> {:ok, :none}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp recover_endpoint(ip) do
-    # Try to use the HTTPS endpoint via Cloudflare if configured,
-    # otherwise fall back to direct HTTP
-    fqdn =
-      (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") ||
-         Lumainus.Cloudflare.cloud_fqdn())
-      |> normalize_fqdn()
-
-    if fqdn do
-      # Use HTTPS via Cloudflare (assumes DNS is already pointing to this IP)
-      "https://#{fqdn}"
-    else
-      # Fall back to direct HTTP
-      "http://#{ip}:#{Lumainus.VastAI.cloud_port()}"
     end
   end
 
@@ -1518,18 +1304,5 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     config = vast_ai_config()
     minutes = Keyword.get(config, :idle_timeout_minutes, 15)
     minutes * 60 * 1000
-  end
-
-  defp normalize_fqdn(fqdn) do
-    case fqdn do
-      nil ->
-        nil
-
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-    end
   end
 end

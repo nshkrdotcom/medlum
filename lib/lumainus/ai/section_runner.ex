@@ -269,9 +269,37 @@ defmodule Lumainus.AI.SectionRunner do
   defp invoke_llm_streaming(model_spec, prompt_text, schema, options, _context) do
     # Use RateLimitedExecutor to ensure streaming goes through the gate
     # This fixes the bypass issue where streaming skipped all rate limiting
-    RateLimitedExecutor.execute(:report_section, :streaming, fn ->
-      AI.client().stream_generate(model_spec, prompt_text, schema, self(), options)
-    end)
+    result =
+      RateLimitedExecutor.execute(:report_section, :streaming, fn ->
+        AI.client().stream_generate(model_spec, prompt_text, schema, self(), options)
+      end)
+
+    # If cache-not-found error and we were using cache, retry without cache
+    case result do
+      {:error, reason} when is_map(reason) ->
+        if cache_not_found_error?(reason) and Keyword.has_key?(options, :cached_content) do
+          Logger.warning(
+            "[SectionRunner] Cache not found in streaming, falling back to non-cached request"
+          )
+
+          options_without_cache = Keyword.delete(options, :cached_content)
+
+          RateLimitedExecutor.execute(:report_section, :streaming, fn ->
+            AI.client().stream_generate(
+              model_spec,
+              prompt_text,
+              schema,
+              self(),
+              options_without_cache
+            )
+          end)
+        else
+          result
+        end
+
+      _ ->
+        result
+    end
   rescue
     error ->
       {:error, %{type: :exception, message: Exception.message(error), exception: inspect(error)}}
@@ -410,13 +438,44 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp invoke_llm(model_spec, prompt_text, schema, options) do
-    RateLimitedExecutor.execute(:report_section, :batch, fn ->
-      AI.client().generate_object(model_spec, prompt_text, schema, options)
-    end)
+    result =
+      RateLimitedExecutor.execute(:report_section, :batch, fn ->
+        AI.client().generate_object(model_spec, prompt_text, schema, options)
+      end)
+
+    # If cache-not-found error and we were using cache, retry without cache
+    case result do
+      {:error, reason} when is_map(reason) ->
+        if cache_not_found_error?(reason) and Keyword.has_key?(options, :cached_content) do
+          Logger.warning("[SectionRunner] Cache not found, falling back to non-cached request")
+
+          options_without_cache = Keyword.delete(options, :cached_content)
+
+          RateLimitedExecutor.execute(:report_section, :batch, fn ->
+            AI.client().generate_object(model_spec, prompt_text, schema, options_without_cache)
+          end)
+        else
+          result
+        end
+
+      _ ->
+        result
+    end
   rescue
     error ->
       {:error, %{type: :exception, message: Exception.message(error), exception: inspect(error)}}
   end
+
+  # Detect "CachedContent not found" errors from Gemini
+  defp cache_not_found_error?(%{message: message}) when is_binary(message) do
+    String.contains?(message, "CachedContent not found")
+  end
+
+  defp cache_not_found_error?(%{"message" => message}) when is_binary(message) do
+    String.contains?(message, "CachedContent not found")
+  end
+
+  defp cache_not_found_error?(_), do: false
 
   defp persist_success(section_run, llm, normalized, prompt_context, documents, duration) do
     # Sanitize citations before persisting
