@@ -1570,13 +1570,25 @@ defmodule Lumainus.AI.SectionRunner do
 
           :proceed
 
-        %LlmInvocation{status: status} when status in ["completed", "error"] ->
-          # Already finished (success or failure), don't retry
+        %LlmInvocation{status: "completed"} ->
+          # Successfully completed, don't re-run
           Logger.debug(
-            "[SectionRunner] Section #{section_run.id} already has #{status} invocation #{inv_id}"
+            "[SectionRunner] Section #{section_run.id} already has completed invocation #{inv_id}"
           )
 
-          {:skip, {:already_completed, status}}
+          {:skip, {:already_completed, "completed"}}
+
+        %LlmInvocation{status: "error"} ->
+          # Previous attempt failed, clear and retry with new invocation
+          Logger.info(
+            "[SectionRunner] Section #{section_run.id} has failed invocation #{inv_id}, clearing for retry"
+          )
+
+          section_run
+          |> ReportSectionRun.changeset(%{llm_invocation_id: nil})
+          |> Repo.update!()
+
+          :proceed
 
         %LlmInvocation{status: "running"} ->
           # Currently running, don't duplicate

@@ -35,12 +35,20 @@ defmodule Lumainus.Reports.SectionRunWorker do
         SectionRunner.run_section(scope, section_run, patient, documents)
       end
 
-    RunReconciler.maybe_finalize(report_run.id)
-    Reports.notify_section_run_update(report_run.record_set_id)
-
     case result do
-      {:ok, _run} -> :ok
-      {:error, _run} -> :ok
+      {:ok, _run} ->
+        # Only finalize and notify on success
+        RunReconciler.maybe_finalize(report_run.id)
+        Reports.notify_section_run_update(report_run.record_set_id)
+        :ok
+
+      {:error, run} ->
+        # Notify so UI updates to show "Retrying..." status
+        Reports.notify_section_run_update(report_run.record_set_id)
+        # Return error to Oban so it will retry (up to max_attempts)
+        # When max_attempts is exhausted, ObanTelemetryHandler will mark as "failed"
+        error_msg = run.error["message"] || "Section run failed"
+        {:error, error_msg}
     end
   end
 
