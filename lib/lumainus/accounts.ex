@@ -289,6 +289,21 @@ defmodule Lumainus.Accounts do
     |> Repo.update()
   end
 
+  @doc """
+  Persist a user's last selected patient ID.
+  """
+  def update_last_patient(%User{} = user, patient_id) when is_binary(patient_id) do
+    user
+    |> User.last_patient_changeset(%{last_patient_id: patient_id})
+    |> Repo.update()
+  end
+
+  def update_last_patient(%User{} = user, nil) do
+    user
+    |> User.last_patient_changeset(%{last_patient_id: nil})
+    |> Repo.update()
+  end
+
   # User backend preference helpers
   defp user_backend_default do
     {:ok, settings} = Settings.fetch_or_init()

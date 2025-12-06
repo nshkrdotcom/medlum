@@ -12,6 +12,8 @@ defmodule Lumainus.LLM do
   alias Gemini
   alias Gemini.Types.Response.GenerateContentResponse
 
+  require Logger
+
   @impl true
   def generate_object(model_spec, prompt_text, schema, opts \\ []) do
     case parse_model_spec(model_spec) do
@@ -26,19 +28,12 @@ defmodule Lumainus.LLM do
   defp do_generate("google", model, prompt_text, schema, opts) do
     request_opts = build_request_opts(model, schema, opts)
 
-    case Gemini.generate(prompt_text, request_opts) do
+    case gemini_generate(prompt_text, request_opts) do
       {:ok, %GenerateContentResponse{} = response} ->
         {:ok, normalize_response(response, schema)}
 
-      # Handle new proactive rate limiting errors (gemini_ex 0.6.1+)
-      {:error, {:rate_limited, retry_at, details}} ->
-        {:error, wrap_rate_limit_error(retry_at, details)}
-
-      {:error, {:transient_failure, attempts, original_error}} ->
-        {:error, wrap_transient_error(attempts, original_error)}
-
       {:error, error} ->
-        {:error, error}
+        {:error, normalize_error(error)}
     end
   rescue
     exception ->
@@ -49,9 +44,41 @@ defmodule Lumainus.LLM do
     {:error, "Unsupported provider #{inspect(provider)}"}
   end
 
+  @spec gemini_generate(String.t(), keyword()) ::
+          {:ok, GenerateContentResponse.t()} | {:error, term()}
+  defp gemini_generate(prompt_text, request_opts) do
+    :erlang.apply(Gemini, :generate, [prompt_text, request_opts])
+  end
+
+  @spec normalize_error(term()) :: term()
+  defp normalize_error({:rate_limited, retry_at, details}) do
+    wrap_rate_limit_error(retry_at, details)
+  end
+
+  defp normalize_error({:transient_failure, attempts, original_error}) do
+    wrap_transient_error(attempts, original_error)
+  end
+
+  defp normalize_error(%Gemini.Error{type: type, details: details})
+       when type in [:rate_limit, :rate_limited] do
+    wrap_rate_limit_error(extract_retry_at(details), details)
+  end
+
+  defp normalize_error(%Gemini.Error{
+         type: :transient_failure,
+         details: details,
+         original_error: original
+       }) do
+    attempts = extract_attempts(details)
+    wrap_transient_error(attempts, original || details)
+  end
+
+  defp normalize_error(error), do: error
+
   # Wrap rate-limited tuple into a consistent error map for SectionRunner
   defp wrap_rate_limit_error(retry_at, details) do
-    reason = Map.get(details, :reason, :unknown)
+    details = details || %{}
+    reason = Map.get(details, :reason) || Map.get(details, "reason") || :unknown
 
     %{
       type: :rate_limit,
@@ -87,6 +114,21 @@ defmodule Lumainus.LLM do
     }
   end
 
+  defp extract_retry_at(%{} = details) do
+    Map.get(details, :retry_at) ||
+      Map.get(details, "retry_at") ||
+      Map.get(details, :retry_after) ||
+      Map.get(details, "retry_after")
+  end
+
+  defp extract_retry_at(_), do: nil
+
+  defp extract_attempts(%{} = details) do
+    Map.get(details, :attempts) || Map.get(details, "attempts") || 1
+  end
+
+  defp extract_attempts(_), do: 1
+
   defp parse_model_spec(model_spec) when is_binary(model_spec) do
     case String.split(model_spec, ":", parts: 2) do
       [provider, model] when provider != "" and model != "" -> {:ok, {provider, model}}
@@ -119,6 +161,9 @@ defmodule Lumainus.LLM do
     # Response format
     |> maybe_put(:response_schema, schema)
     |> maybe_put(:response_mime_type, determine_response_mime_type(schema, opts))
+    # Thinking config - minimize thinking by default for structured output to prevent
+    # thinking tokens from consuming the output budget (Gemini 2.5 enables thinking by default)
+    |> maybe_put(:thinking_config, determine_thinking_config(model, opts))
   end
 
   # Determine response MIME type:
@@ -133,33 +178,154 @@ defmodule Lumainus.LLM do
     Keyword.get(opts, :response_mime_type)
   end
 
+  # Determine thinking config:
+  # 1. If explicitly provided in opts, use that
+  # 2. Otherwise, minimize thinking to reduce token costs:
+  #    - Pro models: use 128 (minimum allowed, Pro cannot disable thinking)
+  #    - Flash/other models: use 0 (disable thinking entirely)
+  defp determine_thinking_config(model, opts) do
+    case Keyword.get(opts, :thinking_config) do
+      nil -> %{thinking_budget: default_thinking_budget(model)}
+      config -> config
+    end
+  end
+
+  defp default_thinking_budget(model) when is_binary(model) do
+    if String.contains?(model, "pro") do
+      # Pro models cannot disable thinking, 128 is minimum
+      128
+    else
+      # Flash/Lite models can disable thinking
+      0
+    end
+  end
+
+  defp default_thinking_budget(_), do: 0
+
   defp normalize_response(%GenerateContentResponse{} = response, schema) do
     text = extract_text(response)
+    {object, repair_status} = decode_object(text, schema)
+    finish_reason = extract_finish_reason(response)
+    {has_content, parts_count} = extract_response_metadata(response)
 
     %{
-      "object" => decode_object(text, schema),
+      "object" => object,
       "text" => text,
       "usage" => usage_map(response),
-      "request_id" => nil
+      "request_id" => nil,
+      "repair_status" => repair_status,
+      "finish_reason" => finish_reason,
+      "has_content" => has_content,
+      "parts_count" => parts_count
     }
   end
 
+  # Extract finish_reason from the first candidate
+  defp extract_finish_reason(%GenerateContentResponse{candidates: [%{finish_reason: reason} | _]}) do
+    reason
+  end
+
+  defp extract_finish_reason(_), do: nil
+
+  # Extract metadata about response content
+  # Returns {has_content, parts_count}
+  defp extract_response_metadata(%GenerateContentResponse{candidates: [candidate | _]}) do
+    case candidate do
+      %{content: nil} ->
+        {false, 0}
+
+      %{content: %{parts: nil}} ->
+        {false, 0}
+
+      %{content: %{parts: parts}} when is_list(parts) ->
+        {length(parts) > 0, length(parts)}
+
+      _ ->
+        {false, 0}
+    end
+  end
+
+  defp extract_response_metadata(_), do: {false, 0}
+
   defp extract_text(%GenerateContentResponse{} = response) do
     case Gemini.extract_text(response) do
-      {:ok, text} -> text
-      _ -> ""
+      {:ok, text} ->
+        text
+
+      {:error, reason} ->
+        # Log the error instead of silently swallowing it
+        finish = extract_finish_reason(response)
+        {has_content, parts_count} = extract_response_metadata(response)
+
+        Logger.warning("""
+        [LLM] extract_text failed: #{reason}
+          finish_reason: #{inspect(finish)}
+          has_content: #{has_content}
+          parts_count: #{parts_count}
+          usage: #{inspect(usage_map(response))}
+        """)
+
+        ""
     end
   end
 
+  # Decode JSON response with repair fallback via JsonRemedy
+  # Returns {object, repair_status} where repair_status is "none", "repaired", or "failed"
   defp decode_object(text, schema) when is_map(schema) do
-    with {:ok, object} <- Jason.decode(to_string(text)) do
-      stringify_keys(object)
-    else
-      _ -> default_object(text)
+    text_str = to_string(text)
+
+    case Jason.decode(text_str) do
+      {:ok, object} ->
+        # Clean decode - no repair needed
+        {stringify_keys(object), "none"}
+
+      {:error, _} ->
+        # Jason failed - try JsonRemedy repair
+        try_json_repair(text_str)
     end
   end
 
-  defp decode_object(text, _schema), do: default_object(text)
+  defp decode_object(text, _schema) do
+    text_str = to_string(text)
+
+    # No schema - still try to decode if it looks like JSON
+    if String.trim(text_str) |> String.starts_with?("{") do
+      case Jason.decode(text_str) do
+        {:ok, object} -> {stringify_keys(object), "none"}
+        {:error, _} -> try_json_repair(text_str)
+      end
+    else
+      {default_object(text_str), "none"}
+    end
+  end
+
+  # Attempt JSON repair using JsonRemedy
+  defp try_json_repair(text) when is_binary(text) and text != "" do
+    trimmed = String.trim(text)
+
+    case JsonRemedy.repair(trimmed, fast_path_optimization: false, logging: true) do
+      {:ok, repaired, logs} when is_list(logs) ->
+        repair_status = if length(logs) > 0, do: "repaired", else: "none"
+
+        if repair_status == "repaired" do
+          Logger.info("[LLM] JSON repaired with #{length(logs)} fixes: #{inspect(logs)}")
+        end
+
+        {stringify_keys(repaired), repair_status}
+
+      {:ok, repaired} ->
+        # JsonRemedy without logs - assume repair happened since Jason failed
+        Logger.info("[LLM] JSON repaired (no log details)")
+        {stringify_keys(repaired), "repaired"}
+
+      {:error, reason} ->
+        # JsonRemedy failed to repair - wrap as markdown fallback
+        Logger.warning("[LLM] JSON repair failed: #{inspect(reason)}, using markdown fallback")
+        {default_object(text), "failed"}
+    end
+  end
+
+  defp try_json_repair(_text), do: {%{}, "failed"}
 
   defp default_object(text) when is_binary(text) and text != "" do
     %{"markdown" => text}

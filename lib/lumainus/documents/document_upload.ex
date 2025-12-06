@@ -8,6 +8,30 @@ defmodule Lumainus.Documents.DocumentUpload do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
+
+  @type t :: %__MODULE__{
+          id: Ecto.UUID.t() | nil,
+          document_kind: String.t() | nil,
+          filename: String.t() | nil,
+          content_type: String.t() | nil,
+          byte_size: integer() | nil,
+          sha256: String.t() | nil,
+          status: String.t(),
+          storage_backend: String.t() | nil,
+          stored_path: String.t() | nil,
+          raw_blob: binary() | nil,
+          metadata: map(),
+          ingested_at: DateTime.t() | nil,
+          tenant_id: Ecto.UUID.t() | nil,
+          patient_id: Ecto.UUID.t() | nil,
+          record_set_id: Ecto.UUID.t() | nil,
+          uploader_id: Ecto.UUID.t() | nil,
+          parses: Ecto.Association.NotLoaded.t() | [Lumainus.Documents.DocumentParse.t()],
+          ingestion_jobs: Ecto.Association.NotLoaded.t() | [Lumainus.Documents.IngestionJob.t()],
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "document_uploads" do
     field(:document_kind, :string)
     field(:filename, :string)

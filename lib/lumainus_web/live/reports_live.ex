@@ -490,6 +490,9 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   def handle_event("select_patient", %{"patient_id" => patient_id}, socket) do
+    # Persist the selection so it survives server restarts
+    Accounts.update_last_patient(socket.assigns.current_scope.user, patient_id)
+
     {:noreply,
      socket
      |> assign(:patient_modal_open, false)
@@ -501,6 +504,9 @@ defmodule LumainusWeb.ReportsLive do
 
     case Reports.create_patient_for_scope(scope) do
       {:ok, patient} ->
+        # Persist the selection so it survives server restarts
+        Accounts.update_last_patient(scope.user, patient.id)
+
         {:noreply,
          socket
          |> put_flash(:info, "New patient created.")
@@ -616,7 +622,9 @@ defmodule LumainusWeb.ReportsLive do
       end
 
     patient_id =
-      Keyword.get(opts, :patient_id) || (socket.assigns[:patient] && socket.assigns.patient.id)
+      Keyword.get(opts, :patient_id) ||
+        (socket.assigns[:patient] && socket.assigns.patient.id) ||
+        scope.user.last_patient_id
 
     t1 = System.monotonic_time(:millisecond)
     workspace = Reports.workspace(scope, record_set_id: record_set_id, patient_id: patient_id)

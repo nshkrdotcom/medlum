@@ -9,13 +9,32 @@ defmodule LumainusWeb.Admin.Db.ReportSectionRunLive do
       item_query: &__MODULE__.item_query/3
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "report_section_runs"],
-    init_order: %{by: :inserted_at, direction: :desc}
+    init_order: %{by: :inserted_at, direction: :desc},
+    per_page_options: [15, 30, 50],
+    per_page_default: 15
 
   import Ecto.Query
   import LumainusWeb.Admin.Db.BackpexHelpers
 
-  def item_query(query, _live_action, _assigns) do
-    from(q in query, preload: [:section_template, :report_run, :llm_invocation])
+  def item_query(query, live_action, _assigns) do
+    # For index, use lightweight preloads - only fetch fields needed for display
+    # For show/edit, load full associations
+    case live_action do
+      :index ->
+        # Only select minimal fields from llm_invocation (avoid loading prompt_text, response_text, etc.)
+        llm_query = from(li in Lumainus.AI.LlmInvocation, select: [:id])
+
+        from(q in query,
+          preload: [
+            :section_template,
+            :report_run,
+            llm_invocation: ^llm_query
+          ]
+        )
+
+      _ ->
+        from(q in query, preload: [:section_template, :report_run, :llm_invocation])
+    end
   end
 
   @impl Backpex.LiveResource

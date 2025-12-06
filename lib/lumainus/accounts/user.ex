@@ -22,6 +22,7 @@ defmodule Lumainus.Accounts.User do
     field(:locale, :string)
     field(:timezone, :string)
     field(:docling_backend, :string, default: "local")
+    field(:last_patient_id, :binary_id)
 
     belongs_to(:tenant, Tenant, type: :binary_id)
 
@@ -201,6 +202,14 @@ defmodule Lumainus.Accounts.User do
     user
     |> cast(attrs, [:docling_backend])
     |> validate_inclusion(:docling_backend, @docling_backends)
+  end
+
+  @doc """
+  Changeset for updating a user's last selected patient.
+  """
+  def last_patient_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:last_patient_id])
   end
 
   @doc """

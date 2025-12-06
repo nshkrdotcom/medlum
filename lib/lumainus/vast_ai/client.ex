@@ -11,6 +11,8 @@ defmodule Lumainus.VastAI.Client do
   - POST /api/v0/bundles/ - search offers (JSON body with filters)
   """
 
+  alias Lumainus.ExternalApi
+
   # Use cloud.vast.ai - verified working with curl
   # console.vast.ai redirects to cloud and returns SPA HTML
   @base_url "https://cloud.vast.ai/api/v0"
@@ -31,14 +33,12 @@ defmodule Lumainus.VastAI.Client do
       ] ++ Keyword.get(opts, :headers, [])
 
     req_opts = [
-      method: method,
-      url: url,
       headers: headers,
       body: encode_body(body),
       redirect: false
     ]
 
-    case Req.request(req_opts) do
+    case ExternalApi.request(:vast_ai, method, url, req_opts) do
       {:ok, %{status: status, body: body}} when status in 200..299 ->
         parse_response(body)
 

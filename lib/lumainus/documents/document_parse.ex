@@ -7,6 +7,20 @@ defmodule Lumainus.Documents.DocumentParse do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
+
+  @type t :: %__MODULE__{
+          id: Ecto.UUID.t() | nil,
+          parser: String.t() | nil,
+          parsed_text: String.t() | nil,
+          structured_metadata: map(),
+          extracted_at: DateTime.t() | nil,
+          upload_id: Ecto.UUID.t() | nil,
+          patient_profile_id: Ecto.UUID.t() | nil,
+          chunks: Ecto.Association.NotLoaded.t() | list(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "document_parses" do
     field(:parser, :string)
     field(:parsed_text, :string)

@@ -23,6 +23,11 @@ defmodule Lumainus.AI.LlmInvocation do
     field(:request_id, :string)
     field(:repair_status, :string, default: "none")
 
+    # Response metadata for debugging
+    field(:finish_reason, :string)
+    field(:has_content, :boolean, default: true)
+    field(:parts_count, :integer)
+
     belongs_to(:tenant, Tenant)
     has_one(:section_run, ReportSectionRun)
 
@@ -46,6 +51,9 @@ defmodule Lumainus.AI.LlmInvocation do
       :req_duration_ms,
       :request_id,
       :repair_status,
+      :finish_reason,
+      :has_content,
+      :parts_count,
       :tenant_id
     ])
     |> validate_required([:provider, :model, :prompt_text, :tenant_id])

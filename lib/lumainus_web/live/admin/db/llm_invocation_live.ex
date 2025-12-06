@@ -9,7 +9,9 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
       item_query: &__MODULE__.item_query/3
     ],
     pubsub: [server: LumainusWeb.PubSub, topic: "llm_invocations"],
-    init_order: %{by: :inserted_at, direction: :desc}
+    init_order: %{by: :inserted_at, direction: :desc},
+    per_page_options: [15, 30, 50],
+    per_page_default: 15
 
   import Ecto.Query
   import LumainusWeb.Admin.Db.BackpexHelpers
@@ -44,6 +46,41 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
         label: "Status",
         options: [{"Pending", "pending"}, {"Completed", "completed"}, {"Error", "error"}]
       },
+      repair_status: %{
+        module: Backpex.Fields.Select,
+        label: "Repair",
+        options: [{"None", "none"}, {"Repaired", "repaired"}, {"Failed", "failed"}]
+      },
+      finish_reason: %{
+        module: Backpex.Fields.Text,
+        label: "Finish Reason",
+        readonly: true,
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: value
+          assigns = Map.put(assigns, :text, text)
+
+          ~H(<span class={if @text not in ["-", "STOP"], do: "text-red-600 font-semibold", else: ""}>
+  {@text}
+</span>)
+        end
+      },
+      has_content: %{
+        module: Backpex.Fields.Boolean,
+        label: "Has Content",
+        readonly: true
+      },
+      parts_count: %{
+        module: Backpex.Fields.Number,
+        label: "Parts",
+        readonly: true,
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: to_string(value)
+          assigns = Map.put(assigns, :text, text)
+          ~H(<span>{@text}</span>)
+        end
+      },
       error: %{
         module: Backpex.Fields.Text,
         label: "Error",
@@ -62,7 +99,16 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
           ~H(<pre class="text-xs whitespace-pre-wrap max-w-xs overflow-auto"><%= @text %></pre>)
         end
       },
-      temperature: %{module: Backpex.Fields.Number, label: "Temperature"},
+      temperature: %{
+        module: Backpex.Fields.Number,
+        label: "Temperature",
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: to_string(value)
+          assigns = Map.put(assigns, :text, text)
+          ~H(<span>{@text}</span>)
+        end
+      },
       max_output_tokens: %{module: Backpex.Fields.Number, label: "Max Output Tokens"},
       req_duration_ms: %{module: Backpex.Fields.Number, label: "Duration (ms)", readonly: true},
       request_id: %{module: Backpex.Fields.Text, label: "Request ID", readonly: true},

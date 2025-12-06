@@ -13,6 +13,40 @@ defmodule Lumainus.Documents.IngestionJob do
   @states ~w(pending queued running completed failed retrying)
   @docling_backends ~w(local fast cloud)
 
+  @type t :: %__MODULE__{
+          id: Ecto.UUID.t() | nil,
+          job_type: String.t() | nil,
+          status: String.t(),
+          state: String.t(),
+          stage: String.t(),
+          progress: integer(),
+          last_message: String.t() | nil,
+          last_error: String.t() | nil,
+          attempts: integer(),
+          error: map() | nil,
+          metadata: map(),
+          scheduled_at: DateTime.t() | nil,
+          started_at: DateTime.t() | nil,
+          finished_at: DateTime.t() | nil,
+          timeout_at: DateTime.t() | nil,
+          attempt_number: integer(),
+          max_attempts: integer(),
+          next_retry_at: DateTime.t() | nil,
+          deadline_at: DateTime.t() | nil,
+          cancelled_at: DateTime.t() | nil,
+          archived_at: DateTime.t() | nil,
+          error_history: [map()],
+          oban_job_id: integer() | nil,
+          docling_job_id: String.t() | nil,
+          backend: String.t(),
+          tenant_id: Ecto.UUID.t() | nil,
+          upload_id: Ecto.UUID.t() | nil,
+          record_set_id: Ecto.UUID.t() | nil,
+          events: Ecto.Association.NotLoaded.t() | list(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "ingestion_jobs" do
     field(:job_type, :string)
     field(:status, :string, default: "pending")

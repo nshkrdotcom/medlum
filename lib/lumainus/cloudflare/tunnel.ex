@@ -51,6 +51,8 @@ defmodule Lumainus.Cloudflare.Tunnel do
       :ok = Tunnel.delete(tunnel.id)
   """
 
+  alias Lumainus.ExternalApi
+
   require Logger
 
   @base_url "https://api.cloudflare.com/client/v4"
@@ -111,7 +113,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
       # Then delete the tunnel
       url = "#{@base_url}/accounts/#{account_id}/cfd_tunnel/#{tunnel_id}"
 
-      case Req.delete(url, headers: auth_headers(token)) do
+      case ExternalApi.delete(:cloudflare, url, headers: auth_headers(token)) do
         {:ok, %{status: 200, body: %{"success" => true}}} ->
           Logger.info("[Cloudflare.Tunnel] Deleted tunnel #{tunnel_id}")
           :ok
@@ -192,7 +194,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
         }
       }
 
-      case Req.put(url, json: config_body, headers: auth_headers(token)) do
+      case ExternalApi.put(:cloudflare, url, json: config_body, headers: auth_headers(token)) do
         {:ok, %{status: 200, body: %{"success" => true}}} ->
           Logger.info("[Cloudflare.Tunnel] Ingress configured for #{tunnel_id}")
           :ok
@@ -214,7 +216,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
          {:ok, token} <- get_account_token() do
       url = "#{@base_url}/accounts/#{account_id}/cfd_tunnel/#{tunnel_id}"
 
-      case Req.get(url, headers: auth_headers(token)) do
+      case ExternalApi.get(:cloudflare, url, headers: auth_headers(token)) do
         {:ok, %{status: 200, body: %{"success" => true, "result" => tunnel}}} ->
           {:ok, tunnel}
 
@@ -238,7 +240,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
          {:ok, token} <- get_account_token() do
       url = "#{@base_url}/accounts/#{account_id}/cfd_tunnel?is_deleted=false"
 
-      case Req.get(url, headers: auth_headers(token)) do
+      case ExternalApi.get(:cloudflare, url, headers: auth_headers(token)) do
         {:ok, %{status: 200, body: %{"success" => true, "result" => tunnels}}} ->
           {:ok, tunnels}
 
@@ -374,7 +376,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
       config_src: "cloudflare"
     }
 
-    case Req.post(url, json: body, headers: auth_headers(token)) do
+    case ExternalApi.post(:cloudflare, url, json: body, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => tunnel}}} ->
         {:ok, tunnel}
 
@@ -389,7 +391,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
   defp get_tunnel_token(account_id, tunnel_id, token) do
     url = "#{@base_url}/accounts/#{account_id}/cfd_tunnel/#{tunnel_id}/token"
 
-    case Req.get(url, headers: auth_headers(token)) do
+    case ExternalApi.get(:cloudflare, url, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => connector_token}}} ->
         {:ok, connector_token}
 
@@ -405,7 +407,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
     # Get active connections and clean them up
     url = "#{@base_url}/accounts/#{account_id}/cfd_tunnel/#{tunnel_id}/connections"
 
-    case Req.delete(url, headers: auth_headers(token)) do
+    case ExternalApi.delete(:cloudflare, url, headers: auth_headers(token)) do
       {:ok, %{status: 200}} -> :ok
       # Ignore errors - tunnel might not have connections
       _ -> :ok
@@ -473,7 +475,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
   defp list_dns_records(zone_id, name, type, token) do
     url = "#{@base_url}/zones/#{zone_id}/dns_records?type=#{type}&name=#{URI.encode(name)}"
 
-    case Req.get(url, headers: auth_headers(token)) do
+    case ExternalApi.get(:cloudflare, url, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => records}}} ->
         {:ok, records}
 
@@ -497,7 +499,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
       proxied: proxied
     }
 
-    case Req.post(url, json: body, headers: auth_headers(token)) do
+    case ExternalApi.post(:cloudflare, url, json: body, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => %{"id" => id}}}} ->
         {:ok, id}
 
@@ -520,7 +522,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
       proxied: proxied
     }
 
-    case Req.put(url, json: body, headers: auth_headers(token)) do
+    case ExternalApi.put(:cloudflare, url, json: body, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true}}} ->
         {:ok, record_id}
 
@@ -535,7 +537,7 @@ defmodule Lumainus.Cloudflare.Tunnel do
   defp delete_dns_record(zone_id, record_id, token) do
     url = "#{@base_url}/zones/#{zone_id}/dns_records/#{record_id}"
 
-    case Req.delete(url, headers: auth_headers(token)) do
+    case ExternalApi.delete(:cloudflare, url, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true}}} ->
         :ok
 

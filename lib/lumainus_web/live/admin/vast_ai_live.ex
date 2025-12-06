@@ -383,7 +383,7 @@ defmodule LumainusWeb.Admin.VastAILive do
           {_fqdn, nil} ->
             ProvisioningState.add_log(
               :error,
-              "CLOUDFLARE_API_TOKEN not set! Cannot setup Cloudflare tunnel."
+              "MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN not set! Cannot setup Cloudflare tunnel."
             )
 
             ProvisioningState.fail(:missing_cloudflare_token)
@@ -584,7 +584,11 @@ defmodule LumainusWeb.Admin.VastAILive do
       # Verify Cloudflare is configured
       case {Cloudflare.cloud_fqdn(), System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN")} do
         {_fqdn, nil} ->
-          ProvisioningState.add_log(:error, "CLOUDFLARE_API_TOKEN not set! Cannot setup tunnel.")
+          ProvisioningState.add_log(
+            :error,
+            "MEDLUMAI_DOT_COM_CLOUDFLARE_API_TOKEN not set! Cannot setup tunnel."
+          )
+
           ProvisioningState.fail(:missing_cloudflare_token)
 
         {fqdn, _token} ->

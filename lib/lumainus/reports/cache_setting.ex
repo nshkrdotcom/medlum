@@ -28,6 +28,17 @@ defmodule Lumainus.Reports.CacheSetting do
 
   @primary_key {:id, :binary_id, autogenerate: true}
 
+  @type t :: %__MODULE__{
+          id: Ecto.UUID.t() | nil,
+          system_prompt: String.t() | nil,
+          model: String.t() | nil,
+          ttl_seconds: integer() | nil,
+          enabled: boolean(),
+          singleton: boolean(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   # Models that support Gemini context caching with their minimum token requirements
   # This is the single source of truth - no hardcoding elsewhere
   @cache_models %{

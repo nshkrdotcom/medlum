@@ -15,6 +15,8 @@ defmodule Lumainus.Cloudflare do
   DNS records are created with 60 second TTL for fast propagation.
   """
 
+  alias Lumainus.ExternalApi
+
   require Logger
 
   @base_url "https://api.cloudflare.com/client/v4"
@@ -122,7 +124,7 @@ defmodule Lumainus.Cloudflare do
   defp list_dns_records(zone_id, name, type, token) do
     url = "#{@base_url}/zones/#{zone_id}/dns_records?type=#{type}&name=#{URI.encode(name)}"
 
-    case Req.get(url, headers: auth_headers(token)) do
+    case ExternalApi.get(:cloudflare, url, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => records}}} ->
         {:ok, records}
 
@@ -145,7 +147,7 @@ defmodule Lumainus.Cloudflare do
       proxied: false
     }
 
-    case Req.post(url, json: body, headers: auth_headers(token)) do
+    case ExternalApi.post(:cloudflare, url, json: body, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true, "result" => %{"id" => id}}}} ->
         {:ok, id}
 
@@ -168,7 +170,7 @@ defmodule Lumainus.Cloudflare do
       proxied: false
     }
 
-    case Req.put(url, json: body, headers: auth_headers(token)) do
+    case ExternalApi.put(:cloudflare, url, json: body, headers: auth_headers(token)) do
       {:ok, %{status: 200, body: %{"success" => true}}} ->
         {:ok, record_id}
 

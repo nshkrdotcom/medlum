@@ -73,10 +73,8 @@ defmodule Lumainus.Reports.CacheSettings do
   """
   @spec cache_model() :: String.t()
   def cache_model do
-    case fetch_or_init() do
-      {:ok, setting} -> setting.model
-      _ -> "gemini-2.5-flash"
-    end
+    {:ok, setting} = fetch_or_init()
+    setting.model
   end
 
   @doc """
@@ -84,10 +82,8 @@ defmodule Lumainus.Reports.CacheSettings do
   """
   @spec cache_ttl() :: integer()
   def cache_ttl do
-    case fetch_or_init() do
-      {:ok, setting} -> setting.ttl_seconds
-      _ -> 3600
-    end
+    {:ok, setting} = fetch_or_init()
+    setting.ttl_seconds
   end
 
   @doc """
@@ -95,10 +91,8 @@ defmodule Lumainus.Reports.CacheSettings do
   """
   @spec system_prompt() :: String.t()
   def system_prompt do
-    case fetch_or_init() do
-      {:ok, setting} -> setting.system_prompt
-      _ -> CacheSetting.default_system_prompt()
-    end
+    {:ok, setting} = fetch_or_init()
+    setting.system_prompt
   end
 
   @doc """
@@ -120,10 +114,8 @@ defmodule Lumainus.Reports.CacheSettings do
   """
   @spec enabled?() :: boolean()
   def enabled? do
-    case fetch_or_init() do
-      {:ok, setting} -> setting.enabled
-      _ -> true
-    end
+    {:ok, setting} = fetch_or_init()
+    setting.enabled
   end
 
   @doc """

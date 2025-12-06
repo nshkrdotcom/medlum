@@ -193,7 +193,10 @@ defmodule Lumainus.AI.SectionRunner do
         usage: normalized.usage,
         status: "completed",
         req_duration_ms: duration,
-        repair_status: normalized.repair_status
+        repair_status: normalized.repair_status,
+        finish_reason: normalized.finish_reason,
+        has_content: normalized.has_content,
+        parts_count: normalized.parts_count
       }
       |> maybe_put_request(normalized.request_id)
 
@@ -391,16 +394,27 @@ defmodule Lumainus.AI.SectionRunner do
     usage = response |> extract(:usage) || %{}
     text = extract(response, :text) || extract(response, :response_text)
 
-    # Defensive decoding: if object is a binary string (JSON wasn't parsed), try to decode it
+    # Get repair_status from LLM response (LLM.ex now handles JSON repair)
+    repair_status_from_llm = extract(response, :repair_status) || "none"
+
+    # Get response metadata from LLM (for debugging empty responses)
+    finish_reason = extract(response, :finish_reason)
+    has_content = extract(response, :has_content)
+    parts_count = extract(response, :parts_count)
+
+    # Defensive passthrough: object should already be decoded by LLM.ex
+    # This handles edge cases where object might still be a binary
     {object, repair_status_from_object} = ensure_decoded_object(raw_object, text)
 
     # Handle nested JSON: if markdown field contains JSON with a markdown key, extract it
+    # This handles the case where LLM wraps response in {"markdown": "{...actual json...}"}
     {markdown, citations, summary, repair_status_from_nested} =
       extract_content_from_object(object, text)
 
-    # Determine final repair status (use the first non-"none" status)
+    # Determine final repair status (LLM's status takes precedence, then object, then nested)
     repair_status =
       cond do
+        repair_status_from_llm != "none" -> repair_status_from_llm
         repair_status_from_object != "none" -> repair_status_from_object
         repair_status_from_nested != "none" -> repair_status_from_nested
         true -> "none"
@@ -415,7 +429,10 @@ defmodule Lumainus.AI.SectionRunner do
       citations: citations,
       summary: summary,
       request_id: extract(response, :request_id),
-      repair_status: repair_status
+      repair_status: repair_status,
+      finish_reason: finish_reason,
+      has_content: has_content,
+      parts_count: parts_count
     }
   end
 
@@ -477,29 +494,64 @@ defmodule Lumainus.AI.SectionRunner do
 
   defp maybe_decode_nested_json(_), do: :not_json
 
-  # Handle case where object is a binary string containing JSON
+  # Object should already be decoded by LLM.ex - this is defensive handling
+  # for edge cases where object might still be a binary string
   defp ensure_decoded_object(object, _text) when is_binary(object) do
-    case Jason.decode(object) do
+    trimmed = String.trim(object)
+
+    case Jason.decode(trimmed) do
       {:ok, decoded} when is_map(decoded) ->
         {stringify_keys(decoded), "none"}
 
       _ ->
-        {%{"markdown" => object}, "none"}
+        # Try JsonRemedy as last resort
+        case JsonRemedy.repair(trimmed, fast_path_optimization: false, logging: true) do
+          {:ok, repaired, logs} when is_list(logs) ->
+            status = if length(logs) > 0, do: "repaired", else: "none"
+            {stringify_keys(repaired), status}
+
+          {:ok, repaired} ->
+            {stringify_keys(repaired), "repaired"}
+
+          {:error, _} ->
+            # All repair attempts failed - wrap in markdown and mark as failed
+            {%{"markdown" => object}, "failed"}
+        end
     end
   end
 
-  # Handle case where object is nil but text contains JSON
-  defp ensure_decoded_object(nil, text) when is_binary(text) do
-    case Jason.decode(text) do
-      {:ok, decoded} when is_map(decoded) ->
-        {stringify_keys(decoded), "none"}
+  # Object is nil but text might contain JSON - try to decode it
+  defp ensure_decoded_object(nil, text) when is_binary(text) and text != "" do
+    trimmed = String.trim(text)
 
-      _ ->
-        {%{"markdown" => text}, "none"}
+    if String.starts_with?(trimmed, "{") do
+      case Jason.decode(trimmed) do
+        {:ok, decoded} when is_map(decoded) ->
+          {stringify_keys(decoded), "none"}
+
+        _ ->
+          case JsonRemedy.repair(trimmed, fast_path_optimization: false, logging: true) do
+            {:ok, repaired, logs} when is_list(logs) ->
+              status = if length(logs) > 0, do: "repaired", else: "none"
+              {stringify_keys(repaired), status}
+
+            {:ok, repaired} ->
+              {stringify_keys(repaired), "repaired"}
+
+            {:error, _} ->
+              {%{"markdown" => text}, "failed"}
+          end
+      end
+    else
+      {%{"markdown" => text}, "none"}
     end
   end
 
+  # Object is already a map - pass through
   defp ensure_decoded_object(object, _text) when is_map(object), do: {object, "none"}
+
+  # Fallback for nil/empty cases
+  defp ensure_decoded_object(nil, _), do: {%{}, "none"}
   defp ensure_decoded_object(_, _), do: {%{}, "none"}
 
   defp fallback_payload(section_template, context) do
