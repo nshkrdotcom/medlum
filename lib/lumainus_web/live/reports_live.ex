@@ -778,9 +778,14 @@ defmodule LumainusWeb.ReportsLive do
 
     # Only include truly active sections - not "error" or "failed" which are terminal states
     # Error sections should show their error state, not pretend to be running
+    # Also include "completed" sections that don't have output_markdown yet (race condition fix)
+    # This prevents brief "Awaiting output" flash when status updates before content is visible
     running_sections =
       sections
-      |> Enum.filter(&(&1.status in ["pending", "queued", "running"]))
+      |> Enum.filter(fn section ->
+        section.status in ["pending", "queued", "running"] ||
+          (section.status == "completed" && !has_output?(section.last_run))
+      end)
       |> Enum.map(& &1.section.id)
       |> MapSet.new()
 
@@ -2704,6 +2709,14 @@ defmodule LumainusWeb.ReportsLive do
 
   defp run_status(%{latest_run: nil}), do: "not_started"
   defp run_status(%{latest_run: %{status: status}}), do: status
+
+  # Check if a section run has meaningful output content
+  # Used to keep spinner showing until content is actually available (race condition fix)
+  defp has_output?(nil), do: false
+  defp has_output?(%{output_markdown: nil}), do: false
+  defp has_output?(%{output_markdown: ""}), do: false
+  defp has_output?(%{output_markdown: md}) when is_binary(md), do: String.trim(md) != ""
+  defp has_output?(_), do: false
 
   defp document_status(%{ingestion_state: state, ingestion_stage: stage, status: status}) do
     state || stage || status
