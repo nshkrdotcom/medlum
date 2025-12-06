@@ -850,8 +850,13 @@ defmodule LumainusWeb.ReportsLive do
     patients = Reports.list_patients_for_scope(scope)
     t7 = System.monotonic_time(:millisecond)
 
+    # Load active runs for the jobs widget (admins see all, doctors see their own)
+    is_admin = scope.user.role in ["admin", "system_administrator"]
+    global_active_runs = Reports.list_active_runs(scope, is_admin: is_admin)
+    t8 = System.monotonic_time(:millisecond)
+
     Logger.info(
-      "[ReportsLive] load_workspace timing - workspace: #{t2 - t1}ms, record_sets: #{t4 - t3}ms, latest_runs: #{t5 - t4}ms, recent_runs: #{t6 - t5}ms, patients: #{t7 - t6}ms"
+      "[ReportsLive] load_workspace timing - workspace: #{t2 - t1}ms, record_sets: #{t4 - t3}ms, latest_runs: #{t5 - t4}ms, recent_runs: #{t6 - t5}ms, patients: #{t7 - t6}ms, active_runs: #{t8 - t7}ms"
     )
 
     # Find active run for cancel button
@@ -888,6 +893,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:record_set_latest_runs, record_set_latest_runs)
       |> assign(:recent_runs, recent_runs)
       |> assign(:patients, patients)
+      |> assign(:global_active_runs, global_active_runs)
       |> assign(:visible_sections, sections)
       |> assign(:docling_health, docling_health)
       |> assign(:docling_backend, selected_backend)
@@ -4053,6 +4059,35 @@ defmodule LumainusWeb.ReportsLive do
             Dismiss
           </button>
         </div>
+      <% end %>
+
+      <%= if @global_active_runs != [] do %>
+        <section class="active-runs-widget">
+          <div class="active-runs-header">
+            <span class="active-runs-pulse"></span>
+            <span class="active-runs-title">
+              {length(@global_active_runs)} Active Report{if length(@global_active_runs) != 1,
+                do: "s",
+                else: ""}
+            </span>
+          </div>
+          <div class="active-runs-list">
+            <%= for run <- @global_active_runs do %>
+              <div class={[
+                "active-run-item",
+                if(run.id == @current_run_id, do: "current-run", else: "")
+              ]}>
+                <div class="run-info">
+                  <span class="run-patient">{patient_display_name(run.patient)}</span>
+                  <span class="run-template">{(run.template && run.template.name) || "Report"}</span>
+                </div>
+                <div class="run-status-badge" data-status={run.status}>
+                  {String.capitalize(run.status)}
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </section>
       <% end %>
 
       <section class="patient-banner">

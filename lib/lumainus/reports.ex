@@ -214,6 +214,34 @@ defmodule Lumainus.Reports do
     |> Repo.all()
   end
 
+  @doc """
+  List all active (running/pending/queued) report runs.
+
+  For admins, returns all active runs in the tenant.
+  For doctors, returns only their own active runs.
+  """
+  def list_active_runs(%Scope{} = scope, opts \\ []) do
+    tenant_id = tenant_id_from_scope(scope)
+    is_admin = opts[:is_admin] || false
+
+    query =
+      ReportRun
+      |> where([r], r.tenant_id == ^tenant_id)
+      |> where([r], r.status in ["running", "pending", "queued"])
+      |> order_by([r], desc: r.inserted_at)
+      |> preload([:patient, :record_set, :template])
+
+    query =
+      if is_admin do
+        query
+      else
+        # For non-admins, only show runs they triggered
+        where(query, [r], r.triggered_by_user_id == ^scope.user.id)
+      end
+
+    Repo.all(query)
+  end
+
   def latest_runs_for_record_sets(%Scope{} = scope, record_sets) do
     tenant_id = tenant_id_from_scope(scope)
     ids = Enum.map(record_sets, & &1.id)
@@ -884,6 +912,9 @@ defmodule Lumainus.Reports do
     |> where([sr], sr.status in ["pending", "queued", "running", "error"])
     |> Repo.update_all(set: [status: "cancelled", updated_at: now])
 
+    # Cancel linked LLM invocations that are still running/pending
+    cancel_llm_invocations(section_runs, now)
+
     # Update the report run to cancelled
     run
     |> Changeset.change(%{
@@ -916,6 +947,33 @@ defmodule Lumainus.Reports do
     Logger.info(
       "[Reports] Cancelled #{cancelled_count} Oban jobs for section runs: #{inspect(section_run_ids)}"
     )
+
+    :ok
+  end
+
+  defp cancel_llm_invocations(section_runs, now) do
+    # Get LLM invocation IDs from section runs that have them
+    llm_invocation_ids =
+      section_runs
+      |> Enum.map(& &1.llm_invocation_id)
+      |> Enum.reject(&is_nil/1)
+
+    if llm_invocation_ids != [] do
+      # Update LLM invocations that are still pending/running to cancelled
+      {count, _} =
+        LlmInvocation
+        |> where([l], l.id in ^llm_invocation_ids)
+        |> where([l], l.status in ["pending", "running"])
+        |> Repo.update_all(
+          set: [
+            status: "cancelled",
+            error: %{"type" => "cancelled", "message" => "Report run was cancelled"},
+            updated_at: now
+          ]
+        )
+
+      Logger.info("[Reports] Cancelled #{count} LLM invocations for cancelled run")
+    end
 
     :ok
   end
