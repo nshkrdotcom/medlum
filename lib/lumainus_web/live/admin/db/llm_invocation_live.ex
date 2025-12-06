@@ -67,8 +67,7 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
       },
       has_content: %{
         module: Backpex.Fields.Boolean,
-        label: "Has Content",
-        readonly: true
+        label: "Has Content"
       },
       parts_count: %{
         module: Backpex.Fields.Number,

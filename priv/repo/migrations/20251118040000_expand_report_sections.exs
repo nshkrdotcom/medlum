@@ -4,12 +4,13 @@ defmodule Lumainus.Repo.Migrations.ExpandReportSections do
   import Ecto.Query, warn: false
 
   alias Lumainus.Reports
-  alias Lumainus.Reports.{ReportSectionTemplate, ReportTemplate}
+  alias Lumainus.Reports.ReportSectionTemplate
   alias Lumainus.Repo
+  alias __MODULE__.TemplateSnapshot
 
   def up do
     Repo.transaction(fn ->
-      ReportTemplate
+      TemplateSnapshot
       |> Repo.all()
       |> Enum.each(&sync_template_sections/1)
     end)
@@ -47,5 +48,18 @@ defmodule Lumainus.Repo.Migrations.ExpandReportSections do
           |> Repo.update!()
       end
     end)
+  end
+
+  defmodule TemplateSnapshot do
+    @moduledoc false
+    # Minimal snapshot of report_templates to avoid selecting columns added after this migration
+    use Ecto.Schema
+
+    @primary_key {:id, :binary_id, autogenerate: false}
+    @foreign_key_type :binary_id
+    schema "report_templates" do
+      field(:tenant_id, :binary_id)
+      field(:slug, :string)
+    end
   end
 end
