@@ -1584,9 +1584,7 @@ defmodule LumainusWeb.ReportsLive do
     end)
   end
 
-  defp visible_sections(socket, nil) do
-    socket.assigns.visible_sections || socket.assigns.sections
-  end
+  defp visible_sections(socket, nil), do: socket.assigns.sections || []
 
   defp visible_sections(_socket, run_details), do: sections_from_run(run_details)
 
