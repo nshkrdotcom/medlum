@@ -1,9 +1,14 @@
 defmodule Lumainus.Documents.SampleData do
   @moduledoc """
   Synthetic clinical documents used to quickly populate a workspace for demos.
+
+  Also loads any `.md` files from `priv/fixtures/local/sample_data/` if present.
+  That directory is gitignored for large local test files.
   """
 
-  @samples [
+  @local_sample_dir "priv/fixtures/local/sample_data"
+
+  @builtin_samples [
     %{
       slug: "er-intake",
       filename: "emergency_intake_note.pdf",
@@ -116,5 +121,78 @@ defmodule Lumainus.Documents.SampleData do
     }
   ]
 
-  def samples, do: @samples
+  @doc """
+  Returns all sample documents: built-in samples plus any .md files in the local directory.
+  """
+  def samples do
+    @builtin_samples ++ local_samples()
+  end
+
+  @doc """
+  Returns only the built-in synthetic samples.
+  """
+  def builtin_samples, do: @builtin_samples
+
+  @doc """
+  Returns samples loaded from local .md files in priv/fixtures/local/sample_data/
+  """
+  def local_samples do
+    dir = Application.app_dir(:lumainus, @local_sample_dir)
+
+    if File.dir?(dir) do
+      dir
+      |> File.ls!()
+      |> Enum.filter(&String.ends_with?(&1, ".md"))
+      |> Enum.sort()
+      |> Enum.with_index(201)
+      |> Enum.map(fn {filename, index} ->
+        build_local_sample(dir, filename, index)
+      end)
+    else
+      []
+    end
+  end
+
+  defp build_local_sample(dir, filename, index) do
+    path = Path.join(dir, filename)
+    content = File.read!(path)
+    basename = Path.basename(filename, ".md")
+
+    title =
+      basename
+      |> String.replace("_", " ")
+      |> String.split()
+      |> Enum.map(&String.capitalize/1)
+      |> Enum.join(" ")
+
+    # Split content into lines for chunks
+    lines =
+      content
+      |> String.split("\n")
+      |> Enum.reject(&(String.trim(&1) == ""))
+      |> Enum.with_index(1)
+      |> Enum.map(fn {text, idx} ->
+        %{tag: :content, text: text, line: idx}
+      end)
+
+    # Take first ~200 chars for summary
+    summary =
+      content
+      |> String.slice(0, 200)
+      |> String.replace("\n", " ")
+      |> String.trim()
+
+    %{
+      slug: basename,
+      filename: "#{basename}.pdf",
+      mock_id: "doc-#{index}",
+      document_kind: "Clinical Document",
+      label: "#{title} · Local",
+      provider: "Local Fixture",
+      date: Date.utc_today() |> Date.to_iso8601(),
+      summary: summary <> "...",
+      lines: lines,
+      local_file: path
+    }
+  end
 end

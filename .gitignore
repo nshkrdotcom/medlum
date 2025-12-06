@@ -55,3 +55,6 @@ __pycache__/
 /docling/
 docs/vast-ai/docs/
 repomix*.xml
+
+# Local sample fixtures (large files not for git)
+/priv/fixtures/local/

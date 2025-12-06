@@ -2976,24 +2976,34 @@ defmodule LumainusWeb.ReportsLive do
         font-size: 13px;
         font-weight: 600;
         color: #166534;
+        animation: indicator-glow 2s ease-in-out infinite;
+      }
+
+      @keyframes indicator-glow {
+        0%, 100% {
+          box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.3);
+        }
+        50% {
+          box-shadow: 0 0 20px 6px rgba(34, 197, 94, 0.5);
+        }
       }
 
       .progress-pulse {
-        width: 8px;
-        height: 8px;
+        width: 10px;
+        height: 10px;
         background: #22c55e;
         border-radius: 50%;
-        animation: pulse-glow 1.5s ease-in-out infinite;
+        animation: pulse-glow 1.2s ease-in-out infinite;
       }
 
       @keyframes pulse-glow {
         0%, 100% {
-          opacity: 1;
-          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+          transform: scale(1);
+          box-shadow: 0 0 4px 2px rgba(34, 197, 94, 0.6);
         }
         50% {
-          opacity: 0.8;
-          box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+          transform: scale(1.3);
+          box-shadow: 0 0 12px 6px rgba(34, 197, 94, 0.8);
         }
       }
 
@@ -3877,9 +3887,14 @@ defmodule LumainusWeb.ReportsLive do
         position: absolute;
         top: 100%;
         right: 0;
-        margin-top: 8px;
+        padding-top: 8px;
         width: 500px;
         max-width: 90vw;
+        z-index: 50;
+      }
+
+      .prompt-tooltip-content-inner {
+        position: relative;
         max-height: 400px;
         overflow-y: auto;
         padding: 16px;
@@ -3891,7 +3906,6 @@ defmodule LumainusWeb.ReportsLive do
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         white-space: pre-wrap;
         word-break: break-word;
-        z-index: 50;
         line-height: 1.5;
       }
 
@@ -3899,10 +3913,10 @@ defmodule LumainusWeb.ReportsLive do
         display: block;
       }
 
-      .prompt-tooltip-content::before {
+      .prompt-tooltip-content-inner::before {
         content: '';
         position: absolute;
-        top: -6px;
+        top: 2px;
         right: 20px;
         border-left: 6px solid transparent;
         border-right: 6px solid transparent;
@@ -4363,7 +4377,7 @@ defmodule LumainusWeb.ReportsLive do
               </button>
               <button
                 type="button"
-                class="btn btn-outline btn-sm w-full text-slate-700 border-slate-300"
+                class="btn btn-outline btn-sm w-full text-slate-700 border-slate-300 bg-white hover:bg-slate-100 hover:text-slate-900 hover:border-slate-400"
                 phx-click="seed_sample_documents"
               >
                 Load Sample Documents
@@ -4640,7 +4654,9 @@ defmodule LumainusWeb.ReportsLive do
                         Prompt
                       </button>
                       <div class="prompt-tooltip-content">
-                        {section_entry.section.prompt_template}
+                        <div class="prompt-tooltip-content-inner">
+                          {section_entry.section.prompt_template}
+                        </div>
                       </div>
                     </div>
                   <% end %>
