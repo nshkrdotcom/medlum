@@ -28,6 +28,13 @@ defmodule Lumainus.AI.LlmInvocation do
     field(:has_content, :boolean, default: true)
     field(:parts_count, :integer)
 
+    # gemini_ex 0.6.4+ fields
+    field(:response_id, :string)
+    field(:model_version, :string)
+    field(:finish_message, :string)
+    field(:thoughts_token_count, :integer)
+    field(:traffic_type, :string)
+
     belongs_to(:tenant, Tenant)
     has_one(:section_run, ReportSectionRun)
 
@@ -54,6 +61,11 @@ defmodule Lumainus.AI.LlmInvocation do
       :finish_reason,
       :has_content,
       :parts_count,
+      :response_id,
+      :model_version,
+      :finish_message,
+      :thoughts_token_count,
+      :traffic_type,
       :tenant_id
     ])
     |> validate_required([:provider, :model, :prompt_text, :tenant_id])

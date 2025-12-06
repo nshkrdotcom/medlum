@@ -206,6 +206,7 @@ defmodule Lumainus.LLM do
     text = extract_text(response)
     {object, repair_status} = decode_object(text, schema)
     finish_reason = extract_finish_reason(response)
+    finish_message = extract_finish_message(response)
     {has_content, parts_count} = extract_response_metadata(response)
 
     %{
@@ -215,8 +216,14 @@ defmodule Lumainus.LLM do
       "request_id" => nil,
       "repair_status" => repair_status,
       "finish_reason" => finish_reason,
+      "finish_message" => finish_message,
       "has_content" => has_content,
-      "parts_count" => parts_count
+      "parts_count" => parts_count,
+      # gemini_ex 0.6.4+ fields
+      "response_id" => response.response_id,
+      "model_version" => response.model_version,
+      "thoughts_token_count" => extract_thoughts_token_count(response),
+      "traffic_type" => extract_traffic_type(response)
     }
   end
 
@@ -226,6 +233,32 @@ defmodule Lumainus.LLM do
   end
 
   defp extract_finish_reason(_), do: nil
+
+  # Extract finish_message from the first candidate (gemini_ex 0.6.4+)
+  defp extract_finish_message(%GenerateContentResponse{candidates: [%{finish_message: msg} | _]})
+       when is_binary(msg) do
+    msg
+  end
+
+  defp extract_finish_message(_), do: nil
+
+  # Extract thoughts_token_count from usage_metadata (gemini_ex 0.6.4+)
+  defp extract_thoughts_token_count(%GenerateContentResponse{
+         usage_metadata: %{thoughts_token_count: count}
+       })
+       when is_integer(count) do
+    count
+  end
+
+  defp extract_thoughts_token_count(_), do: nil
+
+  # Extract traffic_type from usage_metadata (gemini_ex 0.6.4+)
+  defp extract_traffic_type(%GenerateContentResponse{usage_metadata: %{traffic_type: type}})
+       when not is_nil(type) do
+    to_string(type)
+  end
+
+  defp extract_traffic_type(_), do: nil
 
   # Extract metadata about response content
   # Returns {has_content, parts_count}

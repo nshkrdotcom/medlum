@@ -81,6 +81,64 @@ defmodule LumainusWeb.Admin.Db.LlmInvocationLive do
           ~H(<span>{@text}</span>)
         end
       },
+      thoughts_token_count: %{
+        module: Backpex.Fields.Number,
+        label: "Thoughts",
+        readonly: true,
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value) or value == 0, do: "-", else: to_string(value)
+          assigns = Map.put(assigns, :text, text)
+
+          ~H(<span class={if @text != "-", do: "text-purple-600 font-semibold", else: ""}>{@text}</span>)
+        end
+      },
+      model_version: %{
+        module: Backpex.Fields.Text,
+        label: "Model Ver.",
+        readonly: true,
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: value
+          assigns = Map.put(assigns, :text, text)
+          ~H(<span class="text-xs text-gray-500">{@text}</span>)
+        end
+      },
+      finish_message: %{
+        module: Backpex.Fields.Text,
+        label: "Stop Msg",
+        readonly: true,
+        except: [:index],
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: value
+          assigns = Map.put(assigns, :text, text)
+          ~H(<span class="text-sm">{@text}</span>)
+        end
+      },
+      traffic_type: %{
+        module: Backpex.Fields.Text,
+        label: "Traffic",
+        readonly: true,
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: value
+          assigns = Map.put(assigns, :text, text)
+          ~H(<span class="text-xs">{@text}</span>)
+        end
+      },
+      response_id: %{
+        module: Backpex.Fields.Text,
+        label: "Response ID",
+        readonly: true,
+        except: [:index],
+        render: fn assigns ->
+          value = assigns.value
+          text = if is_nil(value), do: "-", else: value
+          assigns = Map.put(assigns, :text, text)
+          ~H(<code class="text-xs text-gray-500">{@text}</code>)
+        end
+      },
       error: %{
         module: Backpex.Fields.Text,
         label: "Error",
