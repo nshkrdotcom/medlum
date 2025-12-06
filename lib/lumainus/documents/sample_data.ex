@@ -153,6 +153,9 @@ defmodule Lumainus.Documents.SampleData do
     end
   end
 
+  # Maximum lines to load from local sample files to prevent UI blocking
+  @max_local_sample_lines 500
+
   defp build_local_sample(dir, filename, index) do
     path = Path.join(dir, filename)
     content = File.read!(path)
@@ -165,11 +168,12 @@ defmodule Lumainus.Documents.SampleData do
       |> Enum.map(&String.capitalize/1)
       |> Enum.join(" ")
 
-    # Split content into lines for chunks
+    # Split content into lines for chunks, limit to prevent blocking on huge files
     lines =
       content
       |> String.split("\n")
       |> Enum.reject(&(String.trim(&1) == ""))
+      |> Enum.take(@max_local_sample_lines)
       |> Enum.with_index(1)
       |> Enum.map(fn {text, idx} ->
         %{tag: :content, text: text, line: idx}

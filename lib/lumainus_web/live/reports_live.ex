@@ -491,17 +491,68 @@ defmodule LumainusWeb.ReportsLive do
   end
 
   def handle_event("seed_sample_documents", _params, socket) do
+    Logger.info("[ReportsLive] seed_sample_documents handler called")
+    Logger.info("[ReportsLive] Current documents count: #{length(socket.assigns.documents)}")
     scope = socket.assigns.current_scope
 
-    case Documents.seed_sample_documents(scope, socket.assigns.patient, socket.assigns.record_set) do
-      {:ok, :noop} ->
-        {:noreply,
-         put_flash(socket, :info, "Sample documents already loaded.") |> load_workspace()}
+    try do
+      result =
+        Documents.seed_sample_documents(scope, socket.assigns.patient, socket.assigns.record_set)
 
-      {:ok, uploads} ->
+      Logger.info("[ReportsLive] seed_sample_documents returned: #{inspect(result)}")
+
+      case result do
+        {:ok, :noop} ->
+          Logger.info("[ReportsLive] No new documents (noop), calling load_workspace")
+
+          updated_socket =
+            socket |> put_flash(:info, "Sample documents already loaded.") |> load_workspace()
+
+          Logger.info(
+            "[ReportsLive] After load_workspace, documents count: #{length(updated_socket.assigns.documents)}"
+          )
+
+          {:noreply, updated_socket}
+
+        {:ok, uploads} when is_list(uploads) ->
+          Logger.info("[ReportsLive] Loaded #{length(uploads)} documents, calling load_workspace")
+
+          updated_socket =
+            socket
+            |> put_flash(:info, "Loaded #{length(uploads)} sample documents.")
+            |> load_workspace()
+
+          Logger.info(
+            "[ReportsLive] After load_workspace, documents count: #{length(updated_socket.assigns.documents)}"
+          )
+
+          {:noreply, updated_socket}
+
+        {:error, reason} ->
+          Logger.error("[ReportsLive] seed_sample_documents error: #{inspect(reason)}")
+
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to load sample documents: #{inspect(reason)}")
+           |> load_workspace()}
+
+        other ->
+          Logger.error("[ReportsLive] seed_sample_documents unexpected result: #{inspect(other)}")
+
+          {:noreply,
+           socket
+           |> put_flash(:error, "Unexpected result loading samples")
+           |> load_workspace()}
+      end
+    rescue
+      e ->
+        Logger.error(
+          "[ReportsLive] seed_sample_documents exception: #{inspect(e)}\n#{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
         {:noreply,
          socket
-         |> put_flash(:info, "Loaded #{length(uploads)} sample documents.")
+         |> put_flash(:error, "Error loading sample documents")
          |> load_workspace()}
     end
   end

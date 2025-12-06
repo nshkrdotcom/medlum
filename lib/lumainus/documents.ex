@@ -277,6 +277,7 @@ defmodule Lumainus.Documents do
   end
 
   def seed_sample_documents(%Scope{} = scope, patient, record_set, opts \\ []) do
+    Logger.info("[Documents] seed_sample_documents START")
     now = DateTime.utc_now(:second)
 
     # By default include local samples, but tests can pass include_local: false
@@ -288,21 +289,35 @@ defmodule Lumainus.Documents do
         SampleData.builtin_samples()
       end
 
+    Logger.info("[Documents] Found #{length(samples)} samples to process")
+
     inserted =
       samples
       |> Enum.reduce([], fn sample, acc ->
+        Logger.info("[Documents] Processing sample: #{sample.filename}")
+
         case ensure_sample_document(scope, patient, record_set, sample, now) do
-          {:ok, upload} -> [upload | acc]
-          {:skip, _} -> acc
+          {:ok, upload} ->
+            Logger.info("[Documents] Created upload for #{sample.filename}")
+            [upload | acc]
+
+          {:skip, _} ->
+            Logger.info("[Documents] Skipped #{sample.filename} (already exists)")
+            acc
         end
       end)
 
+    Logger.info("[Documents] Inserted #{length(inserted)} documents")
+
     case inserted do
       [] ->
+        Logger.info("[Documents] seed_sample_documents END - noop")
         {:ok, :noop}
 
       uploads ->
+        Logger.info("[Documents] Notifying documents_changed")
         notify_documents_changed(record_set.id)
+        Logger.info("[Documents] seed_sample_documents END - #{length(uploads)} uploads")
         {:ok, Enum.reverse(uploads)}
     end
   end
@@ -400,20 +415,27 @@ defmodule Lumainus.Documents do
   end
 
   defp persist_sample_chunks(parse, lines) do
-    lines
-    |> Enum.with_index(1)
-    |> Enum.each(fn {line, index} ->
-      %DocumentChunk{}
-      |> DocumentChunk.changeset(%{
-        parse_id: parse.id,
-        position: index,
-        content: line.text,
-        token_count: line.text |> String.split() |> length(),
-        line_start: index,
-        line_end: index
-      })
-      |> Repo.insert!()
-    end)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    chunks =
+      lines
+      |> Enum.with_index(1)
+      |> Enum.map(fn {line, index} ->
+        %{
+          id: Ecto.UUID.generate(),
+          parse_id: parse.id,
+          position: index,
+          content: line.text,
+          token_count: line.text |> String.split() |> length(),
+          line_start: index,
+          line_end: index,
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
+
+    # Batch insert all chunks at once (much faster than individual inserts)
+    Repo.insert_all(DocumentChunk, chunks)
   end
 
   def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
