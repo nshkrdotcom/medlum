@@ -4063,7 +4063,7 @@ defmodule LumainusWeb.ReportsLive do
 
               <%= if section_entry.last_run && Enum.any?(section_entry.last_run.citations) do %>
                 <div class="citations">
-                  <%= for citation <- section_entry.last_run.citations do %>
+                  <%= for citation <- Enum.uniq_by(section_entry.last_run.citations, & &1.document_id) do %>
                     <%= if citation.document_id do %>
                       <button
                         type="button"
