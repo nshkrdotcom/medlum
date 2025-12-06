@@ -5486,6 +5486,7 @@ defmodule LumainusWeb.ReportsLive do
     |> truncate(240)
   end
 
+  defp patient_name(%{current_profile: %Ecto.Association.NotLoaded{}}), do: "Patient"
   defp patient_name(%{current_profile: nil}), do: "Patient"
 
   defp patient_name(%{current_profile: profile}) do

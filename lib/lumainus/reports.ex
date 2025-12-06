@@ -223,13 +223,14 @@ defmodule Lumainus.Reports do
   def list_active_runs(%Scope{} = scope, opts \\ []) do
     tenant_id = tenant_id_from_scope(scope)
     is_admin = opts[:is_admin] || false
+    profile_query = profile_query_without_metadata()
 
     query =
       ReportRun
       |> where([r], r.tenant_id == ^tenant_id)
       |> where([r], r.status in ["running", "pending", "queued"])
       |> order_by([r], desc: r.inserted_at)
-      |> preload([:patient, :record_set, :template])
+      |> preload([:record_set, :template, patient: ^profile_query])
 
     query =
       if is_admin do
