@@ -474,13 +474,15 @@ defmodule Lumainus.Reports do
     stream? = Keyword.get(opts, :stream, false)
 
     # Use index as priority so sections run in order (lower priority = picked first)
+    # Oban priorities must be 0-9, so cap at 9 for sections 10+
     section_runs
     |> Enum.with_index()
     |> Enum.reduce_while(:ok, fn {section_run, index}, _acc ->
       job_args = %{"section_run_id" => section_run.id}
       job_args = if stream?, do: Map.put(job_args, "stream", true), else: job_args
+      priority = min(index, 9)
 
-      case worker.new(job_args, priority: index) |> Oban.insert() do
+      case worker.new(job_args, priority: priority) |> Oban.insert() do
         {:ok, _job} ->
           {:cont, :ok}
 
@@ -500,17 +502,19 @@ defmodule Lumainus.Reports do
   end
 
   defp mark_section_run_failed(section_run, reason) do
-    # Log error instead of persisting to DB
     require Logger
 
     Logger.error("""
-    [Reports] Section run failed: #{section_run.id}
+    [Reports] Section run failed to enqueue: #{section_run.id}
     Reason: #{inspect(reason)}
     """)
 
-    # Mark as pending (not error) so it can be retried
+    # Mark as failed - these sections will never run since enqueue failed
     section_run
-    |> Changeset.change(%{status: "pending"})
+    |> Changeset.change(%{
+      status: "failed",
+      error: %{"message" => "Failed to enqueue job", "reason" => inspect(reason)}
+    })
     |> Repo.update!()
   end
 
@@ -803,6 +807,117 @@ defmodule Lumainus.Reports do
       template ->
         template
     end
+  end
+
+  @doc """
+  Cancels a report run and all its associated section runs.
+
+  This function:
+  - Cancels all pending/queued/running Oban jobs for section runs
+  - Updates all non-completed section runs to "cancelled" status
+  - Updates the report run to "cancelled" status with finished_at timestamp
+  - Cleans up the context cache if it exists
+
+  ## Parameters
+
+  - `report_run_id` - The ID of the report run to cancel
+
+  ## Returns
+
+  - `{:ok, report_run}` - Successfully cancelled the run
+  - `{:error, :not_found}` - Report run not found
+  - `{:error, :already_completed}` - Run already in a final state (completed, error, timed_out, cancelled)
+  - `{:error, reason}` - Other error occurred
+  """
+  @spec cancel_report_run(String.t()) :: {:ok, ReportRun.t()} | {:error, term()}
+  def cancel_report_run(report_run_id) when is_binary(report_run_id) do
+    case Repo.get(ReportRun, report_run_id) do
+      nil ->
+        {:error, :not_found}
+
+      run ->
+        cancel_run_transaction(run)
+    end
+  end
+
+  defp cancel_run_transaction(%ReportRun{} = run) do
+    # Only reject truly final states. Allow cancelling "error" and "timed_out" runs
+    # because they may have stuck sections that need cleanup (e.g., sections that
+    # failed to enqueue due to Oban validation errors are still in "pending" status)
+    uncancellable_statuses = ["completed", "cancelled"]
+
+    if run.status in uncancellable_statuses do
+      {:error, :already_completed}
+    else
+      case Repo.transaction(fn -> do_cancel_run(run) end) do
+        {:ok, updated_run} ->
+          # Clean up cache after transaction commits
+          alias Lumainus.Reports.CacheManager
+          CacheManager.delete_cache(updated_run.cached_content_name)
+
+          # Notify UI to update
+          notify_section_run_update(updated_run.record_set_id)
+
+          {:ok, updated_run}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp do_cancel_run(%ReportRun{} = run) do
+    now = DateTime.utc_now(:second)
+
+    # Get all section runs for this report run
+    section_runs =
+      ReportSectionRun
+      |> where([sr], sr.report_run_id == ^run.id)
+      |> Repo.all()
+
+    # Cancel all Oban jobs for pending/queued/running sections
+    cancel_section_jobs(section_runs)
+
+    # Update all non-completed section runs to cancelled
+    ReportSectionRun
+    |> where([sr], sr.report_run_id == ^run.id)
+    |> where([sr], sr.status in ["pending", "queued", "running", "error"])
+    |> Repo.update_all(set: [status: "cancelled", updated_at: now])
+
+    # Update the report run to cancelled
+    run
+    |> Changeset.change(%{
+      status: "cancelled",
+      finished_at: now,
+      last_activity_at: now
+    })
+    |> Repo.update!()
+  end
+
+  defp cancel_section_jobs(section_runs) do
+    # Build a query to find all Oban jobs for these section runs
+    # Jobs are identified by their args containing the section_run_id
+    section_run_ids = Enum.map(section_runs, & &1.id)
+
+    # Cancel jobs that are available, scheduled, executing, or retryable
+    # Use fragment to query JSON args field
+    query =
+      Oban.Job
+      |> where([j], j.worker == "Lumainus.Reports.SectionRunWorker")
+      |> where([j], j.state in ["available", "scheduled", "executing", "retryable"])
+      |> where(
+        [j],
+        fragment("(?->>'section_run_id')::text = ANY(?)", j.args, ^section_run_ids)
+      )
+
+    # Oban.cancel_all_jobs returns {:ok, count}
+    {:ok, cancelled_count} = Oban.cancel_all_jobs(query)
+
+    Logger.info(
+      "[Reports] Cancelled #{cancelled_count} Oban jobs for section runs: #{inspect(section_run_ids)}"
+    )
+
+    :ok
   end
 
   @doc false

@@ -151,6 +151,20 @@ config :lumainus, :llm,
   enabled: true,
   default_options: [temperature: 0.2, max_output_tokens: 2048]
 
+# AI ConcurrencyGate Configuration
+# =================================
+# Application-level concurrency control for LLM operations.
+# This gate provides defense-in-depth rate limiting independent of gemini_ex.
+#
+# Key settings to prevent 429 floods on server restart:
+# - max_concurrent: 1 (aligns with Oban reports queue limit of 1)
+# - inter_call_delay_ms: 2000 (2 second delay between LLM calls to prevent back-to-back requests)
+# - max_queue: 50 (max waiting jobs before rejecting)
+config :lumainus, :concurrency_gate,
+  max_concurrent: 1,
+  inter_call_delay_ms: 2000,
+  max_queue: 50
+
 # Gemini rate limiter configuration (gemini_ex 0.6.1+)
 # =====================================================
 # Rate limiting is enabled by default with proactive token budgeting.

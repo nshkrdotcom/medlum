@@ -16,7 +16,7 @@ defmodule Lumainus.Reports.RunReconciler do
 
   require Logger
 
-  @final_statuses ["completed", "error", "timed_out"]
+  @final_statuses ["completed", "error", "timed_out", "cancelled"]
 
   @doc """
   Atomically check and finalize a report run if all sections are done.
@@ -101,6 +101,10 @@ defmodule Lumainus.Reports.RunReconciler do
       # "error" means Oban may still retry, so don't finalize
       Enum.any?(statuses, &(&1 in ["pending", "queued", "running", "error"])) ->
         nil
+
+      # If any sections were cancelled, mark run as cancelled
+      Enum.any?(statuses, &(&1 == "cancelled")) ->
+        "cancelled"
 
       # All done, any terminal failures -> error
       # "failed" = Oban exhausted retries, "timed_out" = timeout reached

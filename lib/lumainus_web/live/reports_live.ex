@@ -45,6 +45,7 @@ defmodule LumainusWeb.ReportsLive do
     socket =
       socket
       |> assign(:page_head, mathjax_head())
+      |> assign(:current_run_id, nil)
       |> allow_upload(:documents,
         accept: ~w(.pdf),
         max_entries: 5,
@@ -447,6 +448,48 @@ defmodule LumainusWeb.ReportsLive do
     run_sections(socket, section_ids)
   end
 
+  def handle_event("cancel_report_run", %{"run-id" => run_id}, socket) do
+    Logger.info("[ReportsLive] cancel_report_run called with run_id=#{run_id}")
+
+    case Reports.cancel_report_run(run_id) do
+      {:ok, _run} ->
+        Logger.info("[ReportsLive] cancel_report_run succeeded for run_id=#{run_id}")
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Report run cancelled successfully.")
+         |> load_workspace()}
+
+      {:error, :not_found} ->
+        Logger.warning("[ReportsLive] cancel_report_run failed: run_id=#{run_id} not found")
+
+        {:noreply,
+         socket
+         |> put_flash(:error, "Report run not found.")
+         |> load_workspace()}
+
+      {:error, :already_completed} ->
+        Logger.info(
+          "[ReportsLive] cancel_report_run skipped: run_id=#{run_id} already completed/cancelled"
+        )
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Report run has already completed.")
+         |> load_workspace()}
+
+      {:error, reason} ->
+        Logger.error(
+          "[ReportsLive] cancel_report_run failed for run_id=#{run_id}: #{inspect(reason)}"
+        )
+
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to cancel report run: #{inspect(reason)}")
+         |> load_workspace()}
+    end
+  end
+
   def handle_event("seed_sample_documents", _params, socket) do
     scope = socket.assigns.current_scope
 
@@ -649,8 +692,10 @@ defmodule LumainusWeb.ReportsLive do
            section_ids,
            stream: true
          ) do
-      {:ok, _run} ->
-        load_workspace(socket)
+      {:ok, run} ->
+        socket
+        |> assign(:current_run_id, run.id)
+        |> load_workspace()
 
       {:error, reason} ->
         socket
@@ -753,6 +798,27 @@ defmodule LumainusWeb.ReportsLive do
       "[ReportsLive] load_workspace timing - workspace: #{t2 - t1}ms, record_sets: #{t4 - t3}ms, latest_runs: #{t5 - t4}ms, recent_runs: #{t6 - t5}ms, patients: #{t7 - t6}ms"
     )
 
+    # Find active run for cancel button
+    # First try to find a run that's actively running/pending/queued
+    # If not found but we have running sections, use the most recent run
+    # (handles edge case where run errors but sections are stuck pending)
+    active_run_id =
+      case Enum.find(recent_runs, &(&1.status in ["running", "pending", "queued"])) do
+        %{id: id} ->
+          id
+
+        nil ->
+          cond do
+            # If we have running sections, use most recent run (even if errored)
+            MapSet.size(running_sections) > 0 and recent_runs != [] ->
+              List.first(recent_runs).id
+
+            # Fall back to previously set current_run_id
+            true ->
+              socket.assigns[:current_run_id]
+          end
+      end
+
     socket =
       socket
       |> assign(:patient, workspace.patient)
@@ -761,6 +827,7 @@ defmodule LumainusWeb.ReportsLive do
       |> assign(:documents, documents)
       |> assign(:sections, sections)
       |> assign(:running_sections, running_sections)
+      |> assign(:current_run_id, active_run_id)
       |> assign(:record_sets, record_sets)
       |> assign(:record_set_latest_runs, record_set_latest_runs)
       |> assign(:recent_runs, recent_runs)
@@ -3988,11 +4055,25 @@ defmodule LumainusWeb.ReportsLive do
             Manage Workspace
           </button>
           <%= if MapSet.size(@running_sections) > 0 do %>
-            <div class="run-progress-indicator">
-              <span class="progress-pulse"></span>
-              <span class="progress-text">
-                {completed_section_count(@sections)}/{length(@sections)} sections
-              </span>
+            <div class="flex items-center gap-2">
+              <div class="run-progress-indicator">
+                <span class="progress-pulse"></span>
+                <span class="progress-text">
+                  {completed_section_count(@sections)}/{length(@sections)} sections
+                </span>
+              </div>
+              <%= if @current_run_id do %>
+                <button
+                  type="button"
+                  class="rounded-full bg-red-500 hover:bg-red-600 text-white px-2 py-1 text-xs font-medium shadow-sm transition-colors"
+                  phx-click="cancel_report_run"
+                  phx-value-run-id={@current_run_id}
+                  data-confirm="Are you sure you want to cancel this report? This will stop all pending sections."
+                  title="Cancel report run"
+                >
+                  ✕
+                </button>
+              <% end %>
             </div>
           <% else %>
             <button

@@ -104,8 +104,9 @@ defmodule Lumainus.Application do
     config = Application.get_env(:lumainus, :concurrency_gate, [])
 
     [
-      max_concurrent: Keyword.get(config, :max_concurrent, 5),
-      max_queue: Keyword.get(config, :max_queue, 50)
+      max_concurrent: Keyword.get(config, :max_concurrent, 1),
+      max_queue: Keyword.get(config, :max_queue, 50),
+      inter_call_delay_ms: Keyword.get(config, :inter_call_delay_ms, 2000)
     ]
   end
 end

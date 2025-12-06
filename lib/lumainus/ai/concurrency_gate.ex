@@ -16,6 +16,7 @@ defmodule Lumainus.AI.ConcurrencyGate do
   @default_max_concurrent 5
   @default_max_queue 50
   @default_timeout_ms 60_000
+  @default_inter_call_delay_ms 2000
 
   # Client API
 
@@ -118,10 +119,12 @@ defmodule Lumainus.AI.ConcurrencyGate do
   def init(opts) do
     max_concurrent = Keyword.get(opts, :max_concurrent, @default_max_concurrent)
     max_queue = Keyword.get(opts, :max_queue, @default_max_queue)
+    inter_call_delay_ms = Keyword.get(opts, :inter_call_delay_ms, @default_inter_call_delay_ms)
 
     state = %{
       max_concurrent: max_concurrent,
       max_queue: max_queue,
+      inter_call_delay_ms: inter_call_delay_ms,
       current: 0,
       holders: %{},
       waiting: :queue.new(),
@@ -134,7 +137,9 @@ defmodule Lumainus.AI.ConcurrencyGate do
       }
     }
 
-    Logger.info("AI ConcurrencyGate started: max=#{max_concurrent}, max_queue=#{max_queue}")
+    Logger.info(
+      "AI ConcurrencyGate started: max=#{max_concurrent}, max_queue=#{max_queue}, inter_call_delay=#{inter_call_delay_ms}ms"
+    )
 
     {:ok, state}
   end
@@ -241,24 +246,55 @@ defmodule Lumainus.AI.ConcurrencyGate do
     end
   end
 
+  @impl true
+  def handle_info({:delayed_grant, pid, ref}, state) do
+    # Process delayed permit grant after inter-call delay
+    # Check if pid is still alive and we still have capacity
+    if Process.alive?(pid) and state.current < state.max_concurrent do
+      new_holders = Map.put(state.holders, pid, ref)
+      send(pid, {:permit_granted, ref})
+
+      new_state = %{
+        state
+        | current: state.current + 1,
+          holders: new_holders,
+          metrics: Map.update!(state.metrics, :total_acquired, &(&1 + 1))
+      }
+
+      # Check if there are more waiters after delay
+      {:noreply, maybe_grant_waiting(new_state)}
+    else
+      # Process died or no capacity - just continue
+      {:noreply, state}
+    end
+  end
+
   defp maybe_grant_waiting(state) do
     if state.current < state.max_concurrent do
       case :queue.out(state.waiting) do
         {{:value, {pid, ref}}, remaining} ->
-          # Grant permit to next waiter
-          new_holders = Map.put(state.holders, pid, ref)
-          send(pid, {:permit_granted, ref})
+          # Add inter-call delay before granting permit to prevent back-to-back LLM calls
+          if state.inter_call_delay_ms > 0 do
+            Process.send_after(self(), {:delayed_grant, pid, ref}, state.inter_call_delay_ms)
 
-          new_state = %{
-            state
-            | current: state.current + 1,
-              holders: new_holders,
-              waiting: remaining,
-              metrics: Map.update!(state.metrics, :total_acquired, &(&1 + 1))
-          }
+            # Update waiting queue but don't grant yet
+            %{state | waiting: remaining}
+          else
+            # No delay configured, grant immediately
+            new_holders = Map.put(state.holders, pid, ref)
+            send(pid, {:permit_granted, ref})
 
-          # Recursively grant if more capacity
-          maybe_grant_waiting(new_state)
+            new_state = %{
+              state
+              | current: state.current + 1,
+                holders: new_holders,
+                waiting: remaining,
+                metrics: Map.update!(state.metrics, :total_acquired, &(&1 + 1))
+            }
+
+            # Recursively grant if more capacity
+            maybe_grant_waiting(new_state)
+          end
 
         {:empty, _} ->
           state

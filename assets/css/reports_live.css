@@ -448,6 +448,18 @@
   color: #b91c1c;
 }
 
+.status-pill[data-status="cancelled"] {
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.status-pill[data-status="completed"] {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
 .prompt-summary {
   display: flex;
   flex-direction: column;
