@@ -5486,6 +5486,7 @@ defmodule LumainusWeb.ReportsLive do
     |> truncate(240)
   end
 
+  defp patient_name(nil), do: "Patient"
   defp patient_name(%{current_profile: %Ecto.Association.NotLoaded{}}), do: "Patient"
   defp patient_name(%{current_profile: nil}), do: "Patient"
 
@@ -5493,6 +5494,8 @@ defmodule LumainusWeb.ReportsLive do
     Enum.filter([profile.given_name, profile.family_name], & &1)
     |> Enum.join(" ")
   end
+
+  defp patient_display_name(nil), do: "Patient"
 
   defp patient_display_name(patient) do
     name = patient_name(patient)
@@ -5520,9 +5523,11 @@ defmodule LumainusWeb.ReportsLive do
   defp label_or_nil(label, value) when is_binary(value), do: "#{label} #{value}"
   defp label_or_nil(_label, _value), do: nil
 
+  defp patient_mrn(nil), do: "N/A"
   defp patient_mrn(%{current_profile: nil}), do: "N/A"
   defp patient_mrn(%{current_profile: profile}), do: profile.mrn || "N/A"
 
+  defp patient_dob(nil), do: "N/A"
   defp patient_dob(%{current_profile: nil}), do: "N/A"
 
   defp patient_dob(%{current_profile: profile}) do
