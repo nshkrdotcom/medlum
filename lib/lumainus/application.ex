@@ -11,6 +11,9 @@ defmodule Lumainus.Application do
 
   @impl true
   def start(_type, _args) do
+    # Attach telemetry handlers early
+    Lumainus.AI.TelemetryHandler.attach()
+
     # Core infrastructure
     base_children = [
       LumainusWeb.Telemetry,
@@ -22,6 +25,8 @@ defmodule Lumainus.Application do
       {Finch, name: Lumainus.Finch},
       # Task supervisor for SSE streaming tasks
       {Task.Supervisor, name: Lumainus.TaskSupervisor},
+      # AI concurrency gate (defense in depth for LLM rate limiting)
+      {Lumainus.AI.ConcurrencyGate, max_concurrent: 5, max_queue: 50},
       # Conversion system (v2)
       {Registry, keys: :unique, name: Lumainus.Conversion.Registry},
       Lumainus.Conversion.Application.JobTracker

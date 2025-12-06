@@ -139,7 +139,10 @@ config :lumainus, Oban,
        {"*/5 * * * *", Lumainus.Reports.StaleRunWorker}
      ]}
   ],
-  queues: [ingestion: 5, reports: 5, health_checks: 1, maintenance: 1]
+  # NOTE: reports queue concurrency must align with gemini_ex max_concurrency_per_model
+  # See rate_limiter config below. Until streaming is rate-limited (gemini_ex 0.7.2),
+  # keep this at 1 to prevent 429s from concurrent section runs.
+  queues: [ingestion: 5, reports: 1, health_checks: 1, maintenance: 1]
 
 config :lumainus, :llm,
   default_provider: "google",

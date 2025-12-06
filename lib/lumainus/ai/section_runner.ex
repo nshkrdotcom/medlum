@@ -7,6 +7,7 @@ defmodule Lumainus.AI.SectionRunner do
   alias Lumainus.AI
   alias Lumainus.AI.CitationSanitizer
   alias Lumainus.AI.LlmInvocation
+  alias Lumainus.AI.RateLimitedExecutor
   alias Lumainus.Documents.DocumentUpload
   alias Lumainus.Repo
 
@@ -266,7 +267,11 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp invoke_llm_streaming(model_spec, prompt_text, schema, options, _context) do
-    AI.client().stream_generate(model_spec, prompt_text, schema, self(), options)
+    # Use RateLimitedExecutor to ensure streaming goes through the gate
+    # This fixes the bypass issue where streaming skipped all rate limiting
+    RateLimitedExecutor.execute(:report_section, :streaming, fn ->
+      AI.client().stream_generate(model_spec, prompt_text, schema, self(), options)
+    end)
   rescue
     error ->
       {:error, %{type: :exception, message: Exception.message(error), exception: inspect(error)}}
@@ -405,7 +410,9 @@ defmodule Lumainus.AI.SectionRunner do
   end
 
   defp invoke_llm(model_spec, prompt_text, schema, options) do
-    AI.client().generate_object(model_spec, prompt_text, schema, options)
+    RateLimitedExecutor.execute(:report_section, :batch, fn ->
+      AI.client().generate_object(model_spec, prompt_text, schema, options)
+    end)
   rescue
     error ->
       {:error, %{type: :exception, message: Exception.message(error), exception: inspect(error)}}

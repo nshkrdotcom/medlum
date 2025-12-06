@@ -408,6 +408,7 @@ defmodule Lumainus.LLM do
     - `subscriber_pid` - Process to receive stream events
     - `opts` - Options (same as generate_object/4)
   """
+  @impl true
   @spec stream_generate(String.t(), String.t(), map() | nil, pid(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def stream_generate(model_spec, prompt_text, schema, subscriber_pid, opts \\ []) do

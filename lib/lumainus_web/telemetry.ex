@@ -56,7 +56,37 @@ defmodule LumainusWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # LLM Metrics
+      summary("lumainus.llm.request.stop.duration",
+        tags: [:model, :use_case, :mode],
+        unit: {:native, :millisecond}
+      ),
+      sum("lumainus.llm.request.stop.input_tokens",
+        tags: [:model, :use_case]
+      ),
+      sum("lumainus.llm.request.stop.output_tokens",
+        tags: [:model, :use_case]
+      ),
+      sum("lumainus.llm.request.stop.cached_tokens",
+        tags: [:model, :use_case]
+      ),
+      counter("lumainus.llm.request.start.system_time",
+        tags: [:model, :use_case, :mode]
+      ),
+      counter("lumainus.llm.request.exception.duration",
+        tags: [:model, :use_case, :error_type]
+      ),
+      counter("lumainus.llm.rate_limit.hit.retry_after_ms",
+        tags: [:model, :reason]
+      ),
+      summary("lumainus.llm.concurrency.acquired.wait_ms",
+        tags: [:model]
+      ),
+      counter("lumainus.llm.concurrency.rejected",
+        tags: [:model, :reason]
+      )
     ]
   end
 
