@@ -427,10 +427,40 @@ defmodule Lumainus.LLM do
 
     case Gemini.Streaming.UnifiedManager.start_stream(model, request_body, []) do
       {:ok, stream_id} ->
-        # Spawn translator process and subscribe IT to receive events
-        spawn_link(fn ->
-          :ok = Gemini.Streaming.UnifiedManager.subscribe(stream_id, self())
-          stream_event_translator(stream_id, subscriber_pid, schema)
+        # Spawn translator process (NOT linked - we handle crashes gracefully)
+        # This prevents translator crashes from killing the parent process
+        spawn(fn ->
+          try do
+            :ok = Gemini.Streaming.UnifiedManager.subscribe(stream_id, self())
+            stream_event_translator(stream_id, subscriber_pid, schema)
+          rescue
+            error ->
+              Logger.error(
+                "[LLM] Stream translator crashed: #{inspect(error)}\n" <>
+                  Exception.format_stacktrace(__STACKTRACE__)
+              )
+
+              send(
+                subscriber_pid,
+                {:llm_stream_error, stream_id,
+                 %{
+                   type: :translator_crash,
+                   message: "Stream translator process crashed: #{inspect(error)}"
+                 }}
+              )
+          catch
+            kind, reason ->
+              Logger.error("[LLM] Stream translator caught #{kind}: #{inspect(reason)}")
+
+              send(
+                subscriber_pid,
+                {:llm_stream_error, stream_id,
+                 %{
+                   type: :translator_crash,
+                   message: "Stream translator caught #{kind}: #{inspect(reason)}"
+                 }}
+              )
+          end
         end)
 
         {:ok, stream_id}

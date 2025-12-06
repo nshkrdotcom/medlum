@@ -21,7 +21,9 @@ defmodule Lumainus.AI.SectionRunnerTest do
     Reports.bootstrap_workspace!(scope)
     workspace = Reports.workspace(scope)
 
-    Documents.seed_sample_documents(scope, workspace.patient, workspace.record_set)
+    Documents.seed_sample_documents(scope, workspace.patient, workspace.record_set,
+      include_local: false
+    )
 
     fresh_workspace = Reports.workspace(scope)
     documents = Reports.list_documents(scope, fresh_workspace.record_set)

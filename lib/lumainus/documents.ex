@@ -276,11 +276,20 @@ defmodule Lumainus.Documents do
     end
   end
 
-  def seed_sample_documents(%Scope{} = scope, patient, record_set) do
+  def seed_sample_documents(%Scope{} = scope, patient, record_set, opts \\ []) do
     now = DateTime.utc_now(:second)
 
+    # By default include local samples, but tests can pass include_local: false
+    # to skip potentially large local files
+    samples =
+      if Keyword.get(opts, :include_local, true) do
+        SampleData.samples()
+      else
+        SampleData.builtin_samples()
+      end
+
     inserted =
-      SampleData.samples()
+      samples
       |> Enum.reduce([], fn sample, acc ->
         case ensure_sample_document(scope, patient, record_set, sample, now) do
           {:ok, upload} -> [upload | acc]

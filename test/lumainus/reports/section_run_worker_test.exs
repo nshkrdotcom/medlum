@@ -34,6 +34,15 @@ defmodule Lumainus.Reports.SectionRunWorkerTest do
                [section.id]
              )
 
+    runs = Repo.all(ReportSectionRun)
+    IO.puts("DEBUG: Found #{length(runs)} section runs:")
+
+    for r <- runs do
+      IO.puts(
+        "  - id=#{r.id} status=#{r.status} section_template_id=#{r.section_template_id} report_run_id=#{r.report_run_id}"
+      )
+    end
+
     run =
       ReportSectionRun
       |> Repo.one!()

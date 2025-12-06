@@ -82,19 +82,34 @@ defmodule Lumainus.AI.ConcurrencyGate do
 
   @doc """
   Check current gate status without acquiring.
+  Uses short timeout to avoid blocking on overloaded gate.
   """
   def status do
-    GenServer.call(__MODULE__, :status)
+    GenServer.call(__MODULE__, :status, 1_000)
+  catch
+    :exit, {:timeout, _} ->
+      %{
+        current: 0,
+        max: 0,
+        available: 0,
+        queue_length: 0,
+        max_queue: 0,
+        metrics: %{},
+        error: :timeout
+      }
   end
 
   @doc """
   Check if the gate is available (non-blocking).
+  Uses short timeout to avoid blocking on overloaded gate.
   """
   def available? do
-    case GenServer.call(__MODULE__, :check_available) do
+    case GenServer.call(__MODULE__, :check_available, 1_000) do
       :available -> true
       _ -> false
     end
+  catch
+    :exit, {:timeout, _} -> false
   end
 
   # GenServer implementation

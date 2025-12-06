@@ -732,7 +732,7 @@ defmodule LumainusWeb.ReportsLive do
 
     running_sections =
       sections
-      |> Enum.filter(&(&1.status in ["running", "queued"]))
+      |> Enum.filter(&(&1.status in ["pending", "queued", "running", "error"]))
       |> Enum.map(& &1.section.id)
       |> MapSet.new()
 
@@ -4682,7 +4682,7 @@ defmodule LumainusWeb.ReportsLive do
                 <div class="section-output section-streaming">
                   <div class="streaming-header">
                     <span class="loading loading-spinner loading-md text-slate-400"></span>
-                    <span class="streaming-label">Generating...</span>
+                    <span class="streaming-label">{streaming_status_label(section_entry)}</span>
                   </div>
 
                   <%= if Map.has_key?(@streaming_content, to_string(section_entry.section.id)) do %>
@@ -4695,7 +4695,9 @@ defmodule LumainusWeb.ReportsLive do
                     </div>
                   <% else %>
                     <div class="streaming-waiting">
-                      <span class="text-slate-400 text-sm">Waiting for response...</span>
+                      <span class="text-slate-400 text-sm">
+                        {streaming_waiting_label(section_entry)}
+                      </span>
                     </div>
                   <% end %>
                 </div>
@@ -5612,8 +5614,25 @@ defmodule LumainusWeb.ReportsLive do
   defp status_label(%{last_run: %{status: "completed"}}), do: "Ready"
   defp status_label(%{last_run: %{status: "queued"}}), do: "Queued"
   defp status_label(%{last_run: %{status: "running"}}), do: "Running"
-  defp status_label(%{last_run: %{status: "error"}}), do: "Needs attention"
+  defp status_label(%{last_run: %{status: "error"}}), do: "Retrying"
+  defp status_label(%{last_run: %{status: "failed"}}), do: "Failed"
   defp status_label(%{last_run: %{status: status}}), do: status
+
+  # Streaming status labels - shown in the spinner header
+  defp streaming_status_label(%{status: status}) when status in ["pending", "queued"],
+    do: "Queued..."
+
+  defp streaming_status_label(%{status: "running"}), do: "Generating..."
+  defp streaming_status_label(%{status: "error"}), do: "Retrying..."
+  defp streaming_status_label(_), do: "Processing..."
+
+  # Streaming waiting labels - shown when no content yet
+  defp streaming_waiting_label(%{status: status}) when status in ["pending", "queued"],
+    do: "Waiting in queue..."
+
+  defp streaming_waiting_label(%{status: "running"}), do: "Waiting for response..."
+  defp streaming_waiting_label(%{status: "error"}), do: "Attempting retry..."
+  defp streaming_waiting_label(_), do: "Waiting..."
 
   # Helper to find section_id from section_run_id
   defp find_section_id_for_run(socket, section_run_id) do

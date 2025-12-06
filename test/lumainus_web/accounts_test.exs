@@ -5,6 +5,7 @@ defmodule Lumainus.AccountsTest do
   alias Lumainus.Accounts.{User, UserToken}
   alias Lumainus.Repo
 
+  import Ecto.Query
   import Lumainus.AccountsFixtures
 
   describe "get_user_by_email/1" do
@@ -356,7 +357,12 @@ defmodule Lumainus.AccountsTest do
       # and then confirm via magic link. This is safe because the same user who sets
       # the password is the one who clicks the confirmation link.
       user = unconfirmed_user_fixture()
-      {1, nil} = Repo.update_all(User, set: [hashed_password: "hashed"])
+
+      {1, nil} =
+        Repo.update_all(from(u in User, where: u.id == ^user.id),
+          set: [hashed_password: "hashed"]
+        )
+
       {encoded_token, _hashed_token} = generate_user_magic_link_token(user)
 
       assert {:ok, {confirmed_user, _tokens}} =

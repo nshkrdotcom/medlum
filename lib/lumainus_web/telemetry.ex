@@ -86,6 +86,34 @@ defmodule LumainusWeb.Telemetry do
       ),
       counter("lumainus.llm.concurrency.rejected",
         tags: [:model, :reason]
+      ),
+
+      # Invocation Lifecycle Metrics
+      counter("lumainus.llm.invocation.created.system_time",
+        tags: [:model]
+      ),
+      counter("lumainus.llm.invocation.linked",
+        tags: []
+      ),
+      summary("lumainus.llm.invocation.started.pending_ms",
+        tags: [:model],
+        unit: :millisecond
+      ),
+      counter("lumainus.llm.invocation.orphaned.logged.count",
+        tags: [:model, :reason]
+      ),
+      summary("lumainus.llm.invocation.orphaned.logged.age_minutes",
+        tags: [:model, :reason],
+        unit: :minute
+      ),
+      counter("lumainus.llm.invocation.cleaned",
+        tags: [:cleanup_type]
+      ),
+
+      # Rate limit wait metric (was missing)
+      summary("lumainus.llm.rate_limit.wait.wait_ms",
+        tags: [:model, :source],
+        unit: :millisecond
       )
     ]
   end

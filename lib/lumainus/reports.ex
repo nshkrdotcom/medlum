@@ -355,42 +355,46 @@ defmodule Lumainus.Reports do
           nil
       end
 
-    case Repo.transaction(fn ->
-           run =
-             %ReportRun{}
-             |> ReportRun.changeset(%{
-               tenant_id: tenant_id,
-               patient_id: patient.id,
-               record_set_id: record_set.id,
-               template_id: template.id,
-               run_type: run_type_for(sections, template),
-               status: "queued",
-               triggered_by_user_id: scope.user && scope.user.id,
-               timeout_at: timeout_at,
-               last_activity_at: now,
-               cached_content_name: cache_name
-             })
-             |> Repo.insert!()
+    result =
+      Repo.transaction(fn ->
+        run =
+          %ReportRun{}
+          |> ReportRun.changeset(%{
+            tenant_id: tenant_id,
+            patient_id: patient.id,
+            record_set_id: record_set.id,
+            template_id: template.id,
+            run_type: run_type_for(sections, template),
+            status: "queued",
+            triggered_by_user_id: scope.user && scope.user.id,
+            timeout_at: timeout_at,
+            last_activity_at: now,
+            cached_content_name: cache_name
+          })
+          |> Repo.insert!()
 
-           section_runs =
-             Enum.map(sections, fn section ->
-               %ReportSectionRun{}
-               |> ReportSectionRun.changeset(%{
-                 report_run_id: run.id,
-                 section_template_id: section.id,
-                 status: "queued",
-                 prompt_inputs: %{
-                   "document_ids" => document_ids,
-                   "record_set_id" => record_set.id,
-                   "patient_profile_id" => patient.current_profile_id
-                 }
-               })
-               |> Repo.insert!()
-             end)
+        section_runs =
+          Enum.map(sections, fn section ->
+            %ReportSectionRun{}
+            |> ReportSectionRun.changeset(%{
+              report_run_id: run.id,
+              section_template_id: section.id,
+              status: "queued",
+              prompt_inputs: %{
+                "document_ids" => document_ids,
+                "record_set_id" => record_set.id,
+                "patient_profile_id" => patient.current_profile_id
+              }
+            })
+            |> Repo.insert!()
+          end)
 
-           {run, section_runs}
-         end) do
+        {run, section_runs}
+      end)
+
+    case result do
       {:ok, {run, section_runs}} ->
+        # Enqueue jobs AFTER transaction commits
         case enqueue_section_runs(run, section_runs, opts) do
           :ok ->
             notify_section_run_update(run.record_set_id)

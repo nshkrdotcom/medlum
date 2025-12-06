@@ -241,7 +241,8 @@ defmodule LumainusWeb.ReportsLiveTest do
     |> Repo.insert!()
 
     {:ok, view, _html} = live(conn, ~p"/reports")
-    assert render(view) =~ "Needs attention"
+    # Error sections show "Retrying" status and spinner while Oban retries
+    assert render(view) =~ "Retrying"
   end
 
   test "renders section output when run succeeds", %{conn: conn, scope: scope} do

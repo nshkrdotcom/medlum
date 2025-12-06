@@ -13,6 +13,8 @@ defmodule Lumainus.Application do
   def start(_type, _args) do
     # Attach telemetry handlers early
     Lumainus.AI.TelemetryHandler.attach()
+    Lumainus.AI.InvocationTelemetryHandler.attach()
+    Lumainus.Reports.ObanTelemetryHandler.attach()
 
     # Core infrastructure
     base_children = [
@@ -26,7 +28,7 @@ defmodule Lumainus.Application do
       # Task supervisor for SSE streaming tasks
       {Task.Supervisor, name: Lumainus.TaskSupervisor},
       # AI concurrency gate (defense in depth for LLM rate limiting)
-      {Lumainus.AI.ConcurrencyGate, max_concurrent: 5, max_queue: 50},
+      {Lumainus.AI.ConcurrencyGate, gate_config()},
       # Conversion system (v2)
       {Registry, keys: :unique, name: Lumainus.Conversion.Registry},
       Lumainus.Conversion.Application.JobTracker
@@ -96,5 +98,14 @@ defmodule Lumainus.Application do
   defp docker_auto_manage_enabled? do
     config = Application.get_env(:lumainus, :docling, [])
     Keyword.get(config, :docker_auto_manage, true)
+  end
+
+  defp gate_config do
+    config = Application.get_env(:lumainus, :concurrency_gate, [])
+
+    [
+      max_concurrent: Keyword.get(config, :max_concurrent, 5),
+      max_queue: Keyword.get(config, :max_queue, 50)
+    ]
   end
 end

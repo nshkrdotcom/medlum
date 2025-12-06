@@ -83,3 +83,8 @@ config :lumainus, :docling,
   docker_auto_manage: false
 
 config :lumainus, :disable_ingestion_health_checker, true
+
+# Higher concurrency for tests to prevent queue delays
+config :lumainus, :concurrency_gate,
+  max_concurrent: 100,
+  max_queue: 200
