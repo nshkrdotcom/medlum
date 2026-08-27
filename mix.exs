@@ -87,7 +87,7 @@ defmodule Lumainus.MixProject do
       {:jose, "== 1.11.10", override: true},
       {:tidewave, "~> 0.5", only: :dev},
       {:bypass, "~> 2.1", only: :test},
-      {:supertester, "~> 0.3.1", only: :test},
+      {:supertester, "~> 0.5.1", only: :test},
       {:stream_data, "~> 1.0", only: :test},
       # Admin panel
       {:backpex, "~> 0.9"}
