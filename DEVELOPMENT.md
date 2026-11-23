@@ -2,32 +2,117 @@
 
 This repo hosts the full Phoenix LiveView application for Medlum. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView now renders from the ingestion/LLM pipeline (PDF uploads persisted in Postgres + Gemini markdown + section drafting).
 
-## Quick start
+## Local onboarding
+
+Run Phoenix, PostgreSQL, and Docling on the development machine. Docling is a
+separate Python service that Phoenix calls over HTTP.
+
+### 1. Install prerequisites and set up Phoenix
+
+- Install Git, Elixir 1.17 or newer, and a compatible Erlang/OTP release (27
+  or newer recommended). Install a C compiler and Make for native Mix dependencies.
+- Install PostgreSQL 14 or newer and start it. The dev configuration uses
+  `postgres` / `postgres` on `localhost:5432` and creates the `medlum_dev`
+  database. Match your local PostgreSQL credentials in `config/dev.exs` if needed.
+- Install `uv` and put it on your `PATH`. It installs Python and manages
+  Docling's isolated environment. Install `curl` and `jq` for the smoke test.
+  [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/)
+- For GPU conversion, use Linux or WSL with an NVIDIA driver and verify
+  `nvidia-smi` sees your card. On WSL, install the driver on Windows. The
+  PyTorch wheels supply the CUDA runtime. [NVIDIA CUDA on WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/)
+- Allow several gigabytes for PyTorch and Docling's model cache. On Debian or
+  Ubuntu, install the GL and GLib runtime libraries if imports fail with
+  missing `libGL.so.1` or `libglib-2.0.so.0` (typically `libgl1` and the
+  distribution's GLib runtime package).
+
+From the Medlum repository root on a fresh checkout:
 
 ```bash
-cd /path/to/medlum
-mix setup          # deps.get + ecto.create + ecto.migrate + seeds + assets.setup/build
-mix phx.server
+mix local.hex --force
+mix local.rebar --force
+DOCLING_DOCKER_AUTO_MANAGE=false mix setup
 ```
 
-- Export your Gemini key before starting Phoenix so `/reports` can run the real LLM pipeline:
+`mix setup` fetches dependencies, creates and migrates the database, seeds the
+admin account, and builds the frontend with esbuild and Tailwind. On an
+existing checkout, use `mix deps.get`, `mix ecto.migrate`, and `mix assets.build`.
+
+### 2. Start native Docling
+
+Open a terminal from the Medlum repository root. For an NVIDIA GPU such as the
+RTX 5060 Ti, use the CUDA 12.8 wheels and port 8041:
 
 ```bash
-export GEMINI_API_KEY="ya29.your-google-generative-ai-key"
+cd docling_service
+uv python install 3.12
+uv venv --python 3.12 .venv-gpu
+uv pip install --python .venv-gpu/bin/python \
+  --index https://download.pytorch.org/whl/cu128 torch torchvision
+uv pip install --python .venv-gpu/bin/python -r requirements.txt
+.venv-gpu/bin/python -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name())'
+OMP_NUM_THREADS=4 .venv-gpu/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8041
 ```
 
-- App: **http://localhost:4000** (or `medlum.test:4000` if you added the hosts entry from `README.md`).
-- Dev mailbox: **http://localhost:4000/dev/mailbox** (magic link emails).
-- LiveDashboard: **http://localhost:4000/dev/dashboard** (dev only).
+For CPU-only development on Linux, use a separate environment and port 8040:
 
-The `mix setup` alias seeds a confirmed `system_administrator`:
-
+```bash
+cd docling_service
+uv python install 3.12
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python \
+  --index https://download.pytorch.org/whl/cpu torch torchvision
+uv pip install --python .venv/bin/python -r requirements.txt
+CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=4 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8040
 ```
-Email: admin@medlumai.local
-Password: MedlumAdmin!reset
+
+Keep the service running. The first PDF conversion downloads model weights.
+After setup, start Uvicorn with the last command in the relevant block.
+
+### 3. Route local uploads and start Phoenix
+
+In a second terminal at the Medlum repository root, set the dev database's
+Standard upload profile to native GPU. Run this once when choosing a backend:
+
+```bash
+DOCLING_DOCKER_AUTO_MANAGE=false mix run -e '
+  alias Medlum.Docling.Settings
+  {:ok, settings} = Settings.fetch_or_init()
+  {:ok, _} = Settings.update_settings(%{
+    active_local_backend: "native_gpu",
+    native_gpu_url: "http://127.0.0.1:8041",
+    v2_profile_backends: Map.put(settings.v2_profile_backends, "standard", ["local_gpu"])
+  })
+'
+DOCLING_DOCKER_AUTO_MANAGE=false mix phx.server
 ```
 
-Override via `MEDLUM_ADMIN_*` env vars before running `mix setup`.
+For CPU-only development, use `"native_cpu"` for `active_local_backend`,
+`native_cpu_url: "http://127.0.0.1:8040"` for the URL, and `["local_cpu"]` for the
+Standard profile. The profile controls routing for new uploads. The active
+backend field is also shown on the admin page.
+
+Open http://localhost:4000/users/log-in and request a magic link for
+`admin@medlumai.local`. Open the link from the
+[dev mailbox](http://localhost:4000/dev/mailbox). Check backend health at
+`/admin/docling` and choose **Local** when uploading a PDF on `/reports`.
+Set `GEMINI_API_KEY` in the Phoenix terminal if you want to test generated report
+sections. The Gemini key is optional for the Docling smoke test.
+
+### 4. Smoke-test local conversion
+
+From the repository root, use port 8041 for GPU or 8040 for CPU:
+
+```bash
+docling_url=http://127.0.0.1:8041
+curl -fsS "$docling_url/health"
+job_id=$(curl -fsS -F 'file=@docling_service/test.pdf' "$docling_url/jobs" | jq -er .job_id)
+curl -fsSN "$docling_url/jobs/$job_id/stream" |
+  sed -n 's/^data: //p' |
+  jq -c '{type, state, device, pages_done, pages_total, progress}'
+```
+
+Expect a `page_processed` event followed by a terminal `completed` event. For
+the GPU path, the running and completed events should show `cuda:0`.
 
 ## Feature snapshot
 
@@ -82,9 +167,8 @@ To prototype new sections, update the section prompt in `/prompts`, adjust the o
 
 | Task | Command |
 |------|---------|
-| Install deps + DB + assets | `mix setup` |
-| Start server | `mix phx.server` |
-| Start Phoenix + Docling (dev) | `scripts/dev_stack.sh` |
+| Install deps, database, and assets | `DOCLING_DOCKER_AUTO_MANAGE=false mix setup` |
+| Start Phoenix with native Docling | `DOCLING_DOCKER_AUTO_MANAGE=false mix phx.server` |
 | Re-seed admin | `mix run priv/repo/seeds.exs` |
 | Run tests | `mix test` |
 | Format code | `mix format` |
@@ -100,27 +184,6 @@ To prototype new sections, update the section prompt in `/prompts`, adjust the o
 - `mix docling.queue [limit]` – List the most recent ingestion jobs with their state/progress.
 - `mix docling.retry <job_id>` – Re-queue a failed job using the stored PDF and last template.
 - `scripts/logs_docling.sh` – Tail the Docling service logs (defaults to `docling.service`).
-
-### Run Phoenix + Docling ingestion together (dev only)
-
-The new helper script starts the PDF ingestion microservice (inside its Python virtualenv) and the Phoenix server in one go so `/reports` always has a local Docling endpoint:
-
-```bash
-scripts/dev_stack.sh
-```
-
-- Forces `MIX_ENV=dev` and exits otherwise (keeps production deploys separate).
-- Launches Docling via `docling_service/run.sh` using its `.venv`, binding to `127.0.0.1:8042`.
-- Runs Phoenix with `mix phx.server` in the repo root.
-- Stops the Docling process automatically when you `Ctrl+C` Phoenix.
-
-Environment knobs:
-
-```bash
-DOCLING_PORT=9050 PHX_CMD="iex -S mix phx.server" scripts/dev_stack.sh
-```
-
-Available overrides: `DOCLING_HOST`, `DOCLING_PORT`, `DOCLING_PYTHON_BIN`, and `PHX_CMD`. Use them if you need different bind addresses or want to run Phoenix via `iex`.
 
 ### Creating doctor access in dev
 

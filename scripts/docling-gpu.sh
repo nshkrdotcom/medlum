@@ -532,8 +532,8 @@ main() {
 if [ $# -gt 0 ]; then
     case $1 in
         build-base) build_base_image ;;
-        build-app|build) build_app_image ;;
-        build-all) build_both ;;
+        build-app) build_app_image ;;
+        build|build-all) build_both ;;
         run-cpu) run_docker_cpu ;;
         run-gpu) run_docker_gpu ;;
         run-both) run_both ;;

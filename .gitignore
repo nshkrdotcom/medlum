@@ -52,6 +52,7 @@ __pycache__/
 
 # Docling service virtual environment
 /docling_service/.venv/
+/docling_service/.venv-gpu/
 /docling/
 docs/vast-ai/docs/
 repomix*.xml

@@ -12,23 +12,19 @@ A minimal FastAPI application that exposes Docling's PDF → Markdown pipeline o
 - `DEPLOYMENT.md` – Complete deployment guide for Vast.ai
 - `../scripts/docling-gpu.sh` – Interactive management script for Docker operations
 
-## Prerequisites
+## Local development
 
-- Python 3.10–3.12 available on the host (Docling upstream requirement)
-- Enough disk/RAM for Docling's models (~1 GB disk cache, ~3 GB RAM peak during conversions)
-
-## Quick start
-
-```bash
-cd docling_service
-./run.sh               # creates .venv, installs deps, runs uvicorn on port 8042
-```
+Follow [Medlum's local onboarding guide](../DEVELOPMENT.md#local-onboarding)
+to install `uv`, start native Docling on CPU or NVIDIA GPU, and connect Phoenix.
+The service installs official Docling 2.151.1 from `requirements.txt` and
+has no dependency on the former fork.
 
 Environment variables:
 
 - `PYTHON_BIN` – Python interpreter to use (`python3` by default)
-- `HOST` / `PORT` – bind address (defaults: `0.0.0.0:8042`)
-- `PIP_EXTRA_INDEX_URL` – defaults to `https://download.pytorch.org/whl/cpu` (set explicitly to override)
+- `HOST` / `PORT` – bind address for `run.sh`; the local guide binds to loopback on 8040 (CPU) or 8041 (GPU)
+- `DOC_CONVERTER_WORKERS` – independent converters (default 1 per service)
+- `DOCLING_TORCH_INDEX` – defaults to `https://download.pytorch.org/whl/cpu` (set explicitly to override)
 
 Once running, hit:
 
@@ -73,7 +69,7 @@ curl -X POST "http://localhost:8042/convert?source_url=https://example.com/foo.p
         {"text": "Patient", "bbox": [0.1, 0.8, 0.5, 0.9], "ocr": false, "ocr_confidence": null}
       ],
       "segments": [
-        {"label": "section_header", "text": "Summary", "bbox": [ ... ]}
+        {"label": "section_header", "text": "Summary", "bbox": [0.1, 0.2, 0.5, 0.3]}
       ]
     }
   ]
@@ -82,9 +78,15 @@ curl -X POST "http://localhost:8042/convert?source_url=https://example.com/foo.p
 
 Set `output_markdown=false` if you only want per-page structures without the merged Markdown field.
 
+## Conversion jobs
+
+- `POST /jobs` enqueues a PDF and returns its job ID.
+- `GET /jobs/{id}/stream` streams Docling page progress over SSE and closes after the terminal event.
+- `DELETE /jobs/{id}` cancels a queued or running job. An active Docling model call may continue in the worker, and its result is discarded.
+
 ## Production notes
 
-- First request downloads Docling's Heron layout + OCR weights into `~/.cache/docling`.
+- The first native conversion downloads and caches model weights. Docker builds download the weights into the image.
 - Keep the service private (no auth built in). Run behind your Phoenix app or a reverse proxy with ACLs.
 - For systemd usage, point the unit to `ExecStart=/path/to/docling_service/run.sh` and set `WorkingDirectory` accordingly.
 
@@ -181,8 +183,8 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for the complete deployment guide.
 ### Manual Docker Commands
 
 ```bash
-# Build
-docker build -f Dockerfile.gpu -t ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1 ..
+# Build from the Medlum repository root
+./scripts/docling-gpu.sh build-all
 
 # Run (CPU)
 docker run -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
@@ -195,25 +197,21 @@ curl http://localhost:8042/health
 curl -X POST http://localhost:8042/convert -F "file=@test.pdf"
 ```
 
-## Legacy: Bootstrap Script (Vast.ai)
+## Native GPU Deployment (Vast.ai)
 
 For manual GPU setup without Docker, you can use the bootstrap script:
 
-1. Rent a GPU on Vast.ai (public IP + open port), note the `user@host:port`.
-2. Run from your laptop: `scripts/bootstrap_vast_gpu.sh user@host:port main`
-   - Env overrides: `PORT` (default 8042), `REMOTE_ROOT` (default `/opt/medlum`), `REPO_URL` (defaults to your git origin), `PIP_EXTRA_INDEX_URL` (defaults to CUDA 12.1 wheels).
-   - The script installs deps, clones this repo, installs GPU wheels, and backgrounds `docling_service` on the remote host. Logs at `/opt/medlum/docling_service.log`.
-3. Point Medlum admin Docling endpoint to `http://<host>:8042`.
-
-To restart, rerun the script; to view logs: `ssh user@host "tail -f /opt/medlum/docling_service.log"`.
-
-> **Note:** The bootstrap approach takes 8-15 minutes vs 3-5 minutes for the pre-built Docker image.
+Run `./scripts/docling-vast.sh` from the Medlum checkout and choose the SSH
+deployment option, or call `./scripts/bootstrap_vast_gpu.sh user@host:port main`.
+The bootstrap checks out Medlum on the remote host and starts Docling with
+CUDA 12.8 PyTorch wheels. It installs the official Docling release from
+`requirements.txt`. Set `REPO_URL` if the remote host uses a different clone URL.
 
 ### Panic button: destroy all Vast usage
 
 If you need to instantly stop billing on Vast, run:
 ```
-VAST_API_KEY=... ./scripts/vast_nuke_all.sh
+VAST_API_KEY=... ../docling/scripts/vast_nuke_all.sh
 ```
 This destroys all instances and deletes unattached volumes in your account. Verify usage drops to $0/hr on the Vast dashboard.
 

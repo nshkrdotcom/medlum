@@ -1,16 +1,17 @@
 """
 Tests for SSE streaming endpoint /jobs/{job_id}/stream
 """
+
 import asyncio
+import json
 import time
-import pytest
-import pytest_asyncio
-from unittest.mock import patch
-from httpx import AsyncClient, ASGITransport
-from asgi_lifespan import LifespanManager
 
 import app.main as main
-from app.main import JOB_STORE, ConversionJob, _format_sse
+import pytest
+import pytest_asyncio
+from app.main import ConversionJob, _format_sse
+from asgi_lifespan import LifespanManager
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture(autouse=True)
@@ -32,23 +33,6 @@ async def client():
             yield c
 
 
-@pytest.fixture
-def mock_converter():
-    """Mock Docling converter to avoid actual processing."""
-
-    class FakeResult:
-        document = type("Doc", (), {"export_to_markdown": lambda self: "# Test"})()
-        pages = []
-
-    class FakeConverter:
-        def convert(self, source, **kwargs):
-            return FakeResult()
-
-    with patch.object(main, "DocumentConverter", return_value=FakeConverter()):
-        with patch.object(main, "generate_multimodal_pages", return_value=[]):
-            yield
-
-
 class TestSSEStream:
     """Tests for GET /jobs/{job_id}/stream endpoint."""
 
@@ -60,7 +44,7 @@ class TestSSEStream:
         assert "not found" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_stream_replays_historical_events(self, mock_converter):
+    async def test_stream_replays_historical_events_and_closes(self, client):
         """SSE stream replays all historical events on connect."""
         job_id = "replay-test-job"
         job = ConversionJob(
@@ -78,15 +62,35 @@ class TestSSEStream:
             {"type": "started", "state": "running", "progress": 0},
             {"type": "completed", "state": "completed", "progress": 100},
         ]
-        queue = main._subscribe(job)
-        try:
-            events = [main._format_sse(event) for event in job.events]
-        finally:
-            main._unsubscribe(job, queue)
+        main.JOB_STORE[job_id] = job
+        response = await asyncio.wait_for(
+            client.get(f"/jobs/{job_id}/stream"), timeout=2
+        )
+        assert response.status_code == 200
+        events = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert [event["type"] for event in events] == ["queued", "started", "completed"]
+        assert not job.subscribers
 
-        # Should have received historical events
-        assert len(events) >= 1
-        assert any("queued" in e for e in events)
+    @pytest.mark.asyncio
+    async def test_cancel_running_job_streams_terminal_event(self, client):
+        job = ConversionJob(
+            id="cancel-test",
+            source="/tmp/fake.pdf",
+            source_kind="upload",
+            upload_size=123,
+            output_markdown=True,
+            state="running",
+        )
+        main.JOB_STORE[job.id] = job
+        response = await client.delete(f"/jobs/{job.id}")
+        assert response.json()["state"] == "cancelled"
+        stream = await asyncio.wait_for(client.get(f"/jobs/{job.id}/stream"), timeout=2)
+        assert "event: cancelled" in stream.text
+        assert not job.subscribers
 
     @pytest.mark.asyncio
     async def test_stream_sends_heartbeat_when_idle(self, client):
@@ -103,7 +107,7 @@ class TestSSEStream:
         )
         job.state = "completed"
         job.events = [{"type": "completed", "state": "completed"}]
-        JOB_STORE["heartbeat-test-job"] = job
+        main.JOB_STORE["heartbeat-test-job"] = job
 
         queue = main._subscribe(job)
 
@@ -114,13 +118,15 @@ class TestSSEStream:
                 await asyncio.wait_for(queue.get(), timeout=0.1)
             except asyncio.TimeoutError:
                 # Heartbeat sent on idle timeout
-                heartbeat = main._format_sse({"type": "heartbeat", "timestamp": time.time()})
+                heartbeat = main._format_sse(
+                    {"type": "heartbeat", "timestamp": time.time()}
+                )
                 received_heartbeat = "heartbeat" in heartbeat
 
             assert received_heartbeat, "Expected heartbeat event on idle timeout"
         finally:
             main._unsubscribe(job, queue)
-            del JOB_STORE["heartbeat-test-job"]
+            del main.JOB_STORE["heartbeat-test-job"]
 
 
 class TestSSEFormat:

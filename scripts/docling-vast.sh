@@ -289,11 +289,7 @@ deploy_to_instance() {
 
     echo -e "\n${CYAN}Deploying to $ssh_target (branch: $branch)...${NC}"
 
-    if [ -f "$REPO_ROOT/docling/scripts/bootstrap_vast_gpu.sh" ]; then
-        PORT="$DOCLING_PORT_VAST_AI" "$REPO_ROOT/docling/scripts/bootstrap_vast_gpu.sh" "$ssh_target" "$branch"
-    else
-        echo -e "${RED}Bootstrap script not found at docling/scripts/bootstrap_vast_gpu.sh${NC}"
-    fi
+    PORT="$DOCLING_PORT_VAST_AI" "$SCRIPT_DIR/bootstrap_vast_gpu.sh" "$ssh_target" "$branch"
 }
 
 check_instance_health() {

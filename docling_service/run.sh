@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_ROOT=$(cd "$(dirname "$0")" && pwd)
-VENV_DIR="$APP_ROOT/.venv"
+VENV_DIR="${DOCLING_VENV_DIR:-$APP_ROOT/.venv}"
 REQUIREMENTS_FILE="$APP_ROOT/requirements.txt"
 PYTHON_BIN=${PYTHON_BIN:-python3}
 PORT=${PORT:-8042}

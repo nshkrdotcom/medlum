@@ -24,52 +24,18 @@ Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 - **Tailwind CSS + DaisyUI** - Modern, responsive design
 - **Tidewave Integration** - AI-powered development assistance
 - **Clinical Summary UI** - `/reports` LiveView with provenance badges backed by the persisted ingestion pipeline (Gemini structured outputs + PDF uploads)
-- **Dual Docling Backends** - Standard (local CPU) and Fast (remote GPU) per-user toggle with health-aware fallback and ingestion cost logging
+- **Docling PDF ingestion** - Local CPU or GPU processing with streamed progress, layout provenance, and an optional cloud backend
 - **Traceable LLM Runs** - Latest section runs preload only shallow LLM invocation metadata (id/provider/model/status/usage) to avoid pulling large prompt/response blobs in `/reports`
 
-## Prerequisites
+## Local Development
 
-- Elixir ~> 1.17
-- Erlang/OTP 26+
-- PostgreSQL 14+
-- Node.js 18+ (for asset compilation)
+Start with the [local onboarding guide](DEVELOPMENT.md#local-onboarding).
+It covers PostgreSQL, Elixir, and installing official Docling with `uv`.
+Run Docling directly on the host for local development. Docker and Vast.ai
+are optional deployment paths.
 
-## Installation & Setup
-
-### 1. Install Dependencies
-
-```bash
-mix setup
-```
-
-This will:
-- Install Elixir dependencies
-- Install Node.js dependencies
-- Create the database
-- Run migrations
-- Compile assets
-
-### 2. Create Initial Admin Account
-
-```bash
-mix run priv/repo/seeds.exs
-```
-
-This creates a system administrator account with:
-- **Email:** `admin@medlumai.local`
-- **Role:** `system_administrator`
-
-### 3. Start the Server
-
-```bash
-mix phx.server
-```
-
-> Set `GEMINI_API_KEY` in your environment before starting the server so report sections can call Gemini.
-
-Server will be available at:
-- **Main app:** http://localhost:4000
-- **Dev mailbox:** http://localhost:4000/dev/mailbox
+Phoenix runs at http://localhost:4000. Set `GEMINI_API_KEY` before starting it
+to generate report sections with Gemini. Docling PDF conversion runs locally.
 
 ## First Login
 
@@ -93,8 +59,8 @@ From here you can:
 
 **Docling Configuration:** http://localhost:4000/admin/docling
 
-- Admin-only panel to set default backend (Standard vs Fast), local/remote URLs, timeout, and poll interval.
-- Updates take effect immediately; environment variables still override in test or when `:prefer_env_overrides` is set.
+- Admin-only panel for backend health, URLs, and timeouts.
+- The [local setup](DEVELOPMENT.md#3-route-local-uploads-and-start-phoenix) configures the Standard upload profile for native Docling.
 
 ## User Roles & Permissions
 
@@ -152,10 +118,8 @@ Medlum supports **5 Docling backends** organized into two user-facing modes:
 
 #### User-Facing Modes
 
-- **Local (free)**: Admin selects which of the 4 local backends is active
-- **Cloud ($$$)**: Vast.ai GPU - costs money, users opt-in
-
-Users choose between "Local" and "Cloud" in `/reports`. The active local backend is configured by admins in `/admin/docling`.
+- **Local** uses the Standard upload profile. Set it to native CPU or GPU for a local checkout.
+- **Cloud** is the optional paid Vast.ai path.
 
 #### Configuration
 
@@ -179,35 +143,8 @@ Environment variables:
 
 #### Running Docling Backends
 
-**Option 1: Docker Compose (Recommended)**
-```bash
-# Start CPU backend on port 8042
-docker compose up -d docling-cpu
-
-# Start GPU backend on port 8043 (requires NVIDIA runtime)
-docker compose --profile gpu up -d docling-gpu
-
-# Start both
-docker compose --profile gpu up -d
-```
-
-**Option 2: Interactive Script**
-```bash
-# Docker management (build, run, health check, push)
-./scripts/docling-gpu.sh
-
-# Docker Compose management (start, stop, logs, health)
-./scripts/docling-compose.sh
-```
-
-**Option 3: Native Python (no Docker)**
-```bash
-# CPU mode on port 8040
-./scripts/setup_docling_service.sh native_cpu
-
-# GPU mode on port 8041
-./scripts/setup_docling_service.sh native_gpu
-```
+For local development, follow the [native setup](DEVELOPMENT.md#2-start-native-docling).
+For container builds and deployment, see the [Docker guide](docling_service/DEPLOYMENT.md).
 
 #### Script Reference
 

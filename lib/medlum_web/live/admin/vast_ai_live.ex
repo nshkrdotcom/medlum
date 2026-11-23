@@ -24,7 +24,7 @@ defmodule MedlumWeb.Admin.VastAILive do
   defp cloud_port, do: VastAI.cloud_port()
 
   @docling_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1"
-  @pytorch_image "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime"
+  @pytorch_image "pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime"
   @initial_boot_wait_ms 300_000
   @extended_boot_wait_ms 300_000
 

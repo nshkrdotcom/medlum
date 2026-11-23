@@ -1,16 +1,11 @@
 # Medlum – Quick Start Guide
 
-Spin up the full Phoenix application (auth, invitations, admin console, and mock clinical reporting) in a couple of minutes.
+Follow the [local onboarding guide](DEVELOPMENT.md#local-onboarding) to
+install the prerequisites, start native Docling with `uv`, configure PDF
+upload routing, and launch Phoenix. Local development can run without Docker
+or a Vast.ai account.
 
-## 🚀 Start the stack
-
-```bash
-cd /path/to/medlum
-mix setup          # installs deps, creates DB, runs migrations, seeds admin
-mix phx.server
-```
-
-Phoenix serves at **http://localhost:4000** (or `medlum.test:4000` if you mapped the hosts entry mentioned in `README.md`).
+Phoenix serves at **http://localhost:4000**.
 
 ## 🔐 First login & doctor access
 
@@ -22,7 +17,7 @@ Phoenix serves at **http://localhost:4000** (or `medlum.test:4000` if you mapped
 4. Open the generated invitation link (new tab or private window), set the account password, and confirm via the emailed magic link (dev mailbox at **/dev/mailbox**).
 5. Log in as that doctor user and head to **http://localhost:4000/reports**.
 
-The `/reports` LiveView is doctor-only; admins can’t view it unless they also have the doctor role.
+The `/reports` LiveView requires the doctor role or higher.
 
 ## ✅ What you’ll see on `/reports`
 

@@ -1,0 +1,9 @@
+**
+!docling_service/
+!docling_service/Dockerfile.gpu
+!docling_service/Dockerfile.gpu-base
+!docling_service/requirements.txt
+!docling_service/run.sh
+!docling_service/app/
+!docling_service/app/**
+docling_service/app/**/__pycache__/

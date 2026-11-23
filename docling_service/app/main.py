@@ -8,16 +8,11 @@ import logging
 import os
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
 
 from docling.datamodel.base_models import ConversionStatus, InputFormat
 from docling.datamodel.document import ConversionResult
@@ -33,12 +28,16 @@ from docling.datamodel.progress import (
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.utils.accelerator_utils import decide_device
 from docling_core.types.doc import DocItem, TableItem
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger("docling_service")
 logging.basicConfig(
     level=os.getenv("DOCLING_SERVICE_LOG_LEVEL", "INFO"),
     format="[%(asctime)s] %(levelname)s in %(name)s: %(message)s",
 )
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -52,6 +51,7 @@ async def lifespan(_app: FastAPI):
         for worker in workers:
             worker.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
+
 
 app = FastAPI(
     title="Docling Ingestion Service",
@@ -72,7 +72,7 @@ app.add_middleware(
 )
 
 _conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "1200"))
-_worker_count = int(os.getenv("DOC_CONVERTER_WORKERS", "8"))
+_worker_count = int(os.getenv("DOC_CONVERTER_WORKERS", "1"))
 _TERMINAL_STATES = {"completed", "failed", "cancelled"}
 
 JOB_QUEUE: asyncio.Queue["ConversionJob"] = asyncio.Queue()
@@ -288,7 +288,17 @@ async def _worker_loop(worker_id: int) -> None:
             JOB_QUEUE.task_done()
 
 
-def _record_docling_progress(job: ConversionJob, event: ConversionProgressEvent) -> None:
+_PHASE_STAGES = {
+    ConversionPhase.INITIALIZE: 2,
+    ConversionPhase.BUILD: 2,
+    ConversionPhase.ASSEMBLE: 5,
+    ConversionPhase.ENRICH: 5,
+}
+
+
+def _record_docling_progress(
+    job: ConversionJob, event: ConversionProgressEvent
+) -> None:
     # The worker thread posts events back to the owning asyncio loop.
     if job.state != "running":
         return
@@ -296,13 +306,14 @@ def _record_docling_progress(job: ConversionJob, event: ConversionProgressEvent)
     if isinstance(event, DocumentStartedProgress):
         _push_event(job, {"type": "docling_started"})
     elif isinstance(event, PhaseStartedProgress):
-        stage = {
-            ConversionPhase.INITIALIZE: 2,
-            ConversionPhase.BUILD: 2,
-            ConversionPhase.ASSEMBLE: 5,
-            ConversionPhase.ENRICH: 5,
-        }[event.phase]
-        _push_event(job, {"type": "docling_phase", "stage": event.phase.value, "stage_seq": stage})
+        _push_event(
+            job,
+            {
+                "type": "docling_phase",
+                "stage": event.phase.value,
+                "stage_seq": _PHASE_STAGES[event.phase],
+            },
+        )
     elif isinstance(event, PageCompletedProgress):
         job.pages_total = event.total_pages
         job.pages_done = event.completed_pages
@@ -319,11 +330,17 @@ def _record_docling_progress(job: ConversionJob, event: ConversionProgressEvent)
     elif isinstance(event, DocumentCompletedProgress):
         _push_event(
             job,
-            {"type": "docling_completed", "conversion_status": event.status.value, "stage_seq": 5},
+            {
+                "type": "docling_completed",
+                "conversion_status": event.status.value,
+                "stage_seq": 5,
+            },
         )
 
 
-async def _convert_source(converter: DocumentConverter, job: ConversionJob) -> Dict[str, Any]:
+async def _convert_source(
+    converter: DocumentConverter, job: ConversionJob
+) -> Dict[str, Any]:
     loop = asyncio.get_running_loop()
 
     def on_progress(event: ConversionProgressEvent) -> None:
@@ -331,8 +348,13 @@ async def _convert_source(converter: DocumentConverter, job: ConversionJob) -> D
 
     def convert() -> Dict[str, Any]:
         conversion = converter.convert(job.source, progress_callback=on_progress)
-        if conversion.status not in {ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS}:
-            raise RuntimeError(f"Docling conversion ended with status {conversion.status.value}")
+        if conversion.status not in {
+            ConversionStatus.SUCCESS,
+            ConversionStatus.PARTIAL_SUCCESS,
+        }:
+            raise RuntimeError(
+                f"Docling conversion ended with status {conversion.status.value}"
+            )
 
         document = conversion.document
         return {
@@ -357,7 +379,9 @@ def _build_pages(conversion: ConversionResult) -> List[Dict[str, Any]]:
             continue
         for provenance in item.prov:
             page = document.pages[provenance.page_no]
-            bbox = provenance.bbox.to_top_left_origin(page.size.height).normalized(page.size)
+            bbox = provenance.bbox.to_top_left_origin(page.size.height).normalized(
+                page.size
+            )
             segments_by_page.setdefault(page.page_no, []).append(
                 {
                     "index_in_doc": index,
@@ -365,7 +389,8 @@ def _build_pages(conversion: ConversionResult) -> List[Dict[str, Any]]:
                     "text": getattr(item, "text", ""),
                     "bbox": bbox.as_tuple(),
                     "data": [{"html_seq": item.export_to_html(doc=document)}]
-                    if isinstance(item, TableItem) else [],
+                    if isinstance(item, TableItem)
+                    else [],
                 }
             )
 
@@ -418,14 +443,18 @@ async def _persist_upload(upload: UploadFile) -> tuple[str, int]:
         raise
 
 
-async def _await_job_result(job: ConversionJob, wait_timeout: Optional[float] = None) -> Dict[str, Any]:
+async def _await_job_result(
+    job: ConversionJob, wait_timeout: Optional[float] = None
+) -> Dict[str, Any]:
     try:
         await asyncio.wait_for(
             asyncio.shield(job.future),
             timeout=wait_timeout or (_conversion_timeout + 5),
         )
     except asyncio.TimeoutError as err:
-        raise HTTPException(status_code=504, detail="Docling conversion timed out") from err
+        raise HTTPException(
+            status_code=504, detail="Docling conversion timed out"
+        ) from err
 
     if job.state == "completed" and job.result is not None:
         return job.result
@@ -548,9 +577,7 @@ async def convert_document(
         description="PDF upload. Ignored if source_url is provided.",
     ),
 ) -> JSONResponse:
-    result = await _schedule_conversion(
-        source_url, file, output_markdown, wait=True
-    )
+    result = await _schedule_conversion(source_url, file, output_markdown, wait=True)
     return JSONResponse(content=result)
 
 

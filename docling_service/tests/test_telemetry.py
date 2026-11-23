@@ -1,12 +1,13 @@
 import asyncio
-import json
 from typing import Optional
 
 import pytest
-from asgi_lifespan import LifespanManager
-from httpx import ASGITransport, AsyncClient
-
 from app import main
+from asgi_lifespan import LifespanManager
+from docling.datamodel.base_models import ConversionStatus
+from docling.datamodel.progress import PageCompletedProgress
+from docling_core.types.doc import DoclingDocument, Size
+from httpx import ASGITransport, AsyncClient
 
 
 def reset_job_state():
@@ -14,37 +15,44 @@ def reset_job_state():
     main.JOB_STORE = {}
 
 
-class FakeDocument:
-    def export_to_markdown(self) -> str:
-        return "# fake"
-
-
 class FakeConversion:
-    def __init__(self, pages):
-        self.pages = pages
-        self.document = FakeDocument()
+    status = ConversionStatus.SUCCESS
+
+    def __init__(self):
+        self.pages = []
+        self.document = DoclingDocument(name="fake")
+        for page_no in (1, 2):
+            self.document.add_page(page_no=page_no, size=Size(width=100, height=100))
 
 
 class FakeConverter:
-    def convert(self, _source, **_kwargs):
-        return FakeConversion(pages=[1, 2])
+    def __init__(self, **_options):
+        pass
+
+    def convert(self, _source, *, progress_callback):
+        # Out-of-order completion must still advance the count monotonically.
+        for completed, page_no in enumerate((2, 1), start=1):
+            progress_callback(
+                PageCompletedProgress(
+                    document_index=1,
+                    document_name="fake.pdf",
+                    page_no=page_no,
+                    success=page_no == 2,
+                    completed_pages=completed,
+                    total_pages=2,
+                )
+            )
+        return FakeConversion()
 
 
-def fake_generate_multimodal_pages(_conversion):
-    for page_no in (1, 2):
-        yield (f"text {page_no}", f"md {page_no}", None, [], [], type("Page", (), {"page_no": page_no}))
-
-
-async def fake_slow_convert(_converter, _job, _source, _source_kind, progress_cb=None, docling_progress_cb=None):
+async def fake_slow_convert(_converter, _job):
     await asyncio.sleep(0.05)
-    return None
 
 
 @pytest.mark.asyncio
 async def test_status_includes_progress(monkeypatch):
     reset_job_state()
     monkeypatch.setattr(main, "DocumentConverter", FakeConverter)
-    monkeypatch.setattr(main, "generate_multimodal_pages", fake_generate_multimodal_pages)
 
     async with LifespanManager(main.app):
         transport = ASGITransport(app=main.app)
@@ -66,20 +74,22 @@ async def test_status_includes_progress(monkeypatch):
             assert status["state"] == "completed"
             assert status["pages_done"] == 2
             assert status["pages_total"] == 2
+            assert status["pages_failed"] == 1
             assert status["progress"] == 100
             assert status["worker_id"] == 1
-            assert status["device"] in {"cpu", "cuda"}
+            assert status["device"] == main.decide_device("auto")
 
 
 @pytest.mark.asyncio
 async def test_events_recorded_in_job_store(monkeypatch):
     reset_job_state()
     monkeypatch.setattr(main, "DocumentConverter", FakeConverter)
-    monkeypatch.setattr(main, "generate_multimodal_pages", fake_generate_multimodal_pages)
 
     async with LifespanManager(main.app):
         transport = ASGITransport(app=main.app)
-        async with AsyncClient(transport=transport, base_url="http://test", timeout=5.0) as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", timeout=5.0
+        ) as client:
             resp = await client.post(
                 "/jobs",
                 files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
@@ -98,8 +108,19 @@ async def test_events_recorded_in_job_store(monkeypatch):
 
             assert "queued" in event_types
             assert "started" in event_types
-            assert "page_processed" in event_types
-            assert any(evt in {"completed", "failed"} for evt in event_types)
+            page_events = [
+                event
+                for event in job.events
+                if event["type"] in {"page_processed", "page_failed"}
+            ]
+            assert [
+                (event["page_number"], event["pages_done"], event["progress"])
+                for event in page_events
+            ] == [
+                (2, 1, 50.0),
+                (1, 2, 100.0),
+            ]
+            assert event_types[-1] == "completed"
 
 
 @pytest.mark.asyncio

@@ -55,7 +55,7 @@ fi
 
 echo "[dev-stack] Starting Phoenix server via '$PHX_CMD' (MIX_ENV=$MIX_ENV)"
 cd "$ROOT_DIR"
-MIX_ENV="$MIX_ENV" $PHX_CMD
+DOCLING_DOCKER_AUTO_MANAGE=false MIX_ENV="$MIX_ENV" $PHX_CMD
 exit_code=$?
 trap - INT TERM
 cleanup "$exit_code"

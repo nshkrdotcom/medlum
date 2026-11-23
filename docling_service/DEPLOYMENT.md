@@ -23,20 +23,18 @@ This document covers the full process for building, testing, and deploying the G
 ### 1.1 Build locally
 
 ```bash
-cd medlum/docling_service
-chmod +x build-gpu-image.sh
-./build-gpu-image.sh latest
+# From the Medlum repository root
+./scripts/docling-gpu.sh build-all
 ```
 
-This builds from the repo root context, including:
-- `docling/` - Your forked docling library
-- `docling_service/app/` - The FastAPI service
+The base image installs official Docling 2.151.1 and downloads its models.
+The service image adds the FastAPI wrapper.
 
 ### 1.2 Expected build time
 
 | Stage | Time | Notes |
 |-------|------|-------|
-| Base image pull | ~2 min | pytorch/pytorch:2.2.2-cuda12.1 (~8GB) |
+| Base image pull | ~2 min | pytorch/pytorch:2.9.1 with CUDA 12.8 |
 | System deps | ~1 min | libgl1, git, etc. |
 | Python deps | ~3-5 min | fastapi, uvicorn, docling deps |
 | Model download | ~5-10 min | Layout models, OCR, etc. |
@@ -121,7 +119,7 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_USERNAME --password-stdin
 ### 3.2 Push the image
 
 ```bash
-# Push latest
+# Push the versioned image
 docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Also tag with version
@@ -219,13 +217,8 @@ Instances.destroy(id)
 
 ## Phase 5: Wire into Medlum Admin
 
-Once testing is complete, update `lib/medlum/vast_ai.ex`:
-
-```elixir
-@default_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1"
-```
-
-And optionally add image selection to the admin UI.
+Medlum already selects the `2.151.1` service image for new Vast.ai instances.
+Publish that tag to the registry before provisioning.
 
 ## Troubleshooting
 
@@ -288,10 +281,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docling_service/Dockerfile.gpu
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/medlum-docling-gpu:2.151.1
+      - run: ./scripts/docling-gpu.sh build-all
+      - run: docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 ```

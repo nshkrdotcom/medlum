@@ -118,15 +118,11 @@ fi
 echo "[+] Starting Docling REST service ($DOCLING_MODE on port $PORT)"
 cd "$SERVICE_DIR"
 
-# Set environment for GPU mode
 if [ "$USE_GPU" = true ]; then
-    export DOCLING_USE_GPU=true
-    # Use GPU-optimized PyTorch index
-    export PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL:-https://download.pytorch.org/whl/cu121}"
+    export DOCLING_TORCH_INDEX="${DOCLING_TORCH_INDEX:-https://download.pytorch.org/whl/cu128}"
+    export DOCLING_VENV_DIR="${DOCLING_VENV_DIR:-$SERVICE_DIR/.venv-gpu}"
 else
-    export DOCLING_USE_GPU=false
-    # Use CPU-only PyTorch index
-    export PIP_EXTRA_INDEX_URL="${PIP_EXTRA_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
+    export CUDA_VISIBLE_DEVICES=""
 fi
 
 PYTHON_BIN="$PYTHON_BIN" HOST="$HOST" PORT="$PORT" ./run.sh
