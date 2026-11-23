@@ -1,4 +1,13 @@
-# Medlum
+<p align="center">
+  <img src="assets/medlum.svg" width="200" height="200" alt="Medlum logo" />
+</p>
+
+<h1 align="center">Medlum</h1>
+
+<p align="center">
+  <a href="https://github.com/nshkrdotcom/medlum"><img alt="GitHub: medlum" src="https://img.shields.io/badge/GitHub-medlum-081c26?logo=github" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-14b8a6.svg" /></a>
+</p>
 
 Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 
@@ -20,7 +29,7 @@ Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 
 ## Prerequisites
 
-- Elixir ~> 1.15
+- Elixir ~> 1.17
 - Erlang/OTP 26+
 - PostgreSQL 14+
 - Node.js 18+ (for asset compilation)
@@ -456,4 +465,4 @@ lsof -ti:4000 | xargs kill -9
 
 ## License
 
-Proprietary - All Rights Reserved
+MIT License — see [LICENSE](LICENSE) for details.

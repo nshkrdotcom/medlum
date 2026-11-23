@@ -19,12 +19,12 @@ source "$SCRIPT_DIR/docling-ports.env"
 
 # Configuration - Base image (heavy, ~7GB, rebuild monthly)
 BASE_IMAGE_NAME="${BASE_IMAGE_NAME:-ghcr.io/nshkrdotcom/medlum-docling-base}"
-BASE_TAG="${BASE_TAG:-latest}"
+BASE_TAG="${BASE_TAG:-2.151.1}"
 FULL_BASE_IMAGE="${BASE_IMAGE_NAME}:${BASE_TAG}"
 
 # Configuration - App image (tiny, rebuild on code changes)
 IMAGE_NAME="${IMAGE_NAME:-ghcr.io/nshkrdotcom/medlum-docling-gpu}"
-TAG="${TAG:-latest}"
+TAG="${TAG:-2.151.1}"
 FULL_IMAGE="${IMAGE_NAME}:${TAG}"
 
 # Container names for each mode

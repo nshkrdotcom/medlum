@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.Db.ReportRunLive do
   use Backpex.LiveResource,
-    layout: {MedlumWeb.AdminLayout, :app},
     adapter_config: [
       schema: Medlum.Reports.ReportRun,
       repo: Medlum.Repo,
@@ -19,6 +18,9 @@ defmodule MedlumWeb.Admin.Db.ReportRunLive do
       preload: [:tenant, :patient, :template, :triggered_by, :summary_invocation]
     )
   end
+
+  @impl Backpex.LiveResource
+  def layout(_assigns), do: {MedlumWeb.AdminLayout, :app}
 
   @impl Backpex.LiveResource
   def singular_name, do: "Report Run"

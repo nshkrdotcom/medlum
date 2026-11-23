@@ -5,7 +5,7 @@ defmodule Medlum.MixProject do
     [
       app: :medlum,
       version: "0.1.0",
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -15,7 +15,11 @@ defmodule Medlum.MixProject do
         plt_file: {:no_warn, "_build/plts/dialyzer.plt"},
         plt_add_apps: [:mix]
       ],
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      description:
+        "Medical reporting, clinical document ingestion, and analytics platform built with Phoenix LiveView.",
+      package: package(),
+      docs: docs()
     ]
   end
 
@@ -44,20 +48,20 @@ defmodule Medlum.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:phoenix, "~> 1.8.1"},
-      {:phoenix_ecto, "~> 4.6"},
-      {:ecto_sql, "~> 3.12"},
-      {:postgrex, ">= 0.0.0"},
-      # Pin db_connection to 2.7.x - version 2.8.x removed DBConnection.Query module
-      {:db_connection, "~> 2.7.0"},
-      {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.1.0"},
-      {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
-      {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:phoenix, "~> 1.8 and >= 1.8.17"},
+      {:phoenix_ecto, "~> 4.7"},
+      {:ecto_sql, "~> 3.14"},
+      {:postgrex, "~> 0.23.0"},
+      {:db_connection, "~> 2.10 and >= 2.10.2"},
+      {:phoenix_html, "~> 4.4"},
+      {:phoenix_live_reload, "~> 1.7", only: :dev},
+      {:phoenix_live_view, "~> 1.2 and >= 1.2.15"},
+      {:lazy_html, "~> 0.1.14", only: :test},
+      {:phoenix_live_dashboard, "~> 0.9.1"},
+      {:esbuild, "~> 0.10.1", runtime: Mix.env() == :dev},
+      {:tailwind, "~> 0.5.2", runtime: Mix.env() == :dev},
+      {:dialyxir, "~> 1.4 and >= 1.4.9", only: [:dev], runtime: false},
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:heroicons,
        github: "tailwindlabs/heroicons",
        tag: "v2.2.0",
@@ -65,32 +69,31 @@ defmodule Medlum.MixProject do
        app: false,
        compile: false,
        depth: 1},
-      {:swoosh, "~> 1.16"},
-      {:gen_smtp, "~> 1.2"},
-      {:req, "~> 0.5"},
-      {:gemini_ex, "~> 0.7.3"},
-      {:earmark, "~> 1.4"},
-      {:oban, "~> 2.17"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 0.26"},
-      {:ex_cldr, "~> 2.37"},
-      {:ex_cldr_dates_times, "~> 2.16"},
-      {:tzdata, "~> 1.1"},
-      {:jason, "~> 1.2"},
-      {:json_remedy, "~> 0.1.11"},
-      {:retry, "~> 0.18"},
-      {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"},
-      {:bcrypt_elixir, "~> 3.0"},
-      # Pin to 1.11.10 for OTP 25/26 compatibility
-      {:jose, "== 1.11.10", override: true},
-      {:tidewave, "~> 0.5", only: :dev},
+      {:swoosh, "~> 1.30"},
+      {:gen_smtp, "~> 1.3"},
+      {:req, "~> 0.7.5"},
+      {:gemini_ex, "~> 0.19.1"},
+      {:mdex, "~> 0.14.7"},
+      {:oban, "~> 2.24 and >= 2.24.2"},
+      {:telemetry_metrics, "~> 1.2"},
+      {:telemetry_poller, "~> 1.3"},
+      {:gettext, "~> 1.0 and >= 1.0.2"},
+      {:ex_cldr, "~> 2.47 and >= 2.47.5"},
+      {:ex_cldr_dates_times, "~> 2.25 and >= 2.25.8"},
+      {:tzdata, "~> 1.2 and >= 1.2.2"},
+      {:jason, "~> 1.4 and >= 1.4.5"},
+      {:json_remedy, "~> 0.2.1"},
+      {:retry, "~> 0.19.0"},
+      {:dns_cluster, "~> 0.3.1"},
+      {:bandit, "~> 1.15"},
+      {:bcrypt_elixir, "~> 3.3 and >= 3.3.2"},
+      {:jose, "~> 1.11 and >= 1.11.13"},
+      {:tidewave, "~> 0.9.2", only: :dev},
       {:bypass, "~> 2.1", only: :test},
-      {:supertester, "~> 0.5.1", only: :test},
-      {:stream_data, "~> 1.0", only: :test},
+      {:supertester, "~> 0.6.0", only: :test},
+      {:stream_data, "~> 1.4", only: :test},
       # Admin panel
-      {:backpex, "~> 0.9"}
+      {:backpex, "~> 0.24.1"}
     ]
   end
 
@@ -114,6 +117,34 @@ defmodule Medlum.MixProject do
         "phx.digest"
       ],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      maintainers: ["nshkrdotcom"],
+      links: %{"GitHub" => "https://github.com/nshkrdotcom/medlum"},
+      files: ~w(lib priv assets/css assets/js assets/medlum.svg mix.exs README.md LICENSE)
+    ]
+  end
+
+  defp docs do
+    [
+      name: "Medlum",
+      main: "readme",
+      logo: "assets/medlum.svg",
+      homepage_url: "https://github.com/nshkrdotcom/medlum",
+      source_url: "https://github.com/nshkrdotcom/medlum",
+      source_ref: "v0.1.0",
+      assets: %{"assets" => "assets"},
+      extras: [
+        "README.md": [title: "Overview"],
+        "QUICKSTART.md": [title: "Quickstart"],
+        "DEVELOPMENT.md": [title: "Development"],
+        "DEPLOYMENT.md": [title: "Deployment"],
+        LICENSE: [title: "License"]
+      ]
     ]
   end
 end

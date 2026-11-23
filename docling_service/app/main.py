@@ -10,7 +10,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
@@ -19,8 +19,20 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from docling.document_converter import DocumentConverter
-from docling.utils.export import generate_multimodal_pages
+from docling.datamodel.base_models import ConversionStatus, InputFormat
+from docling.datamodel.document import ConversionResult
+from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
+from docling.datamodel.progress import (
+    ConversionPhase,
+    ConversionProgressEvent,
+    DocumentCompletedProgress,
+    DocumentStartedProgress,
+    PageCompletedProgress,
+    PhaseStartedProgress,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.utils.accelerator_utils import decide_device
+from docling_core.types.doc import DocItem, TableItem
 
 logger = logging.getLogger("docling_service")
 logging.basicConfig(
@@ -30,10 +42,16 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    for idx in range(_worker_count):
-        asyncio.create_task(_worker_loop(idx + 1))
+    workers = [
+        asyncio.create_task(_worker_loop(idx + 1)) for idx in range(_worker_count)
+    ]
     logger.info("Started %s Docling worker(s)", _worker_count)
-    yield
+    try:
+        yield
+    finally:
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
 
 app = FastAPI(
     title="Docling Ingestion Service",
@@ -55,6 +73,7 @@ app.add_middleware(
 
 _conversion_timeout = float(os.getenv("CONVERSION_TIMEOUT_SECONDS", "1200"))
 _worker_count = int(os.getenv("DOC_CONVERTER_WORKERS", "8"))
+_TERMINAL_STATES = {"completed", "failed", "cancelled"}
 
 JOB_QUEUE: asyncio.Queue["ConversionJob"] = asyncio.Queue()
 JOB_STORE: Dict[str, "ConversionJob"] = {}
@@ -106,29 +125,6 @@ def _progress_from_pages(pages_done: int, pages_total: Optional[int]) -> float:
 def _format_sse(event: Dict[str, Any]) -> str:
     event_type = event.get("type", "message")
     return f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
-
-
-def _detect_device() -> str:
-    """Detect the best available device (GPU/MPS/CPU)."""
-    try:
-        from docling.utils.accelerator_utils import decide_device
-
-        return decide_device("auto")
-    except Exception:
-        try:
-            import torch
-
-            if torch.backends.cuda.is_built() and torch.cuda.is_available():
-                try:
-                    return f"cuda:{torch.cuda.current_device()}"
-                except Exception:
-                    return "cuda"
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                return "mps"
-        except Exception:
-            pass
-
-    return "cpu"
 
 
 @dataclass
@@ -185,17 +181,31 @@ def _job_status(job: ConversionJob) -> Dict[str, Any]:
 
 async def _worker_loop(worker_id: int) -> None:
     """Background worker that consumes the queue with its own DocumentConverter."""
-    converter = DocumentConverter()
+    converter = DocumentConverter(
+        allowed_formats=[InputFormat.PDF],
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=ThreadedPdfPipelineOptions(
+                    generate_parsed_pages=True,
+                    document_timeout=_conversion_timeout,
+                )
+            )
+        },
+    )
     logger.info("Worker %s ready", worker_id)
 
     while True:
         job: ConversionJob = await JOB_QUEUE.get()
+        if job.state == "cancelled":
+            JOB_QUEUE.task_done()
+            continue
+
         job.state = "running"
         job.progress = 0.0
         job.started_at = time.perf_counter()
         job.timeout_at = job.timeout_at or (job.started_at + _conversion_timeout)
         job.worker_id = worker_id
-        job.device = _detect_device()
+        job.device = decide_device("auto")
 
         _push_event(
             job,
@@ -216,16 +226,11 @@ async def _worker_loop(worker_id: int) -> None:
                 job.upload_size,
             )
             result = await asyncio.wait_for(
-                _convert_source(
-                    converter,
-                    job,
-                    job.source,
-                    job.source_kind,
-                    progress_cb=_page_progress_cb(job),
-                    docling_progress_cb=_docling_progress_cb(job),
-                ),
+                _convert_source(converter, job),
                 timeout=_conversion_timeout,
             )
+            if job.state == "cancelled":
+                continue
             if not job.output_markdown and isinstance(result, dict):
                 result.pop("markdown", None)
             job.result = result
@@ -244,6 +249,8 @@ async def _worker_loop(worker_id: int) -> None:
                 },
             )
         except asyncio.TimeoutError:
+            if job.state == "cancelled":
+                continue
             job.last_error = "Docling conversion timed out"
             job.error_status = 504
             job.state = "failed"
@@ -257,7 +264,9 @@ async def _worker_loop(worker_id: int) -> None:
                     "message": job.last_error,
                 },
             )
-        except Exception as err:  # pragma: no cover - surfaced to client
+        except Exception as err:
+            if job.state == "cancelled":
+                continue
             job.last_error = str(err)
             job.error_status = 500
             job.state = "failed"
@@ -279,175 +288,112 @@ async def _worker_loop(worker_id: int) -> None:
             JOB_QUEUE.task_done()
 
 
-def _page_progress_cb(job: ConversionJob):
-    started = job.started_at or _now()
+def _record_docling_progress(job: ConversionJob, event: ConversionProgressEvent) -> None:
+    # The worker thread posts events back to the owning asyncio loop.
+    if job.state != "running":
+        return
 
-    def _cb(page_number: int, pages_total: Optional[int]) -> None:
-        current_pages_done = job.pages_done or 0
-
-        # Do not regress progress if Docling already reported further pages
-        if page_number <= current_pages_done:
-            return
-
-        job.pages_done = page_number
-        job.pages_total = pages_total or job.pages_total
-        new_progress = _progress_from_pages(page_number, job.pages_total)
-        job.progress = max(job.progress or 0.0, new_progress)
+    if isinstance(event, DocumentStartedProgress):
+        _push_event(job, {"type": "docling_started"})
+    elif isinstance(event, PhaseStartedProgress):
+        stage = {
+            ConversionPhase.INITIALIZE: 2,
+            ConversionPhase.BUILD: 2,
+            ConversionPhase.ASSEMBLE: 5,
+            ConversionPhase.ENRICH: 5,
+        }[event.phase]
+        _push_event(job, {"type": "docling_phase", "stage": event.phase.value, "stage_seq": stage})
+    elif isinstance(event, PageCompletedProgress):
+        job.pages_total = event.total_pages
+        job.pages_done = event.completed_pages
+        job.pages_failed += int(not event.success)
+        job.progress = _progress_from_pages(job.pages_done, job.pages_total)
         _push_event(
             job,
             {
-                "type": "page_processed",
-                "page_number": page_number,
-                "pages_total": pages_total,
-                "elapsed_ms": int((_now() - started) * 1000),
-                "message": f"Processed page {page_number}"
-                + (f"/{pages_total}" if pages_total else ""),
+                "type": "page_processed" if event.success else "page_failed",
+                "page_number": event.page_no,
+                "stage_seq": 5,
             },
         )
-
-    return _cb
-
-
-def _docling_progress_cb(job: ConversionJob):
-    """Create a progress callback for Docling's internal progress events."""
-    started = job.started_at or _now()
-
-    def _cb(event: Dict[str, Any]) -> None:
-        event_type = event.get("event", "unknown")
-
-        # Update job state based on event
-        if "pages_done" in event:
-            job.pages_done = event["pages_done"]
-        if "pages_total" in event:
-            job.pages_total = event["pages_total"]
-        if "pages_failed" in event:
-            job.pages_failed = event.get("pages_failed")
-
-        # Always calculate progress from pages (ignore docling's progress field - unreliable)
-        if job.pages_total and job.pages_total > 0:
-            calculated = round((job.pages_done / job.pages_total) * 100.0, 2)
-            job.progress = min(max(calculated, 0.0), 100.0)
-
-        # Map Docling events to our event format
-        mapped_type = {
-            "conversion_started": "docling_started",
-            "page_processed": "page_processed",
-            "page_failed": "page_failed",
-            "stage_batch_complete": "stage_complete",
-            "conversion_completed": "docling_completed",
-            "conversion_timeout": "docling_timeout",
-            "conversion_failed": "docling_failed",
-        }.get(event_type, event_type)
-
+    elif isinstance(event, DocumentCompletedProgress):
         _push_event(
             job,
-            {
-                "type": mapped_type,
-                "elapsed_ms": int((_now() - started) * 1000),
-                "stage_seq": event.get("stage_seq"),
-                **{k: v for k, v in event.items() if k != "event"},
-            },
+            {"type": "docling_completed", "conversion_status": event.status.value, "stage_seq": 5},
         )
 
-        # Log significant events
-        if event_type in ("page_processed", "stage_batch_complete"):
-            logger.info(
-                "Job %s: %s - %s",
-                job.id,
-                event_type,
-                event.get("message", ""),
-            )
 
-    return _cb
+async def _convert_source(converter: DocumentConverter, job: ConversionJob) -> Dict[str, Any]:
+    loop = asyncio.get_running_loop()
 
+    def on_progress(event: ConversionProgressEvent) -> None:
+        loop.call_soon_threadsafe(_record_docling_progress, job, event)
 
-async def _convert_source(
-    converter: DocumentConverter,
-    job: Job,
-    source: str,
-    source_kind: str,
-    progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
-    docling_progress_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
-) -> Dict[str, Any]:
-    """Run Docling conversion in a worker thread."""
+    def convert() -> Dict[str, Any]:
+        conversion = converter.convert(job.source, progress_callback=on_progress)
+        if conversion.status not in {ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS}:
+            raise RuntimeError(f"Docling conversion ended with status {conversion.status.value}")
 
-    def _sync_convert() -> Dict[str, Any]:
-        progress_context = {
-            "job_id": job.id,
-            "worker_id": job.worker_id,
-            "device": job.device,
-            "source_kind": job.source_kind,
-            "upload_size": job.upload_size,
-        }
-        conversion = converter.convert(
-            source,
-            progress_callback=docling_progress_cb,
-            progress_context=progress_context,
-        )
         document = conversion.document
-        if document is None:
-            raise RuntimeError("Docling returned an empty document")
-
-        markdown = document.export_to_markdown()
-        pages = _build_pages(conversion, progress_cb)
-        metadata = {
-            "page_count": len(conversion.pages or []),
-            "source_kind": source_kind,
-            "has_tables": any(
-                any(seg.get("label") == "table" for seg in page["segments"])
-                for page in pages
-            ),
-        }
-
         return {
             "success": True,
-            "markdown": markdown,
-            "metadata": metadata,
-            "pages": pages,
+            "markdown": document.export_to_markdown(),
+            "metadata": {
+                "page_count": len(document.pages),
+                "source_kind": job.source_kind,
+                "has_tables": bool(document.tables),
+            },
+            "pages": _build_pages(conversion),
         }
 
-    return await asyncio.to_thread(_sync_convert)
+    return await asyncio.to_thread(convert)
 
 
-def _build_pages(
-    conversion, progress_cb: Optional[Callable[[int, Optional[int]], None]] = None
-) -> List[Dict[str, Any]]:
-    pages_total = len(getattr(conversion, "pages", []) or []) or None
+def _build_pages(conversion: ConversionResult) -> List[Dict[str, Any]]:
+    document = conversion.document
+    segments_by_page: Dict[int, List[Dict[str, Any]]] = {}
+    for index, (item, _) in enumerate(document.iterate_items()):
+        if not isinstance(item, DocItem):
+            continue
+        for provenance in item.prov:
+            page = document.pages[provenance.page_no]
+            bbox = provenance.bbox.to_top_left_origin(page.size.height).normalized(page.size)
+            segments_by_page.setdefault(page.page_no, []).append(
+                {
+                    "index_in_doc": index,
+                    "label": item.label.value,
+                    "text": getattr(item, "text", ""),
+                    "bbox": bbox.as_tuple(),
+                    "data": [{"html_seq": item.export_to_html(doc=document)}]
+                    if isinstance(item, TableItem) else [],
+                }
+            )
+
+    pages_by_number = {page.page_no: page for page in conversion.pages}
     pages = []
-    for idx, (
-        text,
-        markdown,
-        _tokens,
-        cells,
-        segments,
-        page,
-    ) in enumerate(generate_multimodal_pages(conversion), start=1):
+    for page_no in sorted(document.pages):
+        page = pages_by_number.get(page_no)
+        cells = []
+        if page and page.size:
+            for cell in page.cells:
+                bbox = cell.rect.to_bounding_box().to_top_left_origin(page.size.height)
+                cells.append(
+                    {
+                        "text": cell.text,
+                        "bbox": bbox.normalized(page.size).as_tuple(),
+                        "ocr": cell.from_ocr,
+                        "ocr_confidence": cell.confidence,
+                    }
+                )
         pages.append(
             {
-                "page_number": getattr(page, "page_no", idx),
-                "text": (text or "").strip(),
-                "markdown": (markdown or "").strip(),
+                "page_number": page_no,
+                "text": document.export_to_text(page_no=page_no),
+                "markdown": document.export_to_markdown(page_no=page_no),
                 "cells": cells,
-                "segments": segments,
+                "segments": segments_by_page.get(page_no, []),
             }
         )
-        if progress_cb:
-            try:
-                progress_cb(idx, pages_total)
-            except Exception:
-                logger.exception("Progress callback failed for page %s", idx)
-
-    if not pages:
-        pages.append(
-            {
-                "page_number": 1,
-                "text": conversion.document.export_to_markdown(),
-                "markdown": conversion.document.export_to_markdown(),
-                "cells": [],
-                "segments": [],
-            }
-        )
-
     return pages
 
 
@@ -654,25 +600,49 @@ async def job_status(job_id: str) -> JSONResponse:
     return JSONResponse(content=_job_status(job))
 
 
+@app.delete("/jobs/{job_id}", summary="Cancel a queued or running job")
+async def cancel_job(job_id: str) -> JSONResponse:
+    job = JOB_STORE.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.state not in _TERMINAL_STATES:
+        if job.state == "queued" and job.cleanup_path:
+            Path(job.cleanup_path).unlink(missing_ok=True)
+        job.state = "cancelled"
+        job.last_error = "Docling conversion cancelled"
+        job.error_status = 409
+        job.finished_at = _now()
+        _push_event(job, {"type": "cancelled", "message": job.last_error})
+        if job.future and not job.future.done():
+            job.future.set_result(None)
+
+    return JSONResponse(content=_job_status(job))
+
+
 @app.get("/jobs/{job_id}/stream", summary="Stream job events (SSE)")
 async def job_stream(job_id: str) -> StreamingResponse:
     job = JOB_STORE.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    queue = _subscribe(job)
-
     async def event_generator():
+        queue = _subscribe(job)
+        history = tuple(job.events)
         try:
             # Replay historical events
-            for event in job.events:
+            for event in history:
                 yield _format_sse(event)
+                if event["state"] in _TERMINAL_STATES:
+                    return
 
             # Stream new events with heartbeat
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=30.0)
                     yield _format_sse(event)
+                    if event["state"] in _TERMINAL_STATES:
+                        return
                 except asyncio.TimeoutError:
                     # Send heartbeat to keep connection alive
                     yield _format_sse({"type": "heartbeat", "timestamp": time.time()})

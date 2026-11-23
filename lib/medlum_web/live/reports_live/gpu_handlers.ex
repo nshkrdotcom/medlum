@@ -554,7 +554,7 @@ defmodule MedlumWeb.ReportsLive.GpuHandlers do
         %{
           status: :running,
           endpoint: endpoint,
-          instance_id: get_in(info || %{}, [:instance_id]),
+          instance_id: get_in(info, [:instance_id]),
           healthy: true,
           health_check_error: nil,
           cloud_status: cloud_status
@@ -562,12 +562,12 @@ defmodule MedlumWeb.ReportsLive.GpuHandlers do
 
       %{availability: :provisioning, endpoint: endpoint, instance_info: info} ->
         # Could be loading or running-but-unhealthy
-        instance_status = get_in(info || %{}, [:status])
+        instance_status = get_in(info, [:status])
 
         %{
           status: if(instance_status == :running, do: :running, else: :loading),
           endpoint: endpoint,
-          instance_id: get_in(info || %{}, [:instance_id]),
+          instance_id: get_in(info, [:instance_id]),
           healthy: false,
           health_check_error: "Starting up...",
           cloud_status: cloud_status

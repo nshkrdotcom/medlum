@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.Db.LlmInvocationLive do
   use Backpex.LiveResource,
-    layout: {MedlumWeb.AdminLayout, :app},
     adapter_config: [
       schema: Medlum.AI.LlmInvocation,
       repo: Medlum.Repo,
@@ -19,6 +18,9 @@ defmodule MedlumWeb.Admin.Db.LlmInvocationLive do
   def item_query(query, _live_action, _assigns) do
     from(q in query, preload: [:tenant])
   end
+
+  @impl Backpex.LiveResource
+  def layout(_assigns), do: {MedlumWeb.AdminLayout, :app}
 
   @impl Backpex.LiveResource
   def singular_name, do: "LLM Invocation"

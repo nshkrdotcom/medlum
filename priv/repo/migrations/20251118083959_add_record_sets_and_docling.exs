@@ -2,7 +2,7 @@ defmodule Medlum.Repo.Migrations.AddRecordSetsAndDocling do
   use Ecto.Migration
 
   def up do
-    Oban.Migrations.up()
+    Oban.Migrations.up(version: 13)
 
     create table(:patient_record_sets, primary_key: false) do
       add(:id, :binary_id, primary_key: true)

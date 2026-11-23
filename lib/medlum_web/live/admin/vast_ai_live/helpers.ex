@@ -14,11 +14,8 @@ defmodule MedlumWeb.Admin.VastAILive.Helpers do
   """
   def format_timestamp(nil, _locale, _timezone), do: ""
 
-  def format_timestamp(%DateTime{} = dt, locale, timezone) do
-    format_datetime(dt, locale: locale, timezone: timezone, format: :medium) ||
-      dt
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
+  def format_timestamp(%DateTime{} = dt, _locale, _timezone) do
+    dt |> DateTime.truncate(:second) |> DateTime.to_iso8601()
   end
 
   @doc """
@@ -253,17 +250,5 @@ defmodule MedlumWeb.Admin.VastAILive.Helpers do
   """
   def has_active_instances?(instances) do
     Enum.any?(instances, &(&1["actual_status"] in ["running", "loading"]))
-  end
-
-  # =============================================================================
-  # Private Helper for format_timestamp
-  # =============================================================================
-
-  # Note: format_datetime/1 is expected to be available via Phoenix helpers
-  # or needs to be delegated from the calling context
-  defp format_datetime(_dt, _opts) do
-    # This function is typically provided by Phoenix.HTML or similar
-    # If not available, we fall back to ISO8601 format in format_timestamp/3
-    nil
   end
 end

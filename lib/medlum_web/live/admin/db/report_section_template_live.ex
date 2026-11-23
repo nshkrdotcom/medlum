@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.Db.ReportSectionTemplateLive do
   use Backpex.LiveResource,
-    layout: {MedlumWeb.AdminLayout, :app},
     adapter_config: [
       schema: Medlum.Reports.ReportSectionTemplate,
       repo: Medlum.Repo,
@@ -17,6 +16,9 @@ defmodule MedlumWeb.Admin.Db.ReportSectionTemplateLive do
   def item_query(query, _live_action, _assigns) do
     from(q in query, preload: [:template])
   end
+
+  @impl Backpex.LiveResource
+  def layout(_assigns), do: {MedlumWeb.AdminLayout, :app}
 
   @impl Backpex.LiveResource
   def singular_name, do: "Section Template"

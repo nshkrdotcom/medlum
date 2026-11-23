@@ -142,8 +142,6 @@ defmodule Medlum.Docling.Settings do
     ArgumentError -> :docker_cpu
   end
 
-  defp safe_mode_atom(nil), do: :local
-
   defp safe_mode_atom(mode) do
     mode
     |> to_string()

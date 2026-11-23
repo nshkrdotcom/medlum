@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.VastAILive do
   use MedlumWeb, :live_view
-  require Logger
 
   alias Decimal
   alias Medlum.VastAI
@@ -24,7 +23,7 @@ defmodule MedlumWeb.Admin.VastAILive do
   # Port used by cloud instances (from VastAI module)
   defp cloud_port, do: VastAI.cloud_port()
 
-  @docling_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:latest"
+  @docling_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1"
   @pytorch_image "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime"
   @initial_boot_wait_ms 300_000
   @extended_boot_wait_ms 300_000
@@ -1406,8 +1405,8 @@ defmodule MedlumWeb.Admin.VastAILive do
           </div>
         </div>
       <% end %>
-      
-    <!-- Current Instances -->
+
+      <!-- Current Instances -->
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6">
         <h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
           Active Instances ({length(@instances)})
@@ -1470,8 +1469,7 @@ defmodule MedlumWeb.Admin.VastAILive do
                     "w-2 h-2 rounded-full",
                     @dns_status.token_present? && "bg-green-500",
                     !@dns_status.token_present? && "bg-red-500"
-                  ]}>
-                  </span>
+                  ]}></span>
                   {if @dns_status.token_present?, do: "API token present", else: "Missing API token"}
                 </span>
               </div>
@@ -1520,12 +1518,12 @@ defmodule MedlumWeb.Admin.VastAILive do
                         </code>
                         <span class={[
                           "px-2 py-0.5 rounded-full text-[11px]",
-                          String.contains?(@dns_status.cname_target || "", "cfargotunnel.com") &&
+                          String.contains?(@dns_status.cname_target, "cfargotunnel.com") &&
                             "bg-green-100 text-green-800",
-                          !String.contains?(@dns_status.cname_target || "", "cfargotunnel.com") &&
+                          !String.contains?(@dns_status.cname_target, "cfargotunnel.com") &&
                             "bg-amber-100 text-amber-800"
                         ]}>
-                          {if String.contains?(@dns_status.cname_target || "", "cfargotunnel.com"),
+                          {if String.contains?(@dns_status.cname_target, "cfargotunnel.com"),
                             do: "Cloudflare Tunnel target",
                             else: "Unexpected target"}
                         </span>
@@ -1623,7 +1621,7 @@ defmodule MedlumWeb.Admin.VastAILive do
                           #{instance["id"]}
                         </span>
                         <span class={status_badge_class(status)}>
-                          {status || "unknown"}
+                          {status}
                         </span>
                         <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
                           {instance["gpu_name"]}
@@ -1744,16 +1742,14 @@ defmodule MedlumWeb.Admin.VastAILive do
                     <div class="flex items-center gap-3 ml-4">
                       <%= if @starting_instance_id == instance["id"] do %>
                         <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                          <span class="h-4 w-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin">
-                          </span>
+                          <span class="h-4 w-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin"></span>
                           Starting...
                         </div>
                       <% end %>
 
                       <%= if @stopping_instance_id == instance["id"] do %>
                         <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                          <span class="h-4 w-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
-                          </span>
+                          <span class="h-4 w-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin"></span>
                           Stopping...
                         </div>
                       <% end %>
@@ -1782,8 +1778,7 @@ defmodule MedlumWeb.Admin.VastAILive do
                         <% else %>
                           <%= if status in ["loading", "provisioning", "pending", "initializing", ""] do %>
                             <span class="px-3 py-1 text-sm font-medium rounded text-amber-700 bg-amber-100 inline-flex items-center gap-2">
-                              <span class="h-3 w-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin">
-                              </span>
+                              <span class="h-3 w-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin"></span>
                               Provisioning...
                             </span>
                           <% else %>
@@ -1830,8 +1825,8 @@ defmodule MedlumWeb.Admin.VastAILive do
             </div>
         <% end %>
       </div>
-      
-    <!-- Auto-Shutdown Status & Configuration -->
+
+      <!-- Auto-Shutdown Status & Configuration -->
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6">
         <div class="flex items-start justify-between mb-4">
           <div>
@@ -1883,8 +1878,8 @@ defmodule MedlumWeb.Admin.VastAILive do
               <% end %>
             </div>
           </div>
-          
-    <!-- Configuration -->
+
+          <!-- Configuration -->
           <div class="space-y-3">
             <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
               Configuration
@@ -1902,8 +1897,8 @@ defmodule MedlumWeb.Admin.VastAILive do
             </div>
           </div>
         </div>
-        
-    <!-- Crontab Usage -->
+
+        <!-- Crontab Usage -->
         <div class="mt-6 border-t border-gray-200 dark:border-gray-600 pt-4">
           <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-3">
             External Scheduling (Crontab)
@@ -1939,8 +1934,8 @@ defmodule MedlumWeb.Admin.VastAILive do
           </div>
         </div>
       </div>
-      
-    <!-- Search Offers -->
+
+      <!-- Search Offers -->
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6">
         <h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">Search GPU Offers</h2>
 
@@ -2229,8 +2224,8 @@ defmodule MedlumWeb.Admin.VastAILive do
           </div>
         <% end %>
       </div>
-      
-    <!-- Provisioning Logs Panel -->
+
+      <!-- Provisioning Logs Panel -->
       <div class="bg-gray-900 rounded-lg p-4">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-gray-100">Provisioning Logs</h3>

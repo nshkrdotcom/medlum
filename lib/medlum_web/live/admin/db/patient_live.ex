@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.Db.PatientLive do
   use Backpex.LiveResource,
-    layout: {MedlumWeb.AdminLayout, :app},
     adapter_config: [
       schema: Medlum.Clinical.Patient,
       repo: Medlum.Repo,
@@ -10,6 +9,9 @@ defmodule MedlumWeb.Admin.Db.PatientLive do
     pubsub: [server: MedlumWeb.PubSub, topic: "patients"]
 
   import MedlumWeb.Admin.Db.BackpexHelpers
+
+  @impl Backpex.LiveResource
+  def layout(_assigns), do: {MedlumWeb.AdminLayout, :app}
 
   @impl Backpex.LiveResource
   def singular_name, do: "Patient"

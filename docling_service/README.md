@@ -182,13 +182,13 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for the complete deployment guide.
 
 ```bash
 # Build
-docker build -f Dockerfile.gpu -t ghcr.io/nshkrdotcom/medlum-docling-gpu:latest ..
+docker build -f Dockerfile.gpu -t ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1 ..
 
 # Run (CPU)
-docker run -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
+docker run -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Run (GPU)
-docker run --gpus all -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
+docker run --gpus all -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Test
 curl http://localhost:8042/health

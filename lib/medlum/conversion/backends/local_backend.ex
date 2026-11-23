@@ -32,8 +32,6 @@ defmodule Medlum.Conversion.Backends.LocalBackend do
   alias Medlum.Conversion.Infrastructure.HTTP.Client
   alias Medlum.Conversion.Infrastructure.HTTP.SSEStream
 
-  require Logger
-
   # ============================================================================
   # Backend Callbacks
   # ============================================================================

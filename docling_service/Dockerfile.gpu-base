@@ -1,47 +1,16 @@
-# Dockerfile.gpu-base - Base image with PyTorch, Docling, and models
-# Rebuild this only when dependencies or models change (~monthly)
-# Build: docker build -f Dockerfile.gpu-base -t ghcr.io/nshkrdotcom/medlum-docling-base:latest ..
+# GPU-enabled runtime shared by the Docker CPU and GPU services.
+FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime
 
-FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DOCLING_ARTIFACTS_PATH=/app/models/docling
 
-# Prevent interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    libgl1 \
-    libglib2.0-0 \
-    curl \
-    wget \
-    procps \
+    libgl1 libglib2.0-0 curl procps \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+COPY docling_service/requirements.txt /app/requirements.txt
+RUN python -m pip install -r /app/requirements.txt && python -m pip check
 
-# Install service dependencies
-RUN pip install --upgrade pip && \
-    pip install fastapi uvicorn[standard] python-multipart
-
-# Copy and install local docling fork
-COPY docling /app/docling
-COPY docling_service/constraints.txt /app/constraints.txt
-RUN pip install --constraint /app/constraints.txt --editable /app/docling
-
-# IMPORTANT: Downgrade numpy AFTER all installs to fix PyTorch compatibility
-RUN pip install "numpy<2"
-
-# Set HuggingFace cache directory
-ENV HF_HOME=/app/models/huggingface
-ENV TORCH_HOME=/app/models/torch
-
-# Create model directories
-RUN mkdir -p /app/models/huggingface /app/models/torch
-
-# Download models by initializing DocumentConverter
-RUN python -c "from docling.document_converter import DocumentConverter; dc = DocumentConverter(); print('Models downloaded successfully')"
-
-# Verify models exist
-RUN ls -la /app/models/huggingface/ && du -sh /app/models/
+RUN docling-tools models download --output-dir "$DOCLING_ARTIFACTS_PATH"

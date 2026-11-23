@@ -354,8 +354,6 @@ defmodule MedlumWeb.ReportsLive.DocumentHandlers do
     doc.ingestion_stage == "completed" or doc.status == "parsed"
   end
 
-  defp section_excerpt(nil), do: nil
-
   defp section_excerpt(text) when is_binary(text) do
     text
     |> String.replace(~r/[\r\n]+/, " ")

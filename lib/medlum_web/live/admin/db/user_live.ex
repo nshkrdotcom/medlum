@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.Db.UserLive do
   use Backpex.LiveResource,
-    layout: {MedlumWeb.AdminLayout, :app},
     adapter_config: [
       schema: Medlum.Accounts.User,
       repo: Medlum.Repo,
@@ -10,6 +9,9 @@ defmodule MedlumWeb.Admin.Db.UserLive do
     pubsub: [server: MedlumWeb.PubSub, topic: "users"]
 
   import MedlumWeb.Admin.Db.BackpexHelpers
+
+  @impl Backpex.LiveResource
+  def layout(_assigns), do: {MedlumWeb.AdminLayout, :app}
 
   @impl Backpex.LiveResource
   def singular_name, do: "User"

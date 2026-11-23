@@ -1,8 +1,5 @@
-# Python dependencies for the Docling REST microservice
--c constraints.txt
+# Docling's upstream PDF pipeline and its built-in progress API.
+docling-slim[standard]==2.151.1
 fastapi>=0.115.0,<1.0.0
 uvicorn[standard]>=0.30.0,<1.0.0
 python-multipart>=0.0.9,<1.0.0
-# Pin numpy<2 for PyTorch compatibility (torch compiled with numpy 1.x)
-numpy<2
-docling==2.62.0

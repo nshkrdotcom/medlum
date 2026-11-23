@@ -28,8 +28,6 @@ defmodule Medlum.Docling.VastAI.InstanceHealth do
       30_000 = InstanceHealth.health_check_interval_ms()
   """
 
-  require Logger
-
   @health_check_interval_ms 30_000
 
   @doc """

@@ -1,2 +1,0 @@
-# The Docling exporter still imports legacy types removed in newer releases.
-docling-core==2.50.1

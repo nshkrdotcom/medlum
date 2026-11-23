@@ -21,8 +21,6 @@ defmodule MedlumWeb.Admin.DoclingSettingsLive do
 
   use MedlumWeb, :live_view
 
-  require Logger
-
   alias Medlum.Docling.Settings
   alias Medlum.Conversion.Infrastructure.HealthManager
   alias Medlum.VastAI.Availability
@@ -640,6 +638,4 @@ defmodule MedlumWeb.Admin.DoclingSettingsLive do
     end)
     |> Enum.join("\n")
   end
-
-  defp format_attempts(_), do: nil
 end

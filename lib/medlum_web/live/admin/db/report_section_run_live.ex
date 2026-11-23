@@ -1,6 +1,5 @@
 defmodule MedlumWeb.Admin.Db.ReportSectionRunLive do
   use Backpex.LiveResource,
-    layout: {MedlumWeb.AdminLayout, :app},
     adapter_config: [
       schema: Medlum.Reports.ReportSectionRun,
       repo: Medlum.Repo,
@@ -36,6 +35,9 @@ defmodule MedlumWeb.Admin.Db.ReportSectionRunLive do
         from(q in query, preload: [:section_template, :report_run, :llm_invocation])
     end
   end
+
+  @impl Backpex.LiveResource
+  def layout(_assigns), do: {MedlumWeb.AdminLayout, :app}
 
   @impl Backpex.LiveResource
   def singular_name, do: "Report Section Run"

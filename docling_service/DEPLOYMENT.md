@@ -56,7 +56,7 @@ docker images | grep medlum-docling-gpu
 ```bash
 # Start container
 docker run -d --name docling-test -p 8042:8042 \
-    ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
+    ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Wait for startup (~30-60 sec for model loading)
 sleep 60
@@ -74,7 +74,7 @@ curl http://localhost:8042/info
 ```bash
 # Start with GPU access
 docker run -d --name docling-test-gpu --gpus all -p 8042:8042 \
-    ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
+    ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Verify GPU is detected
 docker exec docling-test-gpu nvidia-smi
@@ -122,10 +122,10 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_USERNAME --password-stdin
 
 ```bash
 # Push latest
-docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
+docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Also tag with version
-docker tag ghcr.io/nshkrdotcom/medlum-docling-gpu:latest \
+docker tag ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1 \
            ghcr.io/nshkrdotcom/medlum-docling-gpu:v1.0.0
 docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:v1.0.0
 ```
@@ -164,7 +164,7 @@ vastai search offers 'gpu_name=RTX_3090 num_gpus=1 rentable=true' --order 'dph_t
 
 # Create instance with custom image
 vastai create instance <OFFER_ID> \
-    --image ghcr.io/nshkrdotcom/medlum-docling-gpu:latest \
+    --image ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1 \
     --disk 20 \
     --label "docling-test"
 
@@ -190,7 +190,7 @@ alias Medlum.VastAI.{Instances, Offers}
 
 # Create with custom image
 {:ok, %{"new_contract" => id}} = Instances.create(offer["id"], %{
-  image: "ghcr.io/nshkrdotcom/medlum-docling-gpu:latest",
+  image: "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1",
   disk: 20,
   label: "docling-test",
   runtype: "ssh"
@@ -222,7 +222,7 @@ Instances.destroy(id)
 Once testing is complete, update `lib/medlum/vast_ai.ex`:
 
 ```elixir
-@default_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:latest"
+@default_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1"
 ```
 
 And optionally add image selection to the admin UI.
@@ -262,7 +262,7 @@ When docling or service code changes:
 
 # Push
 docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:v1.0.1
-docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
+docker push ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1
 
 # Update Medlum config to use new version
 ```
@@ -293,5 +293,5 @@ jobs:
           context: .
           file: docling_service/Dockerfile.gpu
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/medlum-docling-gpu:latest
+          tags: ghcr.io/${{ github.repository_owner }}/medlum-docling-gpu:2.151.1
 ```

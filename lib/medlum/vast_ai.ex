@@ -22,7 +22,7 @@ defmodule Medlum.VastAI do
 
   # Custom GPU image with docling pre-installed
   # See docling_service/DEPLOYMENT.md for build instructions
-  @default_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:latest"
+  @default_image "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1"
 
   # External port for cloud backend (container will run on this port)
   @cloud_port 8044

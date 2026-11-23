@@ -472,7 +472,7 @@ defmodule Medlum.Docling.VastAI.AutoShutdown do
       idle_minutes == :never ->
         schedule_pending_shutdown(instance_id, idle_minutes, instance_age_minutes, state)
 
-      is_integer(idle_minutes) and idle_minutes < timeout ->
+      idle_minutes < timeout ->
         new_state = cancel_pending_shutdown(state, :recent_activity)
 
         Logger.debug(
@@ -481,7 +481,7 @@ defmodule Medlum.Docling.VastAI.AutoShutdown do
 
         {{:ok, :still_active}, new_state}
 
-      is_integer(idle_minutes) and idle_minutes >= timeout and instance_age_minutes < timeout ->
+      idle_minutes >= timeout and instance_age_minutes < timeout ->
         new_state = cancel_pending_shutdown(state, :stale_activity)
 
         Logger.info(
@@ -504,7 +504,7 @@ defmodule Medlum.Docling.VastAI.AutoShutdown do
 
         {{:ok, :still_active}, new_state}
 
-      is_integer(idle_minutes) and idle_minutes >= timeout ->
+      idle_minutes >= timeout ->
         schedule_pending_shutdown(instance_id, idle_minutes, instance_age_minutes, state)
     end
   end

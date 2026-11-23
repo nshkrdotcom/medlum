@@ -527,22 +527,6 @@ defmodule MedlumWeb.ReportsLive do
           )
 
           {:noreply, updated_socket}
-
-        {:error, reason} ->
-          Logger.error("[ReportsLive] seed_sample_documents error: #{inspect(reason)}")
-
-          {:noreply,
-           socket
-           |> put_flash(:error, "Failed to load sample documents: #{inspect(reason)}")
-           |> load_workspace()}
-
-        other ->
-          Logger.error("[ReportsLive] seed_sample_documents unexpected result: #{inspect(other)}")
-
-          {:noreply,
-           socket
-           |> put_flash(:error, "Unexpected result loading samples")
-           |> load_workspace()}
       end
     rescue
       e ->
@@ -792,7 +776,7 @@ defmodule MedlumWeb.ReportsLive do
       case gpu_instance_status do
         %{status: :running, healthy: false, health_check_error: error} ->
           # Instance running but health check failed
-          {false, error || "GPU service unhealthy"}
+          {false, error}
 
         %{status: :running, healthy: healthy} when healthy != false ->
           # Instance running and either healthy (true) or not yet checked (nil)
@@ -1822,7 +1806,7 @@ defmodule MedlumWeb.ReportsLive do
                 {:error, error}
 
               %{status: :unknown, health_check_error: error} ->
-                {:error, error || "GPU status unknown"}
+                {:error, error}
             end
         end
 
@@ -1849,7 +1833,7 @@ defmodule MedlumWeb.ReportsLive do
         %{
           status: :running,
           endpoint: endpoint,
-          instance_id: get_in(info || %{}, [:instance_id]),
+          instance_id: get_in(info, [:instance_id]),
           healthy: true,
           health_check_error: nil,
           cloud_status: cloud_status
@@ -1857,12 +1841,12 @@ defmodule MedlumWeb.ReportsLive do
 
       %{availability: :provisioning, endpoint: endpoint, instance_info: info} ->
         # Could be loading or running-but-unhealthy
-        instance_status = get_in(info || %{}, [:status])
+        instance_status = get_in(info, [:status])
 
         %{
           status: if(instance_status == :running, do: :running, else: :loading),
           endpoint: endpoint,
-          instance_id: get_in(info || %{}, [:instance_id]),
+          instance_id: get_in(info, [:instance_id]),
           healthy: false,
           health_check_error: "Starting up...",
           cloud_status: cloud_status
@@ -4252,9 +4236,9 @@ defmodule MedlumWeb.ReportsLive do
                   <% @fast_available? == false -> %>
                     <%!-- Unavailable - keep it simple, disabled button is self-explanatory --%>
                     <%= cond do %>
-                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason || "", "starting") -> %>
+                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "starting") -> %>
                         <span class="text-sky-600 text-xs">Starting up...</span>
-                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason || "", "loading") -> %>
+                      <% @fast_unavailable_reason && String.contains?(@fast_unavailable_reason, "loading") -> %>
                         <span class="text-sky-600 text-xs">Loading...</span>
                       <% true -> %>
                         <%!-- Don't show anything - grayed out button is enough --%>
@@ -4266,6 +4250,7 @@ defmodule MedlumWeb.ReportsLive do
             </div>
           <% end %>
           <form
+            id="report-upload-form"
             phx-change="noop"
             phx-submit="noop"
             phx-drop-target={@uploads.documents.ref}
@@ -4692,7 +4677,7 @@ defmodule MedlumWeb.ReportsLive do
           </h3>
           <div class="flex items-center gap-3">
             <%= if Enum.any?(@debug_runs) do %>
-              <form phx-change="select_debug_run">
+              <form id="debug-run-form" phx-change="select_debug_run">
                 <select name="run-id" class="debug-select">
                   <%= for run <- @debug_runs do %>
                     <option value={run.id} selected={run.id == @debug_selected_run_id}>
@@ -4789,7 +4774,7 @@ defmodule MedlumWeb.ReportsLive do
               <div class="debug-meta-item">
                 <span class="debug-meta-label">Cache</span>
                 <span class="debug-meta-value" style="font-size: 11px; font-family: monospace;">
-                  {String.slice(@debug_selected_run.cached_content_name || "", -20, 20)}...
+                  {String.slice(@debug_selected_run.cached_content_name, -20, 20)}...
                 </span>
               </div>
             <% end %>
@@ -5092,7 +5077,7 @@ defmodule MedlumWeb.ReportsLive do
             <% end %>
           </div>
 
-          <%= if @debug_selected_run && Enum.any?(@debug_selected_run.section_runs || []) do %>
+          <%= if Enum.any?(@debug_selected_run.section_runs || []) do %>
             <div class="debug-footer-actions">
               <button
                 type="button"
@@ -5474,8 +5459,6 @@ defmodule MedlumWeb.ReportsLive do
     |> String.replace(~r/\s+/, " ")
     |> truncate(260)
   end
-
-  defp section_excerpt(nil), do: nil
 
   defp section_excerpt(text) when is_binary(text) do
     text

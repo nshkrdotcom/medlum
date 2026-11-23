@@ -49,28 +49,20 @@ defmodule MedlumWeb.Markdown do
     if trimmed == "" do
       render_fallback(fallback)
     else
-      case safe_earmark(trimmed) do
-        {:ok, html} ->
-          html |> process_provenance_links(inline_citations, section_id) |> HTML.raw()
+      html =
+        case MDEx.to_html(trimmed,
+               extension: [table: true, strikethrough: true, autolink: true],
+               sanitize: []
+             ) do
+          {:ok, html} -> html
+          {:error, _reason} -> trimmed |> HTML.html_escape() |> HTML.safe_to_string()
+        end
 
-        :error ->
-          trimmed |> process_provenance_links(inline_citations, section_id) |> HTML.raw()
-      end
+      html |> process_provenance_links(inline_citations, section_id) |> HTML.raw()
     end
   end
 
   defp render_markdown(_, fallback, _inline_citations, _section_id), do: render_fallback(fallback)
-
-  defp safe_earmark(text) do
-    try do
-      case Earmark.as_html(text) do
-        {:ok, html, _} -> {:ok, html}
-        {:error, html, _} -> {:ok, html}
-      end
-    rescue
-      _ -> :error
-    end
-  end
 
   defp render_fallback(nil), do: HTML.raw("")
   defp render_fallback(content), do: HTML.raw(content)
@@ -329,11 +321,7 @@ defmodule MedlumWeb.Markdown do
   defp encode_line_attrs(line_start, line_end, section_id) do
     start_attr = ~s( phx-value-line-start="#{line_start}")
 
-    end_attr =
-      case line_end || line_start do
-        nil -> ""
-        value -> ~s( phx-value-line-end="#{value}")
-      end
+    end_attr = ~s( phx-value-line-end="#{line_end || line_start}")
 
     start_attr <> end_attr <> encode_section(section_id)
   end

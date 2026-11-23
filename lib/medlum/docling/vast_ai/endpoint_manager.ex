@@ -318,14 +318,12 @@ defmodule Medlum.Docling.VastAI.EndpointManager do
   def maybe_persist_endpoint(endpoint) when is_binary(endpoint) and endpoint != "" do
     alias Medlum.Docling.Settings, as: DoclingSettings
 
-    with {:ok, setting} <- DoclingSettings.fetch_or_init() do
-      if is_nil(setting.cloud_url) or setting.cloud_url == "" do
-        persist_endpoint(endpoint)
-      else
-        :ok
-      end
+    {:ok, setting} = DoclingSettings.fetch_or_init()
+
+    if is_nil(setting.cloud_url) or setting.cloud_url == "" do
+      persist_endpoint(endpoint)
     else
-      _ -> :ok
+      :ok
     end
   end
 

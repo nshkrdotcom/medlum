@@ -14,7 +14,6 @@ defmodule Medlum.AI.SectionRunner do
 
   alias Medlum.Reports.{ReportSectionCitation, ReportSectionRun}
   alias JsonRemedy
-  require EEx
   require Logger
 
   # If pending for longer than this, consider it orphaned and allow retry

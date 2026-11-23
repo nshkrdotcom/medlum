@@ -36,7 +36,6 @@ defmodule Mix.Tasks.VastAi.Diagnostics do
   """
 
   use Mix.Task
-  require Logger
 
   alias Medlum.VastAI.RemoteDiagnostics
 

@@ -485,7 +485,8 @@ defmodule Medlum.GPU do
   # ============================================================================
 
   @doc "Log auto-shutdown check"
-  def log_auto_shutdown_check(instance_id, idle_minutes, threshold_minutes) do
+  def log_auto_shutdown_check(instance_id, idle_minutes, threshold_minutes)
+      when is_integer(idle_minutes) and is_integer(threshold_minutes) do
     log(:auto_shutdown, :idle_check, "Idle check: #{idle_minutes}/#{threshold_minutes} minutes",
       instance_id: instance_id,
       severity: if(idle_minutes >= threshold_minutes, do: "warning", else: "debug"),

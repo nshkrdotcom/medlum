@@ -29,8 +29,6 @@ defmodule Medlum.Conversion.Infrastructure.BackendRouter do
   alias Medlum.Conversion.Backends.{LocalBackend, CloudBackend}
   alias Medlum.Docling.Settings
 
-  require Logger
-
   @type backend_info :: %{
           name: atom(),
           module: module(),

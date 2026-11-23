@@ -41,8 +41,6 @@ defmodule Medlum.Conversion.Service do
   alias Medlum.Conversion.Infrastructure.BackendRouter
   alias Medlum.Conversion.Infrastructure.Telemetry.Emitter
 
-  require Logger
-
   # ============================================================================
   # Public API
   # ============================================================================
@@ -122,7 +120,7 @@ defmodule Medlum.Conversion.Service do
     tracker = Keyword.get(opts, :job_tracker, JobTracker)
     broadcast? = Keyword.get(opts, :broadcast, true)
 
-    with {:ok, job} <- JobTracker.get(tracker, job_id) do
+    with {:ok, %Job{} = job} <- JobTracker.get(tracker, job_id) do
       backend_module = backend_module_for(job.backend_used)
       on_progress = Keyword.get(opts, :on_progress, fn _ -> :ok end)
 

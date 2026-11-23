@@ -775,8 +775,6 @@ defmodule Medlum.Documents do
     |> maybe_preload_events()
   end
 
-  defp latest_event(nil), do: nil
-
   defp latest_event(job) do
     job.events
     |> Enum.max_by(& &1.recorded_at, fn -> nil end)
@@ -1056,7 +1054,7 @@ defmodule Medlum.Documents do
 
           {:ok, :cloud, nil}
         else
-          reason = cloud_status.detail || cloud_status.message || "Cloud GPU unavailable"
+          reason = cloud_status.detail || cloud_status.message
 
           Logger.warning(
             "[resolve_docling_backend] REJECTED requested=#{inspect(raw_requested)} " <>
@@ -1215,7 +1213,6 @@ defmodule Medlum.Documents do
     end
   end
 
-  defp normalize_user_backend(nil), do: :local
   defp normalize_user_backend(:local), do: :local
   defp normalize_user_backend("local"), do: :local
   defp normalize_user_backend(:cloud), do: :cloud

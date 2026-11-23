@@ -65,8 +65,6 @@ defmodule Medlum.AI.Telemetry do
   Metadata: `%{invocation_id: string(), cleanup_type: atom()}`
   """
 
-  require Logger
-
   @doc """
   Emit request start event.
   """

@@ -22,7 +22,7 @@ defmodule Medlum.VastAI.Instances do
 
   Example:
       create(ask_id, %{
-        image: "ghcr.io/nshkrdotcom/medlum-docling-gpu:latest",
+        image: "ghcr.io/nshkrdotcom/medlum-docling-gpu:2.151.1",
         docker_login: "nshkrdotcom:ghp_xxxYOURTOKENxxx",
         disk: 20,
         label: "docling"
