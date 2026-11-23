@@ -23,11 +23,11 @@ erl_crash.dump
 /tmp/
 
 # Ignore package tarball (built via "mix hex.build").
-lumainus_web-*.tar
+medlum-*.tar
 
 # Ignore assets that are produced by build tools.
 /priv/static/assets/*
-!/priv/static/assets/lumainus-icon.svg
+!/priv/static/assets/medlum-icon.svg
 
 # Ignore digested assets cache.
 /priv/static/cache_manifest.json

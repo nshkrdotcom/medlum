@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddCreatedByUserToPatients do
+defmodule Medlum.Repo.Migrations.AddCreatedByUserToPatients do
   use Ecto.Migration
 
   def change do

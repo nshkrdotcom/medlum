@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddSectionTemplateInsertedIndex do
+defmodule Medlum.Repo.Migrations.AddSectionTemplateInsertedIndex do
   use Ecto.Migration
 
   @disable_ddl_transaction true

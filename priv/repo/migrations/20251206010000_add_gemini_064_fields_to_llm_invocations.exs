@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddGemini064FieldsToLlmInvocations do
+defmodule Medlum.Repo.Migrations.AddGemini064FieldsToLlmInvocations do
   use Ecto.Migration
 
   @doc """

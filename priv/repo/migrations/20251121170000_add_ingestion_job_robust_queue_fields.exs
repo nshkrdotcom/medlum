@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddIngestionJobRobustQueueFields do
+defmodule Medlum.Repo.Migrations.AddIngestionJobRobustQueueFields do
   use Ecto.Migration
 
   def up do

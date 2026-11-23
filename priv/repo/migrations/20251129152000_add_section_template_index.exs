@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddSectionTemplateIndex do
+defmodule Medlum.Repo.Migrations.AddSectionTemplateIndex do
   use Ecto.Migration
 
   def change do

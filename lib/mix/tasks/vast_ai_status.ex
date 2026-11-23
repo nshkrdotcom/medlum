@@ -36,8 +36,8 @@ defmodule Mix.Tasks.VastAi.Status do
     json_output = Keyword.get(opts, :json, false)
     verbose = Keyword.get(opts, :verbose, false)
 
-    alias Lumainus.VastAI.Instances
-    alias Lumainus.Docling.VastAI.{InstanceManager, ActivityTracker, AutoShutdown}
+    alias Medlum.VastAI.Instances
+    alias Medlum.Docling.VastAI.{InstanceManager, ActivityTracker, AutoShutdown}
 
     # Get local state
     local_status = InstanceManager.status()

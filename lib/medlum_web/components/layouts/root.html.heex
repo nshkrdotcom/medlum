@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <.live_title default="Medlum" suffix=" · Traceable AI Intelligence">
+      {assigns[:page_title]}
+    </.live_title>
+    <% icon_href = assigns[:page_icon_href] || ~p"/assets/medlum-icon.svg" %>
+    <link rel="icon" type="image/svg+xml" href={icon_href} />
+    <link rel="alternate icon" type="image/x-icon" href={~p"/favicon.ico"} />
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    </script>
+    <%= if assigns[:page_head] do %>
+      {assigns[:page_head]}
+    <% end %>
+    <script>
+      (() => {
+        const setTheme = (theme) => {
+          if (theme === "system") {
+            localStorage.removeItem("phx:theme");
+            document.documentElement.removeAttribute("data-theme");
+          } else {
+            localStorage.setItem("phx:theme", theme);
+            document.documentElement.setAttribute("data-theme", theme);
+          }
+        };
+        if (!document.documentElement.hasAttribute("data-theme")) {
+          setTheme(localStorage.getItem("phx:theme") || "system");
+        }
+        window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
+        
+        window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
+      })();
+    </script>
+  </head>
+  <body class="bg-slate-50 min-h-screen">
+    <% user = @current_scope && @current_scope.user %>
+    <% show_admin_link? = user && user.role in ["admin", "system_administrator"] %>
+    <nav class="global-nav sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-lg">
+      <div class="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8 lg:flex-row lg:flex-nowrap lg:items-center lg:justify-between">
+        <div class="global-nav__brand flex items-center gap-2 text-slate-600 w-full lg:w-auto lg:flex-none min-w-0">
+          <a
+            href={~p"/"}
+            class="flex items-center gap-2 text-base font-semibold tracking-wide text-slate-700 hover:text-slate-900"
+          >
+            <img src={~p"/images/medlum-logo-enhanced.svg"} alt="Medlum" class="h-8 w-8" />
+            <span>MEDLUM</span>
+          </a>
+          <span class="global-nav__tagline hidden text-xs font-medium uppercase tracking-[0.2em] text-slate-400 2xl:inline">
+            Traceable Intelligence
+          </span>
+        </div>
+        <div class="global-nav__links flex w-full flex-wrap items-center gap-3 text-sm font-semibold text-slate-600 justify-start lg:flex-1 lg:min-w-0 lg:justify-end">
+          <.link href={~p"/"} class="global-nav__link transition hover:text-slate-900">
+            Sanctuary
+          </.link>
+          <%= if user && user.role in ["doctor", "admin", "system_administrator"] do %>
+            <.link href={~p"/reports"} class="global-nav__link transition hover:text-slate-900">
+              Reports
+            </.link>
+          <% end %>
+          <%= if show_admin_link? do %>
+            <.link
+              href={~p"/admin/db/report_runs"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              DB
+            </.link>
+            <.link
+              href={~p"/admin/llm-config"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              LLM
+            </.link>
+            <.link
+              href={~p"/admin/invitations"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              Invitations
+            </.link>
+            <.link
+              href={~p"/admin/docling"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              Docling
+            </.link>
+            <.link
+              href={~p"/admin/vast_ai"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              GPU
+            </.link>
+          <% end %>
+          <%= if user do %>
+            <.link
+              href={~p"/users/settings"}
+              class="global-nav__link transition hover:text-slate-900"
+            >
+              Settings
+            </.link>
+            <span class="global-nav__signed-as hidden rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 sm:inline-flex">
+              Signed in as {user.email}
+            </span>
+            <.link
+              href={~p"/users/log-out"}
+              method="delete"
+              class="global-nav__cta inline-flex items-center rounded-full border border-slate-900/20 bg-slate-900/5 px-4 py-1.5 text-slate-900 transition hover:bg-slate-900/10"
+            >
+              Log out
+            </.link>
+          <% else %>
+            <.link
+              href={~p"/users/log-in"}
+              class="global-nav__cta inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-blue-700 transition hover:bg-blue-500/20"
+            >
+              Log in
+            </.link>
+          <% end %>
+        </div>
+      </div>
+    </nav>
+    {@inner_content}
+  </body>
+</html>

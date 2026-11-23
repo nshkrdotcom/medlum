@@ -1,9 +1,9 @@
-defmodule Lumainus.MixProject do
+defmodule Medlum.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :lumainus,
+      app: :medlum,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -24,7 +24,7 @@ defmodule Lumainus.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {Lumainus.Application, []},
+      mod: {Medlum.Application, []},
       extra_applications: [:logger, :runtime_tools, :crypto]
     ]
   end
@@ -107,10 +107,10 @@ defmodule Lumainus.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind lumainus", "esbuild lumainus"],
+      "assets.build": ["compile", "tailwind medlum", "esbuild medlum"],
       "assets.deploy": [
-        "tailwind lumainus --minify",
-        "esbuild lumainus --minify",
+        "tailwind medlum --minify",
+        "esbuild medlum --minify",
         "phx.digest"
       ],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]

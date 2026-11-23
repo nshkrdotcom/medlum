@@ -38,7 +38,7 @@ defmodule Mix.Tasks.VastAi.Diagnostics do
   use Mix.Task
   require Logger
 
-  alias Lumainus.VastAI.RemoteDiagnostics
+  alias Medlum.VastAI.RemoteDiagnostics
 
   @shortdoc "Run remote diagnostics on Vast.ai GPU instance"
 

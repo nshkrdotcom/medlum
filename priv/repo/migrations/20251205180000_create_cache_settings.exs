@@ -1,8 +1,8 @@
-defmodule Lumainus.Repo.Migrations.CreateCacheSettings do
+defmodule Medlum.Repo.Migrations.CreateCacheSettings do
   use Ecto.Migration
 
   @default_system_prompt """
-  You are Lumainus, a clinical documentation system.
+  You are Medlum, a clinical documentation system.
   Produce structured markdown with inline citations like [doc-001].
   Return JSON that matches the provided schema exactly.
   """

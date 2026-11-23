@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.DropUploadShaUniqueIndex do
+defmodule Medlum.Repo.Migrations.DropUploadShaUniqueIndex do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.UpdateCacheSettingsModelToGemini3 do
+defmodule Medlum.Repo.Migrations.UpdateCacheSettingsModelToGemini3 do
   use Ecto.Migration
 
   def up do

@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddProgressIntervalToDoclingSettings do
+defmodule Medlum.Repo.Migrations.AddProgressIntervalToDoclingSettings do
   use Ecto.Migration
 
   @default_poll 250

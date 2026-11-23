@@ -12,16 +12,16 @@ import Config
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/lumainus_web start
+#     PHX_SERVER=true bin/medlum start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :lumainus, LumainusWeb.Endpoint, server: true
+  config :medlum, MedlumWeb.Endpoint, server: true
 end
 
 docling_env_config =
-  Application.get_env(:lumainus, :docling, [])
+  Application.get_env(:medlum, :docling, [])
   |> then(fn docling_config ->
     case System.get_env("DOCLING_REMOTE_URL") do
       nil -> docling_config
@@ -59,7 +59,7 @@ docling_env_overrides? =
     System.get_env("DOCLING_DOCKER_AUTO_MANAGE")
 
 if docling_env_overrides? do
-  config :lumainus, :docling, docling_env_config
+  config :medlum, :docling, docling_env_config
 end
 
 gemini_key =
@@ -67,9 +67,9 @@ gemini_key =
     System.get_env("GOOGLE_API_KEY")
 
 if gemini_key do
-  llm_config = Application.get_env(:lumainus, :llm, [])
+  llm_config = Application.get_env(:medlum, :llm, [])
 
-  config :lumainus, :llm, Keyword.put(llm_config, :api_key, gemini_key)
+  config :medlum, :llm, Keyword.put(llm_config, :api_key, gemini_key)
   config :gemini_ex, api_key: gemini_key
 end
 
@@ -78,17 +78,17 @@ vast_api_key = System.get_env("VAST_API_KEY")
 ghcr_token = System.get_env("GHCR_TOKEN")
 
 if vast_api_key || ghcr_token do
-  vast_config = Application.get_env(:lumainus, :vast_ai, [])
+  vast_config = Application.get_env(:medlum, :vast_ai, [])
 
   vast_config =
     vast_config
     |> then(fn c -> if vast_api_key, do: Keyword.put(c, :api_key, vast_api_key), else: c end)
 
-  config :lumainus, :vast_ai, vast_config
+  config :medlum, :vast_ai, vast_config
 
   # GHCR credentials for private Docker images
   if ghcr_token do
-    config :lumainus,
+    config :medlum,
       ghcr_user: System.get_env("GHCR_USER") || "nshkrdotcom",
       ghcr_token: ghcr_token
   end
@@ -113,7 +113,7 @@ if cloudflare_token || cloudflare_zone_id do
       if cloudflare_account_id, do: Keyword.put(c, :account_id, cloudflare_account_id), else: c
     end)
 
-  config :lumainus, :cloudflare, cloudflare_config
+  config :medlum, :cloudflare, cloudflare_config
 end
 
 if config_env() == :prod do
@@ -132,9 +132,9 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
-  config :lumainus, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :medlum, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :lumainus, LumainusWeb.Endpoint,
+  config :medlum, MedlumWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -151,7 +151,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :lumainus, LumainusWeb.Endpoint,
+  #     config :medlum, MedlumWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -173,7 +173,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :lumainus, LumainusWeb.Endpoint,
+  #     config :medlum, MedlumWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -181,7 +181,7 @@ if config_env() == :prod do
   # ## Configuring the mailer
   #
   # Use local SMTP server for production
-  config :lumainus, Lumainus.Mailer,
+  config :medlum, Medlum.Mailer,
     adapter: Swoosh.Adapters.SMTP,
     relay: System.get_env("SMTP_RELAY") || "localhost",
     port: String.to_integer(System.get_env("SMTP_PORT") || "25"),
@@ -201,7 +201,7 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :lumainus, Lumainus.Repo,
+  config :medlum, Medlum.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6

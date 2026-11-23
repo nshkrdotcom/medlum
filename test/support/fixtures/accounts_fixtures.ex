@@ -1,14 +1,14 @@
-defmodule Lumainus.AccountsFixtures do
+defmodule Medlum.AccountsFixtures do
   @moduledoc """
   This module defines test helpers for creating
-  entities via the `Lumainus.Accounts` context.
+  entities via the `Medlum.Accounts` context.
   """
 
   import Ecto.Query
 
-  alias Lumainus.Accounts
-  alias Lumainus.Accounts.Scope
-  alias Lumainus.Repo
+  alias Medlum.Accounts
+  alias Medlum.Accounts.Scope
+  alias Medlum.Repo
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"

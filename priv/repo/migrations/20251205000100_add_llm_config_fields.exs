@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddLlmConfigFields do
+defmodule Medlum.Repo.Migrations.AddLlmConfigFields do
   @moduledoc """
   Add comprehensive LLM configuration fields to report_section_templates and report_templates.
 

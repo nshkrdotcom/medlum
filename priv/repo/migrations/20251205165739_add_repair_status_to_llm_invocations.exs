@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddRepairStatusToLlmInvocations do
+defmodule Medlum.Repo.Migrations.AddRepairStatusToLlmInvocations do
   use Ecto.Migration
 
   def change do

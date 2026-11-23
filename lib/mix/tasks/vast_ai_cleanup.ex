@@ -5,12 +5,12 @@ defmodule Mix.Tasks.VastAi.Cleanup do
   This can be run from crontab for external scheduling:
 
       # Every 5 minutes
-      */5 * * * * cd /path/to/lumainus && mix vast_ai.cleanup
+      */5 * * * * cd /path/to/medlum && mix vast_ai.cleanup
 
   Or for production releases:
 
       # Using release command
-      */5 * * * * cd /path/to/lumainus && bin/lumainus eval "Lumainus.Docling.VastAI.AutoShutdown.check_and_shutdown()"
+      */5 * * * * cd /path/to/medlum && bin/medlum eval "Medlum.Docling.VastAI.AutoShutdown.check_and_shutdown()"
 
   ## Options
 
@@ -54,8 +54,8 @@ defmodule Mix.Tasks.VastAi.Cleanup do
     end
 
     # Get status
-    alias Lumainus.Docling.VastAI.{ActivityTracker, AutoShutdown}
-    alias Lumainus.VastAI.Instances
+    alias Medlum.Docling.VastAI.{ActivityTracker, AutoShutdown}
+    alias Medlum.VastAI.Instances
 
     activity = ActivityTracker.status()
     config_timeout = AutoShutdown.idle_timeout_minutes()
@@ -113,7 +113,7 @@ defmodule Mix.Tasks.VastAi.Cleanup do
               if should_destroy and not dry_run do
                 Mix.shell().info("  Destroying instance...")
 
-                case Lumainus.VastAI.destroy(instance_id) do
+                case Medlum.VastAI.destroy(instance_id) do
                   {:ok, _} ->
                     Mix.shell().info("  ✓ Destroyed successfully")
 

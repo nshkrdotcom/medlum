@@ -1,11 +1,11 @@
 import Config
 
 # Configure test database
-config :lumainus, Lumainus.Repo,
+config :medlum, Medlum.Repo,
   username: System.get_env("POSTGRES_USER", "postgres"),
   password: System.get_env("POSTGRES_PASSWORD", "postgres"),
   hostname: System.get_env("POSTGRES_HOST", "localhost"),
-  database: "lumainus_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "medlum_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10,
   ownership_timeout: 300_000,
@@ -16,13 +16,13 @@ config :bcrypt_elixir, :log_rounds, 1
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :lumainus, LumainusWeb.Endpoint,
+config :medlum, MedlumWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "mWh5hLEUFzRa9Jq0pEkjIuwXXfx+UZtg95A3DvZRmTW7ZDvckaO3kzJKF8Y/Tkei",
   server: false
 
 # In test we don't send emails
-config :lumainus, Lumainus.Mailer, adapter: Swoosh.Adapters.Test
+config :medlum, Medlum.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
@@ -35,7 +35,7 @@ config :logger, :console,
   filter_default: :log,
   filters: [
     instance_manager_set_stopped:
-      {Logger.Filters, :module_level, {Lumainus.Docling.VastAI.InstanceManager, :error}}
+      {Logger.Filters, :module_level, {Medlum.Docling.VastAI.InstanceManager, :error}}
   ]
 
 # Initialize plugs at runtime for faster test compilation
@@ -45,19 +45,19 @@ config :phoenix, :plug_init_mode, :runtime
 config :phoenix_live_view,
   enable_expensive_runtime_checks: true
 
-config :lumainus, :llm,
-  client: Lumainus.LLM.MockClient,
+config :medlum, :llm,
+  client: Medlum.LLM.MockClient,
   enabled: true
 
-config :lumainus, Oban,
-  repo: Lumainus.Repo,
+config :medlum, Oban,
+  repo: Medlum.Repo,
   testing: :inline,
   queues: false,
   plugins: false
 
 # Keep Docling inline for tests so Bypass expectations on /convert stay valid
 # Tests use the standard port layout but with Bypass mocking
-config :lumainus, :docling,
+config :medlum, :docling,
   queue_mode: :inline,
   # Default mode and active backend
   default_mode: :local,
@@ -82,9 +82,9 @@ config :lumainus, :docling,
   # Disable Docker auto-management in tests
   docker_auto_manage: false
 
-config :lumainus, :disable_ingestion_health_checker, true
+config :medlum, :disable_ingestion_health_checker, true
 
 # Higher concurrency for tests to prevent queue delays
-config :lumainus, :concurrency_gate,
+config :medlum, :concurrency_gate,
   max_concurrent: 100,
   max_queue: 200

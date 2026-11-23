@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AllowCloudDoclingBackend do
+defmodule Medlum.Repo.Migrations.AllowCloudDoclingBackend do
   @moduledoc """
   Updates the docling_backend constraints to include 'cloud' as a valid option.
 

@@ -4,7 +4,7 @@
 #
 # Targets (services running on luhome):
 #   all       - All system logs (default)
-#   lumainus  - Lumainus Phoenix app
+#   medlum  - Medlum Phoenix app
 #   docling   - Docling PDF conversion service
 #   nginx     - Nginx reverse proxy
 #   docker    - Docker daemon logs
@@ -17,7 +17,7 @@
 #
 # Examples:
 #   ./scripts/logs_remote.sh                    # All logs
-#   ./scripts/logs_remote.sh lumainus           # Phoenix app logs
+#   ./scripts/logs_remote.sh medlum           # Phoenix app logs
 #   ./scripts/logs_remote.sh docling            # Docling service
 #   ./scripts/logs_remote.sh docling -n 500     # Docling with 500 lines
 #   ./scripts/logs_remote.sh postgres           # PostgreSQL logs
@@ -59,8 +59,8 @@ case "$TARGET" in
   all)
     ssh -t "$SERVER" "sudo journalctl -f -n $LINES --since '$SINCE'"
     ;;
-  lumainus|phoenix|app)
-    ssh -t "$SERVER" "sudo journalctl -u lumainus -f -n $LINES --since '$SINCE'"
+  medlum|phoenix|app)
+    ssh -t "$SERVER" "sudo journalctl -u medlum -f -n $LINES --since '$SINCE'"
     ;;
   docling)
     ssh -t "$SERVER" "sudo journalctl -u docling -f -n $LINES --since '$SINCE' 2>/dev/null || sudo docker logs -f --tail $LINES docling 2>/dev/null || echo 'No docling service or container found'"

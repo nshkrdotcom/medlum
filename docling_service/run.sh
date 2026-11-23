@@ -24,7 +24,7 @@ pip install --requirement "$REQUIREMENTS_FILE"
 
 if [ "$USE_LOCAL_DOCLING" = "true" ] && [ -d "$DOCLING_SRC" ] && [ -f "$DOCLING_SRC/pyproject.toml" ]; then
   echo "[+] Installing local docling from $DOCLING_SRC"
-  pip install --editable "$DOCLING_SRC"
+  pip install --constraint "$APP_ROOT/constraints.txt" --editable "$DOCLING_SRC"
 fi
 
 export PYTHONPATH="$APP_ROOT:${PYTHONPATH:-}"

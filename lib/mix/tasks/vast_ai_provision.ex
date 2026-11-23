@@ -13,7 +13,7 @@ defmodule Mix.Tasks.VastAi.Provision do
 
     * `--max-price PRICE` - Maximum hourly price (default: 0.18)
     * `--disk GB` - Disk size in GB (default: 20)
-    * `--label NAME` - Instance label (default: lumainus-docling)
+    * `--label NAME` - Instance label (default: medlum-docling)
     * `--dry-run` - Show what would be provisioned without actually doing it
 
   ## Examples
@@ -50,12 +50,12 @@ defmodule Mix.Tasks.VastAi.Provision do
 
     max_price = Keyword.get(opts, :max_price, 0.18)
     disk_gb = Keyword.get(opts, :disk, 20)
-    label = Keyword.get(opts, :label, "lumainus-docling")
+    label = Keyword.get(opts, :label, "medlum-docling")
     dry_run = Keyword.get(opts, :dry_run, false)
 
-    alias Lumainus.VastAI
-    alias Lumainus.VastAI.{Instances, Offers}
-    alias Lumainus.Docling.VastAI.InstanceManager
+    alias Medlum.VastAI
+    alias Medlum.VastAI.{Instances, Offers}
+    alias Medlum.Docling.VastAI.InstanceManager
 
     Mix.shell().info("")
     Mix.shell().info("=== Vast.ai GPU Provisioning ===")

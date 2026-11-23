@@ -9,33 +9,33 @@ import Config
 
 config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 
-config :lumainus, Lumainus.Cldr,
+config :medlum, Medlum.Cldr,
   default_locale: "en",
   locales: ["en", "en-GB", "en-US", "es", "es-US"],
   providers: [Cldr.Number, Cldr.Calendar, Cldr.DateTime],
-  gettext: LumainusWeb.Gettext
+  gettext: MedlumWeb.Gettext
 
-config :ex_cldr, default_backend: Lumainus.Cldr
+config :ex_cldr, default_backend: Medlum.Cldr
 
 config :backpex,
-  translator_function: {LumainusWeb.CoreComponents, :translate_backpex},
-  error_translator_function: {LumainusWeb.CoreComponents, :translate_error}
+  translator_function: {MedlumWeb.CoreComponents, :translate_backpex},
+  error_translator_function: {MedlumWeb.CoreComponents, :translate_error}
 
-config :lumainus, :scopes,
+config :medlum, :scopes,
   user: [
     default: true,
-    module: Lumainus.Accounts.Scope,
+    module: Medlum.Accounts.Scope,
     assign_key: :current_scope,
     access_path: [:user, :id],
     schema_key: :user_id,
     schema_type: :id,
     schema_table: :users,
-    test_data_fixture: Lumainus.AccountsFixtures,
+    test_data_fixture: Medlum.AccountsFixtures,
     test_setup_helper: :register_and_log_in_user
   ]
 
-config :lumainus,
-  ecto_repos: [Lumainus.Repo],
+config :medlum,
+  ecto_repos: [Medlum.Repo],
   generators: [timestamp_type: :utc_datetime]
 
 # Docling Backend Defaults
@@ -49,7 +49,7 @@ config :lumainus,
 #
 # User choice: "local" (free) vs "cloud" ($$$)
 
-config :lumainus, :docling,
+config :medlum, :docling,
   default_mode: :local,
   active_local_backend: :docker_cpu,
   native_cpu_url: "http://127.0.0.1:8040",
@@ -69,7 +69,7 @@ config :lumainus, :docling,
 # ====================================
 # Automatically destroys idle GPU instances to save money.
 # Check runs every X minutes, destroys if idle for Y minutes.
-config :lumainus, :vast_ai_auto_shutdown,
+config :medlum, :vast_ai_auto_shutdown,
   enabled: true,
   # How often to check for idle instances (minutes)
   check_interval_minutes: 5,
@@ -101,7 +101,7 @@ config :lumainus, :vast_ai_auto_shutdown,
 #    backends: [{:docker_cpu, endpoint: "http://localhost:8042", type: :local}],
 #    profiles: %{standard: [:docker_cpu], enhanced: [:docker_cpu]}
 #
-config :lumainus, :conversion,
+config :medlum, :conversion,
   # Available backends (order = fallback preference)
   backends: [
     {:docker_cpu, endpoint: "http://localhost:8042", type: :local},
@@ -117,7 +117,7 @@ config :lumainus, :conversion,
   }
 
 # Ingestion queue configuration
-config :lumainus, :ingestion,
+config :medlum, :ingestion,
   # 20 minutes
   conversion_timeout_ms: 1_200_000,
   max_retries: 3,
@@ -127,16 +127,16 @@ config :lumainus, :ingestion,
   max_file_size_bytes: 50_000_000,
   max_pages: 1000
 
-config :lumainus, Oban,
-  repo: Lumainus.Repo,
+config :medlum, Oban,
+  repo: Medlum.Repo,
   plugins: [
     {Oban.Plugins.Pruner, max_age: 86_400},
     # Rescue orphaned jobs after BEAM crash - jobs stuck "executing" for 10+ min get retried
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(10)},
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker},
-       {"*/5 * * * *", Lumainus.Reports.StaleRunWorker}
+       {"*/15 * * * *", Medlum.Documents.IngestionCleanupWorker},
+       {"*/5 * * * *", Medlum.Reports.StaleRunWorker}
      ]}
   ],
   # NOTE: reports queue concurrency must align with gemini_ex max_concurrency_per_model
@@ -144,10 +144,10 @@ config :lumainus, Oban,
   # keep this at 1 to prevent 429s from concurrent section runs.
   queues: [ingestion: 5, reports: 1, health_checks: 1, maintenance: 1]
 
-config :lumainus, :llm,
+config :medlum, :llm,
   default_provider: "google",
   default_model: "gemini-flash-lite-latest",
-  client: Lumainus.LLM,
+  client: Medlum.LLM,
   enabled: true,
   default_options: [temperature: 0.2, max_output_tokens: 2048]
 
@@ -160,7 +160,7 @@ config :lumainus, :llm,
 # - max_concurrent: 1 (aligns with Oban reports queue limit of 1)
 # - inter_call_delay_ms: 2000 (2 second delay between LLM calls to prevent back-to-back requests)
 # - max_queue: 50 (max waiting jobs before rejecting)
-config :lumainus, :concurrency_gate,
+config :medlum, :concurrency_gate,
   max_concurrent: 1,
   inter_call_delay_ms: 2000,
   max_queue: 50
@@ -211,14 +211,14 @@ config :gemini_ex, :rate_limiter,
   adaptive_ceiling: 10
 
 # Configures the endpoint
-config :lumainus, LumainusWeb.Endpoint,
+config :medlum, MedlumWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: LumainusWeb.ErrorHTML, json: LumainusWeb.ErrorJSON],
+    formats: [html: MedlumWeb.ErrorHTML, json: MedlumWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: LumainusWeb.PubSub,
+  pubsub_server: MedlumWeb.PubSub,
   live_view: [signing_salt: "Od02EEf1"]
 
 # Configures the mailer
@@ -228,12 +228,12 @@ config :lumainus, LumainusWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :lumainus, Lumainus.Mailer, adapter: Swoosh.Adapters.Local
+config :medlum, Medlum.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  lumainus: [
+  medlum: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
@@ -243,7 +243,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.1.7",
-  lumainus: [
+  medlum: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css

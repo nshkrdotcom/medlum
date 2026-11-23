@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.FixCitationArraySchemas do
+defmodule Medlum.Repo.Migrations.FixCitationArraySchemas do
   @moduledoc """
   Fix report section template schemas that have array fields without the required `items` property.
 
@@ -39,7 +39,7 @@ defmodule Lumainus.Repo.Migrations.FixCitationArraySchemas do
   end
 
   defp fix_schemas do
-    repo = Lumainus.Repo
+    repo = Medlum.Repo
 
     # Use raw SQL to avoid schema coupling
     {:ok, result} =

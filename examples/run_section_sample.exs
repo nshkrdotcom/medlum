@@ -1,11 +1,11 @@
 Mix.Task.run("app.start")
 
-alias Lumainus.Accounts.{Scope, User}
-alias Lumainus.Documents
-alias Lumainus.Repo
-alias Lumainus.Reports
-alias Lumainus.Reports.{ReportRun, ReportSectionRun}
-alias Lumainus.AI.SectionRunner
+alias Medlum.Accounts.{Scope, User}
+alias Medlum.Documents
+alias Medlum.Repo
+alias Medlum.Reports
+alias Medlum.Reports.{ReportRun, ReportSectionRun}
+alias Medlum.AI.SectionRunner
 
 defmodule Samples.RunSection do
   @moduledoc false

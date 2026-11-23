@@ -1,11 +1,11 @@
 Mix.Task.run("app.start")
 
-alias Lumainus.Accounts.{Scope, User}
-alias Lumainus.AI.SectionRunner
-alias Lumainus.Documents
-alias Lumainus.Repo
-alias Lumainus.Reports
-alias Lumainus.Reports.{ReportRun, ReportSectionRun}
+alias Medlum.Accounts.{Scope, User}
+alias Medlum.AI.SectionRunner
+alias Medlum.Documents
+alias Medlum.Repo
+alias Medlum.Reports
+alias Medlum.Reports.{ReportRun, ReportSectionRun}
 
 defmodule Examples.GeminiUsageError do
   @moduledoc false
@@ -48,7 +48,7 @@ defmodule Examples.GeminiUsageError do
     IO.puts("\n=== GeminiEx Structured Output Reproduction ===\n")
 
     IO.puts("""
-    This script creates a new report-section run and invokes Lumainus.AI.SectionRunner
+    This script creates a new report-section run and invokes Medlum.AI.SectionRunner
     exactly like the /reports UI. Use it to reproduce structured-output errors such as
     missing usage metadata fields from the live GeminiEx client.
     """)

@@ -17,17 +17,19 @@
 #   docker compose down                     # Stop all
 #
 # Environment Variables:
-#   DOCLING_IMAGE        - Image to use (default: ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest)
+#   DOCLING_IMAGE        - Image to use (default: ghcr.io/nshkrdotcom/medlum-docling-gpu:latest)
 #   DOCLING_RESTART      - Restart policy (default: unless-stopped)
 #   DOCLING_PORT_CPU     - CPU backend port (default: 8042)
 #   DOCLING_PORT_GPU     - GPU backend port (default: 8043)
+
+name: medlum
 
 services:
   # ==========================================================================
   # Docker CPU Backend (port 8042)
   # ==========================================================================
   docling-cpu:
-    image: ${DOCLING_IMAGE:-ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest}
+    image: ${DOCLING_IMAGE:-ghcr.io/nshkrdotcom/medlum-docling-gpu:latest}
     container_name: docling-docker-cpu
     restart: ${DOCLING_RESTART:-unless-stopped}
     ports:
@@ -58,7 +60,7 @@ services:
   # Requires: NVIDIA Container Toolkit
   # Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
   docling-gpu:
-    image: ${DOCLING_IMAGE:-ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest}
+    image: ${DOCLING_IMAGE:-ghcr.io/nshkrdotcom/medlum-docling-gpu:latest}
     container_name: docling-docker-gpu
     restart: ${DOCLING_RESTART:-unless-stopped}
     profiles:
@@ -89,5 +91,5 @@ services:
 # ==========================================================================
 networks:
   default:
-    name: lumainus-docling
+    name: medlum-docling
     driver: bridge

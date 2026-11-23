@@ -1,11 +1,11 @@
-defmodule Lumainus.Repo.Migrations.ExpandReportSections do
+defmodule Medlum.Repo.Migrations.ExpandReportSections do
   use Ecto.Migration
 
   import Ecto.Query, warn: false
 
-  alias Lumainus.Reports
-  alias Lumainus.Reports.ReportSectionTemplate
-  alias Lumainus.Repo
+  alias Medlum.Reports
+  alias Medlum.Reports.ReportSectionTemplate
+  alias Medlum.Repo
   alias __MODULE__.TemplateSnapshot
 
   def up do

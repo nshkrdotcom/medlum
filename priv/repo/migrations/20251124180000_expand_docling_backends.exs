@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.ExpandDoclingBackends do
+defmodule Medlum.Repo.Migrations.ExpandDoclingBackends do
   @moduledoc """
   Expands the docling_settings table to support 5 backends:
 

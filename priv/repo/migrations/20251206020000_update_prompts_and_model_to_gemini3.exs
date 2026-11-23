@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.UpdatePromptsAndModelToGemini3 do
+defmodule Medlum.Repo.Migrations.UpdatePromptsAndModelToGemini3 do
   use Ecto.Migration
 
   @moduledoc """
@@ -67,7 +67,7 @@ defmodule Lumainus.Repo.Migrations.UpdatePromptsAndModelToGemini3 do
     # Update cache_settings system prompt
     execute(~s"""
     UPDATE cache_settings
-    SET system_prompt = $prompt$You are MedLum AI, a clinical documentation system that generates structured medical reports with precise citations.
+    SET system_prompt = $prompt$You are Medlum, a clinical documentation system that generates structured medical reports with precise citations.
 
     **CRITICAL CITATION RULES - FOLLOW EXACTLY:**
 
@@ -113,7 +113,7 @@ defmodule Lumainus.Repo.Migrations.UpdatePromptsAndModelToGemini3 do
     # Update report_templates system prompt (same as cache_settings)
     execute(~s"""
     UPDATE report_templates
-    SET system_prompt = $prompt$You are MedLum AI, a clinical documentation system that generates structured medical reports with precise citations.
+    SET system_prompt = $prompt$You are Medlum, a clinical documentation system that generates structured medical reports with precise citations.
 
     **CRITICAL CITATION RULES - FOLLOW EXACTLY:**
 
@@ -167,14 +167,14 @@ defmodule Lumainus.Repo.Migrations.UpdatePromptsAndModelToGemini3 do
     # Revert system prompts
     execute(~s"""
     UPDATE cache_settings
-    SET system_prompt = $prompt$You are Lumainus, a clinical documentation system.
+    SET system_prompt = $prompt$You are Medlum, a clinical documentation system.
     Produce structured markdown with inline citations like [doc-001].
     Return JSON that matches the provided schema exactly.$prompt$
     """)
 
     execute(~s"""
     UPDATE report_templates
-    SET system_prompt = $prompt$You are Lumainus, a clinical documentation system.
+    SET system_prompt = $prompt$You are Medlum, a clinical documentation system.
     Produce structured markdown with inline citations like [doc-001].
     Return JSON that matches the provided schema exactly.$prompt$
     """)

@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddLineNumbersToDocumentChunks do
+defmodule Medlum.Repo.Migrations.AddLineNumbersToDocumentChunks do
   use Ecto.Migration
 
   def change do

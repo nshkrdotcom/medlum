@@ -1,6 +1,6 @@
 # Dockerfile.gpu-base - Base image with PyTorch, Docling, and models
 # Rebuild this only when dependencies or models change (~monthly)
-# Build: docker build -f Dockerfile.gpu-base -t ghcr.io/nshkrdotcom/lumainus-docling-base:latest ..
+# Build: docker build -f Dockerfile.gpu-base -t ghcr.io/nshkrdotcom/medlum-docling-base:latest ..
 
 FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 
@@ -27,7 +27,8 @@ RUN pip install --upgrade pip && \
 
 # Copy and install local docling fork
 COPY docling /app/docling
-RUN pip install -e /app/docling
+COPY docling_service/constraints.txt /app/constraints.txt
+RUN pip install --constraint /app/constraints.txt --editable /app/docling
 
 # IMPORTANT: Downgrade numpy AFTER all installs to fix PyTorch compatibility
 RUN pip install "numpy<2"

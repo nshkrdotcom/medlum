@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddCachedContentNameToReportRuns do
+defmodule Medlum.Repo.Migrations.AddCachedContentNameToReportRuns do
   use Ecto.Migration
 
   def change do

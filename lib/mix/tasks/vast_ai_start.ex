@@ -41,10 +41,10 @@ defmodule Mix.Tasks.VastAi.Start do
     should_wait = Keyword.get(opts, :wait, true)
     timeout_seconds = Keyword.get(opts, :timeout, 60)
 
-    alias Lumainus.VastAI
-    alias Lumainus.VastAI.Instances
-    alias Lumainus.Docling.VastAI.InstanceManager
-    alias Lumainus.GPU
+    alias Medlum.VastAI
+    alias Medlum.VastAI.Instances
+    alias Medlum.Docling.VastAI.InstanceManager
+    alias Medlum.GPU
 
     Mix.shell().info("")
     Mix.shell().info("=== Start Vast.ai Instance ===")
@@ -148,7 +148,7 @@ defmodule Mix.Tasks.VastAi.Start do
     if System.monotonic_time(:millisecond) >= deadline do
       {:error, :timeout}
     else
-      case Lumainus.VastAI.status(instance_id) do
+      case Medlum.VastAI.status(instance_id) do
         {:ok, %{"actual_status" => "running", "public_ipaddr" => ip}}
         when is_binary(ip) and ip != "" ->
           {:ok, ip}
@@ -181,13 +181,13 @@ defmodule Mix.Tasks.VastAi.Start do
     # Try to use HTTPS via Cloudflare if configured
     fqdn =
       (System.get_env("MEDLUMAI_DOT_COM_CLOUDFLARE_FQDN") ||
-         Lumainus.Cloudflare.cloud_fqdn())
+         Medlum.Cloudflare.cloud_fqdn())
       |> normalize_fqdn()
 
     if fqdn do
       "https://#{fqdn}"
     else
-      "http://#{ip}:#{Lumainus.VastAI.cloud_port()}"
+      "http://#{ip}:#{Medlum.VastAI.cloud_port()}"
     end
   end
 

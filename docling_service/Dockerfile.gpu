@@ -10,7 +10,7 @@
 #   8042 - docker_cpu
 #   8043 - docker_gpu
 
-ARG BASE_IMAGE=ghcr.io/nshkrdotcom/lumainus-docling-base:latest
+ARG BASE_IMAGE=ghcr.io/nshkrdotcom/medlum-docling-base:latest
 FROM ${BASE_IMAGE}
 
 # Port configuration (can be overridden at build time or runtime)

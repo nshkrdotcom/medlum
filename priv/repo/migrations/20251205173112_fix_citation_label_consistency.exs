@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.FixCitationLabelConsistency do
+defmodule Medlum.Repo.Migrations.FixCitationLabelConsistency do
   @moduledoc """
   Fix citation label inconsistencies across the system.
 
@@ -33,7 +33,7 @@ defmodule Lumainus.Repo.Migrations.FixCitationLabelConsistency do
   end
 
   defp fix_citation_labels do
-    repo = Lumainus.Repo
+    repo = Medlum.Repo
 
     # Get all citations with their associated documents
     {:ok, result} =
@@ -66,7 +66,7 @@ defmodule Lumainus.Repo.Migrations.FixCitationLabelConsistency do
   end
 
   defp fix_inline_citations do
-    repo = Lumainus.Repo
+    repo = Medlum.Repo
 
     # Get all section runs with inline citations
     {:ok, result} =

@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.UpdateMaxOutputTokensTo65536 do
+defmodule Medlum.Repo.Migrations.UpdateMaxOutputTokensTo65536 do
   use Ecto.Migration
 
   @doc """

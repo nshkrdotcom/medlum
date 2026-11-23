@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateTenantsAndDomains do
+defmodule Medlum.Repo.Migrations.CreateTenantsAndDomains do
   use Ecto.Migration
 
   @default_tenant_id Ecto.UUID.generate()
@@ -66,7 +66,7 @@ defmodule Lumainus.Repo.Migrations.CreateTenantsAndDomains do
 
     execute("""
     INSERT INTO tenants (id, name, slug, status, primary_domain, metadata, inserted_at, updated_at)
-    VALUES ('#{@default_tenant_id}', 'Lumainus Clinical', 'lumainus-clinical', 'active', 'lumainus.test', '{}', NOW(), NOW())
+    VALUES ('#{@default_tenant_id}', 'Medlum Clinical', 'medlum-clinical', 'active', 'medlum.test', '{}', NOW(), NOW())
     ON CONFLICT (id) DO NOTHING
     """)
 

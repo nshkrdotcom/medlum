@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddIngestionPromptToReportTemplates do
+defmodule Medlum.Repo.Migrations.AddIngestionPromptToReportTemplates do
   use Ecto.Migration
 
   def change do

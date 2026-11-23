@@ -1,4 +1,4 @@
-defmodule LumainusWeb.Repo.Migrations.CreateUsersAuthTables do
+defmodule MedlumWeb.Repo.Migrations.CreateUsersAuthTables do
   use Ecto.Migration
 
   def change do

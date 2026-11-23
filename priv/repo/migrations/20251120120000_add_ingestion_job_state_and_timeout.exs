@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddIngestionJobStateAndTimeout do
+defmodule Medlum.Repo.Migrations.AddIngestionJobStateAndTimeout do
   use Ecto.Migration
 
   def up do

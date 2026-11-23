@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Configuration
-IMAGE_NAME="${IMAGE_NAME:-ghcr.io/nshkrdotcom/lumainus-docling-gpu}"
+IMAGE_NAME="${IMAGE_NAME:-ghcr.io/nshkrdotcom/medlum-docling-gpu}"
 TAG="${1:-latest}"
 FULL_IMAGE="${IMAGE_NAME}:${TAG}"
 

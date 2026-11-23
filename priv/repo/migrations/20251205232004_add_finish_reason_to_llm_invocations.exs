@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddFinishReasonToLlmInvocations do
+defmodule Medlum.Repo.Migrations.AddFinishReasonToLlmInvocations do
   use Ecto.Migration
 
   def change do

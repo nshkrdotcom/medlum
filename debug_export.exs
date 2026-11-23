@@ -1,5 +1,5 @@
-alias Lumainus.Repo
-alias Lumainus.Reports.{ReportRun, ReportSectionRun, CacheSettings}
+alias Medlum.Repo
+alias Medlum.Reports.{ReportRun, ReportSectionRun, CacheSettings}
 import Ecto.Query
 
 IO.puts("=== Exporting Debug Data ===\n")

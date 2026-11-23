@@ -1,4 +1,4 @@
-defmodule LumainusWeb.ConnCase do
+defmodule MedlumWeb.ConnCase do
   @moduledoc """
   This module defines the test case to be used by
   tests that require setting up a connection.
@@ -11,7 +11,7 @@ defmodule LumainusWeb.ConnCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use LumainusWeb.ConnCase, async: true`, although
+  by setting `use MedlumWeb.ConnCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,19 +20,19 @@ defmodule LumainusWeb.ConnCase do
   using do
     quote do
       # The default endpoint for testing
-      @endpoint LumainusWeb.Endpoint
+      @endpoint MedlumWeb.Endpoint
 
-      use LumainusWeb, :verified_routes
+      use MedlumWeb, :verified_routes
 
       # Import conveniences for testing with connections
       import Plug.Conn
       import Phoenix.ConnTest
-      import LumainusWeb.ConnCase
+      import MedlumWeb.ConnCase
     end
   end
 
   setup tags do
-    Lumainus.DataCase.setup_sandbox(tags)
+    Medlum.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
@@ -45,8 +45,8 @@ defmodule LumainusWeb.ConnCase do
   test context.
   """
   def register_and_log_in_user(%{conn: conn} = context) do
-    user = Lumainus.AccountsFixtures.user_fixture()
-    scope = Lumainus.Accounts.Scope.for_user(user)
+    user = Medlum.AccountsFixtures.user_fixture()
+    scope = Medlum.Accounts.Scope.for_user(user)
 
     opts =
       context
@@ -62,7 +62,7 @@ defmodule LumainusWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_user(conn, user, opts \\ []) do
-    token = Lumainus.Accounts.generate_user_session_token(user)
+    token = Medlum.Accounts.generate_user_session_token(user)
 
     maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
 
@@ -74,6 +74,6 @@ defmodule LumainusWeb.ConnCase do
   defp maybe_set_token_authenticated_at(_token, nil), do: nil
 
   defp maybe_set_token_authenticated_at(token, authenticated_at) do
-    Lumainus.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
+    Medlum.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
   end
 end

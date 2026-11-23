@@ -3,12 +3,12 @@
 # This runs on the host (not inside the container) when the instance starts
 #
 # Environment variables (set by VastAI provisioning):
-#   CADDY_DOMAIN - Domain for HTTPS cert (e.g., docling.lumainus.com)
+#   CADDY_DOMAIN - Domain for HTTPS cert (e.g., docling.medlumai.com)
 #   BACKEND_PORT - Port where Docling container is running (default: 8044)
 
 set -e
 
-DOMAIN="${CADDY_DOMAIN:-docling.lumainus.com}"
+DOMAIN="${CADDY_DOMAIN:-docling.medlumai.com}"
 BACKEND_PORT="${BACKEND_PORT:-8044}"
 LOG="/var/log/caddy-setup.log"
 

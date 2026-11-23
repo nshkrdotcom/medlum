@@ -6,7 +6,7 @@ set -euo pipefail
 
 SERVER="lu"
 
-echo "📋 Lumainus production logs (Ctrl+C to exit)..."
+echo "📋 Medlum production logs (Ctrl+C to exit)..."
 echo
 
-ssh "$SERVER" "sudo journalctl -u lumainus -f --since '10 minutes ago'"
+ssh "$SERVER" "sudo journalctl -u medlum -f --since '10 minutes ago'"

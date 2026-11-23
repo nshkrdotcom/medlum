@@ -5,15 +5,15 @@
 # Inside the script, you can read and write to any of your
 # repositories directly:
 #
-#     Lumainus.Repo.insert!(%Lumainus.SomeSchema{})
+#     Medlum.Repo.insert!(%Medlum.SomeSchema{})
 #
 # We recommend using the bang functions (`insert!`, `update!`
 # and so on) as they will fail if something goes wrong.
 
 alias Ecto.Changeset
-alias Lumainus.Accounts
-alias Lumainus.Accounts.User
-alias Lumainus.Repo
+alias Medlum.Accounts
+alias Medlum.Accounts.User
+alias Medlum.Repo
 
 admin_email = System.get_env("MEDLUMAI_ADMIN_EMAIL") || "admin@medlumai.local"
 admin_name = System.get_env("MEDLUMAI_ADMIN_NAME") || "System Administrator"

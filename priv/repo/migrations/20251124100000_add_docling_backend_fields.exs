@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddDoclingBackendFields do
+defmodule Medlum.Repo.Migrations.AddDoclingBackendFields do
   use Ecto.Migration
 
   def up do

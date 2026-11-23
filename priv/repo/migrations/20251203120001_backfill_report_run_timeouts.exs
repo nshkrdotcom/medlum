@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.BackfillReportRunTimeouts do
+defmodule Medlum.Repo.Migrations.BackfillReportRunTimeouts do
   use Ecto.Migration
 
   def up do

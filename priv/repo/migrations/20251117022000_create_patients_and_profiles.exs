@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreatePatientsAndProfiles do
+defmodule Medlum.Repo.Migrations.CreatePatientsAndProfiles do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AllowVastAiAsLocalBackend do
+defmodule Medlum.Repo.Migrations.AllowVastAiAsLocalBackend do
   @moduledoc """
   Updates the active_local_backend constraint to include vast_ai.
 

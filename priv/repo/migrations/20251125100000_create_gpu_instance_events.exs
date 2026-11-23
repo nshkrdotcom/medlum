@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateGpuInstanceEvents do
+defmodule Medlum.Repo.Migrations.CreateGpuInstanceEvents do
   @moduledoc """
   Creates comprehensive event logging for GPU instance lifecycle.
 

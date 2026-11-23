@@ -48,10 +48,10 @@ defmodule Mix.Tasks.VastAi.Destroy do
     destroy_all = Keyword.get(opts, :all, false)
     specific_id = Keyword.get(opts, :id)
 
-    alias Lumainus.VastAI
-    alias Lumainus.VastAI.Instances
-    alias Lumainus.Docling.VastAI.InstanceManager
-    alias Lumainus.GPU
+    alias Medlum.VastAI
+    alias Medlum.VastAI.Instances
+    alias Medlum.Docling.VastAI.InstanceManager
+    alias Medlum.GPU
 
     Mix.shell().info("")
     Mix.shell().info("=== Vast.ai Instance Destruction ===")

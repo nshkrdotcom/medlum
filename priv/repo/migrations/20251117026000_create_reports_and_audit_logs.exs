@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateReportsAndAuditLogs do
+defmodule Medlum.Repo.Migrations.CreateReportsAndAuditLogs do
   use Ecto.Migration
 
   def change do

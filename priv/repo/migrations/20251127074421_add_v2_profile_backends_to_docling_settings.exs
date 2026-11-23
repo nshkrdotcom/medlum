@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddV2ProfileBackendsToDoclingSettings do
+defmodule Medlum.Repo.Migrations.AddV2ProfileBackendsToDoclingSettings do
   @moduledoc """
   Adds v2_profile_backends field to docling_settings for configuring
   which backends are used for each processing profile.

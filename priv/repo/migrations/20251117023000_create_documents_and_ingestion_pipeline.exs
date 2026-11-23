@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateDocumentsAndIngestionPipeline do
+defmodule Medlum.Repo.Migrations.CreateDocumentsAndIngestionPipeline do
   use Ecto.Migration
 
   def up do

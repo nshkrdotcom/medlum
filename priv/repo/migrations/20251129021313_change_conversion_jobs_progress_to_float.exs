@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.ChangeConversionJobsProgressToFloat do
+defmodule Medlum.Repo.Migrations.ChangeConversionJobsProgressToFloat do
   use Ecto.Migration
 
   def change do

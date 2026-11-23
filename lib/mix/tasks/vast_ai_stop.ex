@@ -38,10 +38,10 @@ defmodule Mix.Tasks.VastAi.Stop do
 
     specific_id = Keyword.get(opts, :id)
 
-    alias Lumainus.VastAI
-    alias Lumainus.VastAI.Instances
-    alias Lumainus.Docling.VastAI.InstanceManager
-    alias Lumainus.GPU
+    alias Medlum.VastAI
+    alias Medlum.VastAI.Instances
+    alias Medlum.Docling.VastAI.InstanceManager
+    alias Medlum.GPU
 
     Mix.shell().info("")
     Mix.shell().info("=== Stop Vast.ai Instance ===")

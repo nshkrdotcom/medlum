@@ -5,7 +5,7 @@
 @import "./reports_live.css";
 @source "../css";
 @source "../js";
-@source "../../lib/lumainus_web";
+@source "../../lib/medlum_web";
 @source "../../deps/backpex/**/*.*ex";
 @source "../../deps/backpex/assets/js/**/*.*js";
 

@@ -5,4 +5,4 @@ cd "$(dirname "$0")/.."
 
 : "${VAST_API_KEY:?Set VAST_API_KEY}"
 
-MIX_ENV=dev VAST_API_KEY="$VAST_API_KEY" mix run -e "IO.inspect(Lumainus.VastAI.provision(max_price: 0.18, disk_gb: 16, geolocation: [\"US\",\"CA\"], label: \"docling-dev\"))"
+MIX_ENV=dev VAST_API_KEY="$VAST_API_KEY" mix run -e "IO.inspect(Medlum.VastAI.provision(max_price: 0.18, disk_gb: 16, geolocation: [\"US\",\"CA\"], label: \"docling-dev\"))"

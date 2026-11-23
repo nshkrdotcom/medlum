@@ -1,4 +1,4 @@
-defmodule Lumainus.DataCase do
+defmodule Medlum.DataCase do
   @moduledoc """
   This module sets up helpers for tests that interact with the data layer.
   """
@@ -7,17 +7,17 @@ defmodule Lumainus.DataCase do
 
   using do
     quote do
-      alias Lumainus.Repo
+      alias Medlum.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import Lumainus.DataCase
+      import Medlum.DataCase
     end
   end
 
   setup tags do
-    Lumainus.DataCase.setup_sandbox(tags)
+    Medlum.DataCase.setup_sandbox(tags)
     :ok
   end
 
@@ -25,10 +25,10 @@ defmodule Lumainus.DataCase do
   Checkout a sandbox connection and, unless tests run asynchronously, share it.
   """
   def setup_sandbox(tags) do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Lumainus.Repo)
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Medlum.Repo)
 
     unless tags[:async] do
-      Ecto.Adapters.SQL.Sandbox.mode(Lumainus.Repo, {:shared, self()})
+      Ecto.Adapters.SQL.Sandbox.mode(Medlum.Repo, {:shared, self()})
     end
   end
 

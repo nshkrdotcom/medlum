@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Initial server setup script for Lumainus
+# Initial server setup script for Medlum
 # Run this ONCE on the server to set everything up
 # Usage: ssh lu 'bash -s' < scripts/server_setup.sh
 
 set -euo pipefail
 
-APP_NAME="lumainus"
-APP_DIR="/var/www/lumainus"
-APP_USER="lumainus"
-REPO_URL="git@github.com:nshkrdotcom/lumainus.git"  # Update with your repo
+APP_NAME="medlum"
+APP_DIR="/var/www/medlum"
+APP_USER="medlum"
+REPO_URL="git@github.com:nshkrdotcom/medlum.git"  # Update with your repo
 DB_NAME="${APP_NAME}_prod"
 DB_PASS="changeme"
 ENV_FILE="$APP_DIR/.env.prod"
@@ -72,10 +72,10 @@ if ! SECRET_KEY_BASE=$(run_in_app_dir "mix phx.gen.secret" 2>/dev/null); then
   SECRET_KEY_BASE=$(openssl rand -base64 64 | tr -d '\n')
 fi
 sudo tee "$ENV_FILE" >/dev/null <<EOF
-# Lumainus Production Environment
+# Medlum Production Environment
 MIX_ENV=prod
 PHX_SERVER=true
-PHX_HOST=dev.lumainus.com
+PHX_HOST=dev.medlumai.com
 PORT=4000
 
 # Secret key base
@@ -111,9 +111,9 @@ run_in_app_dir_with_env "mix ecto.create && mix ecto.migrate"
 
 # Create systemd service
 echo "🔧 Creating systemd service..."
-sudo tee /etc/systemd/system/lumainus.service >/dev/null <<EOF
+sudo tee /etc/systemd/system/medlum.service >/dev/null <<EOF
 [Unit]
-Description=Lumainus Phoenix Application
+Description=Medlum Phoenix Application
 After=network.target postgresql.service
 
 [Service]
@@ -126,7 +126,7 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=lumainus
+SyslogIdentifier=medlum
 
 [Install]
 WantedBy=multi-user.target
@@ -135,14 +135,14 @@ EOF
 # Reload systemd and enable service
 echo "🔄 Enabling service..."
 sudo systemctl daemon-reload
-sudo systemctl enable lumainus
-sudo systemctl restart lumainus
+sudo systemctl enable medlum
+sudo systemctl restart medlum
 
 echo
 echo "✅ Server setup complete!"
 echo
 echo "Next steps:"
 echo "1. Update $ENV_FILE with your secure secrets"
-echo "2. Run: sudo systemctl restart lumainus"
-echo "3. Check logs: sudo journalctl -u lumainus -f"
+echo "2. Run: sudo systemctl restart medlum"
+echo "3. Check logs: sudo journalctl -u medlum -f"
 echo "4. Configure nginx/caddy reverse proxy for HTTPS"

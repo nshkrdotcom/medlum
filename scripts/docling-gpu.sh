@@ -18,12 +18,12 @@ DOCLING_DIR="$REPO_ROOT/docling_service"
 source "$SCRIPT_DIR/docling-ports.env"
 
 # Configuration - Base image (heavy, ~7GB, rebuild monthly)
-BASE_IMAGE_NAME="${BASE_IMAGE_NAME:-ghcr.io/nshkrdotcom/lumainus-docling-base}"
+BASE_IMAGE_NAME="${BASE_IMAGE_NAME:-ghcr.io/nshkrdotcom/medlum-docling-base}"
 BASE_TAG="${BASE_TAG:-latest}"
 FULL_BASE_IMAGE="${BASE_IMAGE_NAME}:${BASE_TAG}"
 
 # Configuration - App image (tiny, rebuild on code changes)
-IMAGE_NAME="${IMAGE_NAME:-ghcr.io/nshkrdotcom/lumainus-docling-gpu}"
+IMAGE_NAME="${IMAGE_NAME:-ghcr.io/nshkrdotcom/medlum-docling-gpu}"
 TAG="${TAG:-latest}"
 FULL_IMAGE="${IMAGE_NAME}:${TAG}"
 

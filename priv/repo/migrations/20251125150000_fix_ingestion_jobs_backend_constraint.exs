@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.FixIngestionJobsBackendConstraint do
+defmodule Medlum.Repo.Migrations.FixIngestionJobsBackendConstraint do
   @moduledoc """
   Fixes the ingestion_jobs.backend_valid constraint to include 'cloud' as a valid option.
   """

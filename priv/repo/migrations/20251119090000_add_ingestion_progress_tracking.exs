@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddIngestionProgressTracking do
+defmodule Medlum.Repo.Migrations.AddIngestionProgressTracking do
   use Ecto.Migration
 
   def up do

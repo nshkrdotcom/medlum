@@ -1,4 +1,4 @@
-{:ok, _} = Application.ensure_all_started(:lumainus)
+{:ok, _} = Application.ensure_all_started(:medlum)
 
 ExUnit.start()
-Ecto.Adapters.SQL.Sandbox.mode(Lumainus.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(Medlum.Repo, :manual)

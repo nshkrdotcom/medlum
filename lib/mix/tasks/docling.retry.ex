@@ -5,8 +5,8 @@ defmodule Mix.Tasks.Docling.Retry do
 
   use Mix.Task
 
-  alias Lumainus.Documents
-  alias Lumainus.Reports
+  alias Medlum.Documents
+  alias Medlum.Reports
 
   @shortdoc "Retry a failed Docling ingestion job"
 

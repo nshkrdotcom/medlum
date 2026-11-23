@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateExternalApiLogs do
+defmodule Medlum.Repo.Migrations.CreateExternalApiLogs do
   use Ecto.Migration
 
   def change do

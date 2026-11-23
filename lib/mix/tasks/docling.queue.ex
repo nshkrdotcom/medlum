@@ -7,8 +7,8 @@ defmodule Mix.Tasks.Docling.Queue do
 
   import Ecto.Query, warn: false
 
-  alias Lumainus.Documents.IngestionJob
-  alias Lumainus.Repo
+  alias Medlum.Documents.IngestionJob
+  alias Medlum.Repo
 
   @shortdoc "Print queued/running Docling ingestion jobs"
 

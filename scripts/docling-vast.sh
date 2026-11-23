@@ -6,7 +6,7 @@
 # Requires:
 #   - VAST_API_KEY environment variable
 #   - vast CLI (optional, for some operations)
-#   - Elixir/Mix (for Lumainus.VastAI module)
+#   - Elixir/Mix (for Medlum.VastAI module)
 #
 # Port: 8044 (cloud/vast_ai backend)
 
@@ -32,7 +32,7 @@ DEFAULT_MAX_PRICE="0.25"
 DEFAULT_DISK_GB="16"
 DEFAULT_GEOLOCATION="US,CA"
 DEFAULT_GPU_TYPE="RTX_3090"
-DEFAULT_LABEL="docling-lumainus"
+DEFAULT_LABEL="docling-medlum"
 
 print_header() {
     echo -e "\n${CYAN}============================================${NC}"
@@ -102,7 +102,7 @@ check_no_active_instances() {
     echo -e "${YELLOW}Checking for existing instances...${NC}"
     local count
     count=$(cd "$REPO_ROOT" && MIX_ENV=dev VAST_API_KEY="$VAST_API_KEY" mix run -e "
-      case Lumainus.VastAI.Instances.list() do
+      case Medlum.VastAI.Instances.list() do
         {:ok, %{\"instances\" => instances}} ->
           active = Enum.count(instances, & &1[\"actual_status\"] in [\"running\", \"loading\"])
           IO.puts(active)
@@ -130,14 +130,14 @@ check_no_active_instances() {
 list_all_instances() {
     echo -e "\n${YELLOW}Listing all Vast.ai instances...${NC}"
     check_api_key || return
-    run_mix "IO.inspect(Lumainus.VastAI.Instances.list(), pretty: true)"
+    run_mix "IO.inspect(Medlum.VastAI.Instances.list(), pretty: true)"
 }
 
 list_running_instances() {
     echo -e "\n${YELLOW}Listing running instances...${NC}"
     check_api_key || return
     run_mix "
-      case Lumainus.VastAI.Instances.list() do
+      case Medlum.VastAI.Instances.list() do
         {:ok, instances} ->
           running = Enum.filter(instances, & &1[\"actual_status\"] == \"running\")
           IO.puts(\"Running instances: #{length(running)}\")
@@ -182,7 +182,7 @@ provision_interactive() {
 
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         geo_list=$(echo "$geo" | sed 's/,/","/g')
-        run_mix "IO.inspect(Lumainus.VastAI.provision(max_price: $max_price, disk_gb: $disk_gb, geolocation: [\"$geo_list\"], label: \"$label\"), pretty: true)"
+        run_mix "IO.inspect(Medlum.VastAI.provision(max_price: $max_price, disk_gb: $disk_gb, geolocation: [\"$geo_list\"], label: \"$label\"), pretty: true)"
     else
         echo "Cancelled"
     fi
@@ -195,7 +195,7 @@ provision_quick() {
 
     echo "Using: \$$DEFAULT_MAX_PRICE/hr, ${DEFAULT_DISK_GB}GB disk, $DEFAULT_GEOLOCATION"
     geo_list=$(echo "$DEFAULT_GEOLOCATION" | sed 's/,/","/g')
-    run_mix "IO.inspect(Lumainus.VastAI.provision(max_price: $DEFAULT_MAX_PRICE, disk_gb: $DEFAULT_DISK_GB, geolocation: [\"$geo_list\"], label: \"$DEFAULT_LABEL\"), pretty: true)"
+    run_mix "IO.inspect(Medlum.VastAI.provision(max_price: $DEFAULT_MAX_PRICE, disk_gb: $DEFAULT_DISK_GB, geolocation: [\"$geo_list\"], label: \"$DEFAULT_LABEL\"), pretty: true)"
 }
 
 destroy_instance() {
@@ -214,7 +214,7 @@ destroy_instance() {
     read -r confirm
 
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-        run_mix "IO.inspect(Lumainus.VastAI.destroy(\"$instance_id\"), pretty: true)"
+        run_mix "IO.inspect(Medlum.VastAI.destroy(\"$instance_id\"), pretty: true)"
     else
         echo "Cancelled"
     fi
@@ -229,20 +229,20 @@ destroy_all_instances() {
 
     if [ "$confirm" = "DESTROY ALL" ]; then
         run_mix "
-          case Lumainus.VastAI.Instances.list() do
+          case Medlum.VastAI.Instances.list() do
             {:ok, %{\"instances\" => instances}} ->
               instances
               |> List.wrap()
               |> Enum.each(fn i ->
                 IO.puts(\"Destroying #{i[\"id\"]}...\")
-                Lumainus.VastAI.destroy(i[\"id\"])
+                Medlum.VastAI.destroy(i[\"id\"])
               end)
               IO.puts(\"Done.\")
 
             {:ok, instances} when is_list(instances) ->
               Enum.each(instances, fn i ->
                 IO.puts(\"Destroying #{i[\"id\"]}...\")
-                Lumainus.VastAI.destroy(i[\"id\"])
+                Medlum.VastAI.destroy(i[\"id\"])
               end)
               IO.puts(\"Done.\")
 
@@ -256,7 +256,7 @@ destroy_all_instances() {
                   |> List.wrap()
                   |> Enum.each(fn i ->
                     IO.puts(\"Destroying #{i[\"id\"]}...\")
-                    Lumainus.VastAI.destroy(i[\"id\"])
+                    Medlum.VastAI.destroy(i[\"id\"])
                   end)
 
                   IO.puts(\"Done.\")
@@ -346,7 +346,7 @@ view_instance_logs() {
     fi
 
     echo -e "${CYAN}Fetching logs from $ssh_target...${NC}"
-    ssh "$ssh_target" "tail -100 /opt/lumainus/docling_service.log 2>/dev/null || echo 'Log file not found'"
+    ssh "$ssh_target" "tail -100 /opt/medlum/docling_service.log 2>/dev/null || echo 'Log file not found'"
 }
 
 restart_instance_docling() {
@@ -363,11 +363,11 @@ restart_instance_docling() {
     echo -e "${CYAN}Restarting Docling on $ssh_target...${NC}"
     ssh "$ssh_target" bash <<EOF
 pkill -f "uvicorn.*docling" || true
-cd /opt/lumainus/lumainus/docling_service
+cd /opt/medlum/medlum/docling_service
 export PORT=$DOCLING_PORT_VAST_AI
 export HOST=0.0.0.0
-nohup ./run.sh > /opt/lumainus/docling_service.log 2>&1 </dev/null &
-echo "Restarted. Check logs with: tail -f /opt/lumainus/docling_service.log"
+nohup ./run.sh > /opt/medlum/docling_service.log 2>&1 </dev/null &
+echo "Restarted. Check logs with: tail -f /opt/medlum/docling_service.log"
 EOF
 }
 
@@ -386,7 +386,7 @@ search_gpus() {
     run_mix "
       opts = [max_price: $max_price]
       opts = if \"$gpu_type\" != \"\", do: Keyword.put(opts, :gpu_name, \"$gpu_type\"), else: opts
-      case Lumainus.VastAI.Offers.search(opts) do
+      case Medlum.VastAI.Offers.search(opts) do
         {:ok, offers} ->
           IO.puts(\"Found #{length(offers)} offers:\")
           offers |> Enum.take(10) |> Enum.each(fn o ->
@@ -401,7 +401,7 @@ search_cheap_3090() {
     echo -e "\n${YELLOW}Searching for cheap RTX 3090s...${NC}"
     check_api_key || return
     run_mix "
-      case Lumainus.VastAI.Offers.search(max_price: 0.20, gpu_name: \"RTX_3090\") do
+      case Medlum.VastAI.Offers.search(max_price: 0.20, gpu_name: \"RTX_3090\") do
         {:ok, offers} ->
           IO.puts(\"Found #{length(offers)} RTX 3090 offers under \$0.20/hr:\")
           offers |> Enum.take(10) |> Enum.each(fn o ->
@@ -416,7 +416,7 @@ search_cheap_4090() {
     echo -e "\n${YELLOW}Searching for cheap RTX 4090s...${NC}"
     check_api_key || return
     run_mix "
-      case Lumainus.VastAI.Offers.search(max_price: 0.40, gpu_name: \"RTX_4090\") do
+      case Medlum.VastAI.Offers.search(max_price: 0.40, gpu_name: \"RTX_4090\") do
         {:ok, offers} ->
           IO.puts(\"Found #{length(offers)} RTX 4090 offers under \$0.40/hr:\")
           offers |> Enum.take(10) |> Enum.each(fn o ->
@@ -431,7 +431,7 @@ show_offers() {
     echo -e "\n${YELLOW}Current offers (top 15 cheapest)...${NC}"
     check_api_key || return
     run_mix "
-      case Lumainus.VastAI.Offers.search(max_price: 1.0) do
+      case Medlum.VastAI.Offers.search(max_price: 1.0) do
         {:ok, offers} ->
           offers
           |> Enum.sort_by(& &1[\"dph_total\"])
@@ -473,7 +473,7 @@ test_api() {
     echo -e "\n${YELLOW}Testing API connection...${NC}"
     check_api_key || return
     run_mix "
-      case Lumainus.VastAI.Instances.list() do
+      case Medlum.VastAI.Instances.list() do
         {:ok, instances} -> IO.puts(\"#{IO.ANSI.green()}API OK#{IO.ANSI.reset()} - #{length(instances)} instances found\")
         {:error, e} -> IO.puts(\"#{IO.ANSI.red()}API Error#{IO.ANSI.reset()}: #{inspect(e)}\")
       end
@@ -494,7 +494,7 @@ update_phoenix_cloud_url() {
 
     echo -e "${CYAN}To update Phoenix, run in iex:${NC}"
     echo ""
-    echo "  Lumainus.Docling.Settings.update_settings(%{cloud_url: \"$cloud_url\"})"
+    echo "  Medlum.Docling.Settings.update_settings(%{cloud_url: \"$cloud_url\"})"
     echo ""
     echo "Or set environment variable:"
     echo "  export DOCLING_CLOUD_URL=$cloud_url"
@@ -502,7 +502,7 @@ update_phoenix_cloud_url() {
 
 check_phoenix_vast_health() {
     echo -e "\n${YELLOW}Check Phoenix Vast.ai health...${NC}"
-    run_mix "IO.inspect(Lumainus.Docling.health(backend: :vast_ai), pretty: true)"
+    run_mix "IO.inspect(Medlum.Docling.health(backend: :vast_ai), pretty: true)"
 }
 
 # Main loop

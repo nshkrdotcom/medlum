@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateConversionJobs do
+defmodule Medlum.Repo.Migrations.CreateConversionJobs do
   use Ecto.Migration
 
   def change do

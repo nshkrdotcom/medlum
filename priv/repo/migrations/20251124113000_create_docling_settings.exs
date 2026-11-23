@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.CreateDoclingSettings do
+defmodule Medlum.Repo.Migrations.CreateDoclingSettings do
   use Ecto.Migration
 
   @defaults %{

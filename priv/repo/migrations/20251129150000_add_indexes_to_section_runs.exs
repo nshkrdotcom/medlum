@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddIndexesToSectionRuns do
+defmodule Medlum.Repo.Migrations.AddIndexesToSectionRuns do
   use Ecto.Migration
 
   def change do

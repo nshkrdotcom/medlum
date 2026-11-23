@@ -1,4 +1,4 @@
-defmodule LumainusWeb.Repo.Migrations.AddRoleToUsers do
+defmodule MedlumWeb.Repo.Migrations.AddRoleToUsers do
   use Ecto.Migration
 
   def change do

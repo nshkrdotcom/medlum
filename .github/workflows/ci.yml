@@ -49,9 +49,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: _build
-          key: build-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          key: build-medlum-${{ runner.os }}-${{ hashFiles('mix.exs', 'mix.lock') }}
           restore-keys: |
-            build-${{ runner.os }}-
+            build-medlum-${{ runner.os }}-
 
       - name: Install dependencies
         run: mix deps.get

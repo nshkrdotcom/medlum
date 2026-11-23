@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy script for MedLum AI
+# Deploy script for Medlum
 # Usage: ./scripts/deploy.sh [--refresh-runtime]
 
 set -euo pipefail
@@ -37,8 +37,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 SERVER="lu"
-REMOTE_DIR="/var/www/lumainus"
-REMOTE_USER="lumainus"
+REMOTE_DIR="/var/www/medlum"
+REMOTE_USER="medlum"
 ENV_FILE=".env.prod"
 
 run_remote() {
@@ -65,11 +65,11 @@ fi
 EOF
 }
 
-echo "🚀 Deploying MedLum AI to dev.medlumai.com..."
+echo "🚀 Deploying Medlum to dev.medlumai.com..."
 
 if $REFRESH_RUNTIME; then
   echo "🛑 Stopping service before build (refresh runtime)..."
-  ssh "$SERVER" "sudo systemctl stop lumainus"
+  ssh "$SERVER" "sudo systemctl stop medlum"
 fi
 
 echo "📥 Pulling latest code..."
@@ -94,11 +94,11 @@ echo "🗄️  Running database migrations..."
 run_remote_env "mix ecto.migrate"
 
 echo "🔄 Restarting service..."
-ssh "$SERVER" "sudo systemctl restart lumainus"
+ssh "$SERVER" "sudo systemctl restart medlum"
 
 echo "✅ Checking service status..."
-ssh "$SERVER" "sudo systemctl status lumainus --no-pager"
+ssh "$SERVER" "sudo systemctl status medlum --no-pager"
 
 echo
 echo "✅ Deployment complete!"
-echo "🌐 Visit: https://dev.lumainus.com"
+echo "🌐 Visit: https://dev.medlumai.com"

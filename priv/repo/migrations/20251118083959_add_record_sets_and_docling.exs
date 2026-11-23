@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.AddRecordSetsAndDocling do
+defmodule Medlum.Repo.Migrations.AddRecordSetsAndDocling do
   use Ecto.Migration
 
   def up do

@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.FixOutputSchemaJsonString do
+defmodule Medlum.Repo.Migrations.FixOutputSchemaJsonString do
   @moduledoc """
   Fix output_schema fields that were incorrectly stored as JSON strings.
 
@@ -17,7 +17,7 @@ defmodule Lumainus.Repo.Migrations.FixOutputSchemaJsonString do
   end
 
   defp fix_schemas do
-    repo = Lumainus.Repo
+    repo = Medlum.Repo
 
     # Find rows where output_schema is a string (JSON-encoded) instead of a map
     {:ok, result} =

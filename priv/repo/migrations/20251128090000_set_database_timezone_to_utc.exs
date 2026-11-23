@@ -1,4 +1,4 @@
-defmodule Lumainus.Repo.Migrations.SetDatabaseTimezoneToUtc do
+defmodule Medlum.Repo.Migrations.SetDatabaseTimezoneToUtc do
   use Ecto.Migration
 
   @disable_ddl_transaction true
