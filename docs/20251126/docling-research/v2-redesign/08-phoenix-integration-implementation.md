@@ -17,7 +17,7 @@ The Docling v2 conversion system core is complete. This document provides the st
 ### v2 Core (Complete)
 
 ```
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── application/
 │   └── job_tracker.ex          # ETS cache + DB persistence
 ├── backends/
@@ -56,13 +56,13 @@ Documents.queue_ingestion()
 Oban Job (DoclingIngestionWorker)
     │
     ▼
-Lumainus.Docling.Queue
+Medlum.Docling.Queue
     │
     ▼
-Lumainus.Docling.enqueue() / convert()
+Medlum.Docling.enqueue() / convert()
     │
     ▼
-Lumainus.Docling.HTTP → Backend
+Medlum.Docling.HTTP → Backend
 ```
 
 ### v2 Target Flow
@@ -92,28 +92,28 @@ Conversion.Adapter.enqueue()             JobTracker + BackendRouter
 ### Step 1.1: Run Migration
 
 ```bash
-wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /home/home/p/g/n/lumainus && mix ecto.migrate"
+wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /path/to/medlum && mix ecto.migrate"
 ```
 
 ### Step 1.2: Verify Migration
 
 ```bash
-wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /home/home/p/g/n/lumainus && mix ecto.migrations"
+wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /path/to/medlum && mix ecto.migrations"
 ```
 
 Expected output:
 ```
-  up     20251126200256 Lumainus.Repo.Migrations.CreateConversionJobs
+  up     20251126200256 Medlum.Repo.Migrations.CreateConversionJobs
 ```
 
 ### Step 1.3: Verify Table in IEx
 
 ```bash
-wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /home/home/p/g/n/lumainus && iex -S mix"
+wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /path/to/medlum && iex -S mix"
 ```
 
 ```elixir
-iex> Lumainus.Repo.query!("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'conversion_jobs' ORDER BY ordinal_position")
+iex> Medlum.Repo.query!("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'conversion_jobs' ORDER BY ordinal_position")
 ```
 
 ---
@@ -124,22 +124,22 @@ Create a bridge module that translates v1 Docling calls to v2 Service calls, ena
 
 ### Step 2.1: Create Adapter Module
 
-Create `lib/lumainus/conversion/adapter.ex`:
+Create `lib/medlum/conversion/adapter.ex`:
 
 ```elixir
-defmodule Lumainus.Conversion.Adapter do
+defmodule Medlum.Conversion.Adapter do
   @moduledoc """
   Adapter bridging v1 Docling interface to v2 Conversion.Service.
 
   This module provides backward-compatible functions that match the
-  existing `Lumainus.Docling` API signatures while using the new v2
+  existing `Medlum.Docling` API signatures while using the new v2
   conversion system under the hood.
 
   ## Usage
 
-  Replace calls to `Lumainus.Docling.enqueue/2` with:
+  Replace calls to `Medlum.Docling.enqueue/2` with:
 
-      Lumainus.Conversion.Adapter.enqueue(binary, opts)
+      Medlum.Conversion.Adapter.enqueue(binary, opts)
 
   ## Migration Path
 
@@ -149,15 +149,15 @@ defmodule Lumainus.Conversion.Adapter do
   4. Remove adapter and v1 code
   """
 
-  alias Lumainus.Conversion.{Service, JobStatus, Job}
-  alias Lumainus.Conversion.Infrastructure.Context
+  alias Medlum.Conversion.{Service, JobStatus, Job}
+  alias Medlum.Conversion.Infrastructure.Context
 
   require Logger
 
   @doc """
   Enqueue a PDF for conversion using v2 system.
 
-  Compatible with `Lumainus.Docling.enqueue/2` signature.
+  Compatible with `Medlum.Docling.enqueue/2` signature.
 
   ## Options
 
@@ -220,7 +220,7 @@ defmodule Lumainus.Conversion.Adapter do
   @doc """
   Get job status in v1-compatible format.
 
-  Compatible with `Lumainus.Docling.job_status/2` signature.
+  Compatible with `Medlum.Docling.job_status/2` signature.
   """
   @spec status(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def status(job_id, _opts \\ []) do
@@ -236,7 +236,7 @@ defmodule Lumainus.Conversion.Adapter do
   @doc """
   Await job completion with optional progress callback.
 
-  Compatible with `Lumainus.Docling.await/3` signature.
+  Compatible with `Medlum.Docling.await/3` signature.
   """
   @spec await(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def await(job_id, opts \\ []) do
@@ -323,19 +323,19 @@ end
 
 ### Step 2.2: Create Test File
 
-Create `test/lumainus/conversion/adapter_test.exs`:
+Create `test/medlum/conversion/adapter_test.exs`:
 
 ```elixir
-defmodule Lumainus.Conversion.AdapterTest do
-  use Lumainus.DataCase, async: true
+defmodule Medlum.Conversion.AdapterTest do
+  use Medlum.DataCase, async: true
 
-  alias Lumainus.Conversion.Adapter
-  alias Lumainus.Conversion.Support.TestHelpers
+  alias Medlum.Conversion.Adapter
+  alias Medlum.Conversion.Support.TestHelpers
 
   describe "enqueue/2" do
     setup do
       # Start required processes
-      start_supervised!({Lumainus.Conversion.Application.JobTracker, []})
+      start_supervised!({Medlum.Conversion.Application.JobTracker, []})
       :ok
     end
 
@@ -384,7 +384,7 @@ Update `config/config.exs`:
 
 ```elixir
 # Conversion System v2 Configuration
-config :lumainus, :conversion,
+config :medlum, :conversion,
   # Feature flag: enable v2 system
   use_v2: false,  # Set to true to enable v2 for new jobs
 
@@ -411,7 +411,7 @@ Update `config/runtime.exs`:
 ```elixir
 # Conversion v2 feature flag (override via env)
 if System.get_env("CONVERSION_USE_V2") == "true" do
-  config :lumainus, :conversion,
+  config :medlum, :conversion,
     use_v2: true
 end
 ```
@@ -422,11 +422,11 @@ end
 
 ### Step 4.1: Update IngestionProcessor
 
-Modify `lib/lumainus/documents/ingestion_processor.ex` to route through v2 when enabled:
+Modify `lib/medlum/documents/ingestion_processor.ex` to route through v2 when enabled:
 
 ```elixir
 # Add at top of module
-alias Lumainus.Conversion.Adapter, as: ConversionV2
+alias Medlum.Conversion.Adapter, as: ConversionV2
 
 # Find the function that calls Docling.enqueue and wrap it:
 
@@ -454,20 +454,20 @@ defp convert_pdf_v1(upload, opts) do
 end
 
 defp use_conversion_v2? do
-  Application.get_env(:lumainus, :conversion)[:use_v2] == true
+  Application.get_env(:medlum, :conversion)[:use_v2] == true
 end
 ```
 
 ### Step 4.2: Update Docling.Queue (Alternative Integration Point)
 
-If jobs go through `Lumainus.Docling.Queue`, modify `lib/lumainus/docling/queue.ex`:
+If jobs go through `Medlum.Docling.Queue`, modify `lib/medlum/docling/queue.ex`:
 
 ```elixir
 # In process_job/1 or similar function:
 
 defp do_convert(job) do
   if use_conversion_v2?() do
-    Lumainus.Conversion.Adapter.enqueue(
+    Medlum.Conversion.Adapter.enqueue(
       job.binary,
       Keyword.put(job.convert_opts, :timeout_ms, job.timeout_ms)
     )
@@ -478,7 +478,7 @@ defp do_convert(job) do
 end
 
 defp use_conversion_v2? do
-  Application.get_env(:lumainus, :conversion)[:use_v2] == true
+  Application.get_env(:medlum, :conversion)[:use_v2] == true
 end
 ```
 
@@ -488,11 +488,11 @@ end
 
 ### Step 5.1: Update ReportsLive for v2 Events
 
-In `lib/lumainus_web/live/reports_live.ex`, add v2 event subscription:
+In `lib/medlum_web/live/reports_live.ex`, add v2 event subscription:
 
 ```elixir
 # Add alias at top
-alias Lumainus.Conversion.Events, as: ConversionEvents
+alias Medlum.Conversion.Events, as: ConversionEvents
 
 # In mount or when starting a conversion:
 defp subscribe_to_conversion(job_id) do
@@ -532,7 +532,7 @@ def handle_info({:conversion_job, :failed, %{job_id: id, reason: reason}}, socke
 end
 
 defp use_conversion_v2? do
-  Application.get_env(:lumainus, :conversion)[:use_v2] == true
+  Application.get_env(:medlum, :conversion)[:use_v2] == true
 end
 ```
 
@@ -542,16 +542,16 @@ end
 
 ### Step 6.1: Create v2 Conversion Controller
 
-Create `lib/lumainus_web/controllers/api/v2/conversion_controller.ex`:
+Create `lib/medlum_web/controllers/api/v2/conversion_controller.ex`:
 
 ```elixir
-defmodule LumainusWeb.Api.V2.ConversionController do
-  use LumainusWeb, :controller
+defmodule MedlumWeb.Api.V2.ConversionController do
+  use MedlumWeb, :controller
 
-  alias Lumainus.Conversion.Service
-  alias Lumainus.Conversion.Events
+  alias Medlum.Conversion.Service
+  alias Medlum.Conversion.Events
 
-  action_fallback LumainusWeb.ApiFallbackController
+  action_fallback MedlumWeb.ApiFallbackController
 
   @doc "POST /api/v2/conversions"
   def create(conn, %{"file" => %Plug.Upload{} = upload} = params) do
@@ -702,12 +702,12 @@ end
 
 ### Step 6.2: Add Routes
 
-Update `lib/lumainus_web/router.ex`:
+Update `lib/medlum_web/router.ex`:
 
 ```elixir
 # Add after existing API scope
 
-scope "/api/v2", LumainusWeb.Api.V2 do
+scope "/api/v2", MedlumWeb.Api.V2 do
   pipe_through :api
 
   # Conversion endpoints
@@ -728,40 +728,40 @@ end
 ### Step 7.1: Verify Compilation
 
 ```bash
-wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /home/home/p/g/n/lumainus && mix compile --warnings-as-errors"
+wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /path/to/medlum && mix compile --warnings-as-errors"
 ```
 
 ### Step 7.2: Run All Conversion Tests
 
 ```bash
-wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /home/home/p/g/n/lumainus && mix test test/lumainus/conversion/"
+wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /path/to/medlum && mix test test/medlum/conversion/"
 ```
 
 ### Step 7.3: Manual IEx Verification
 
 ```bash
-wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /home/home/p/g/n/lumainus && iex -S mix"
+wsl -d ubuntu-dev bash -c ". /home/home/.asdf/asdf.sh && cd /path/to/medlum && iex -S mix"
 ```
 
 ```elixir
 # Check profiles are configured
-iex> Lumainus.Conversion.Service.profiles()
+iex> Medlum.Conversion.Service.profiles()
 [:standard, :enhanced]
 
 # Check availability (will depend on running backends)
-iex> Lumainus.Conversion.Service.available?(:standard)
+iex> Medlum.Conversion.Service.available?(:standard)
 false  # Expected if no backends running
 
 # Check feature flag
-iex> Application.get_env(:lumainus, :conversion)[:use_v2]
+iex> Application.get_env(:medlum, :conversion)[:use_v2]
 false
 
 # Enable v2 for testing
-iex> Application.put_env(:lumainus, :conversion, Keyword.put(Application.get_env(:lumainus, :conversion), :use_v2, true))
+iex> Application.put_env(:medlum, :conversion, Keyword.put(Application.get_env(:medlum, :conversion), :use_v2, true))
 :ok
 
 # Verify adapter works (with mock or bypass)
-iex> Lumainus.Conversion.Adapter.available?(:standard)
+iex> Medlum.Conversion.Adapter.available?(:standard)
 false  # Expected if no backends
 ```
 
@@ -770,7 +770,7 @@ false  # Expected if no backends
 Start Docling backend first:
 
 ```bash
-wsl -d ubuntu-dev bash -c "cd /home/home/p/g/n/lumainus && ./scripts/docling-compose.sh up"
+wsl -d ubuntu-dev bash -c "cd /path/to/medlum && ./scripts/docling-compose.sh up"
 ```
 
 Then test:
@@ -778,11 +778,11 @@ Then test:
 ```elixir
 # In IEx
 iex> pdf = File.read!("test/fixtures/sample.pdf")
-iex> {:ok, job} = Lumainus.Conversion.Service.submit(pdf, %{profile: :standard, filename: "test.pdf"})
+iex> {:ok, job} = Medlum.Conversion.Service.submit(pdf, %{profile: :standard, filename: "test.pdf"})
 iex> job.id
 "abc-123-..."
 
-iex> {:ok, status} = Lumainus.Conversion.Service.status(job.id)
+iex> {:ok, status} = Medlum.Conversion.Service.status(job.id)
 iex> status.state
 :processing
 ```
@@ -806,7 +806,7 @@ iex> status.state
 ```elixir
 # Tenant-specific feature flag
 defp use_conversion_v2?(tenant_id) do
-  canary_tenants = Application.get_env(:lumainus, :conversion)[:canary_tenants] || []
+  canary_tenants = Application.get_env(:medlum, :conversion)[:canary_tenants] || []
   tenant_id in canary_tenants
 end
 ```
@@ -818,7 +818,7 @@ end
 
 ```elixir
 defp use_conversion_v2?(tenant_id) do
-  rollout_pct = Application.get_env(:lumainus, :conversion)[:rollout_percentage] || 0
+  rollout_pct = Application.get_env(:medlum, :conversion)[:rollout_percentage] || 0
   :erlang.phash2(tenant_id, 100) < rollout_pct
 end
 ```
@@ -837,25 +837,25 @@ end
 
 ```elixir
 # Check health manager
-iex> Lumainus.Conversion.Infrastructure.HealthManager.status(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.HealthManager.status(:docker_cpu)
 :unhealthy
 
 # Check circuit breaker
-iex> Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker.state(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.Resilience.CircuitBreaker.state(:docker_cpu)
 :open
 
 # Force health check
-iex> Lumainus.Conversion.Infrastructure.HealthManager.check_now(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.HealthManager.check_now(:docker_cpu)
 ```
 
 ### No Backends Available
 
 ```elixir
 # Check backend configuration
-iex> Application.get_env(:lumainus, :conversion)[:backends]
+iex> Application.get_env(:medlum, :conversion)[:backends]
 
 # Check router
-iex> Lumainus.Conversion.Infrastructure.BackendRouter.backends_for_profile(:standard)
+iex> Medlum.Conversion.Infrastructure.BackendRouter.backends_for_profile(:standard)
 []  # Empty = no backends configured for this profile
 ```
 
@@ -863,10 +863,10 @@ iex> Lumainus.Conversion.Infrastructure.BackendRouter.backends_for_profile(:stan
 
 ```elixir
 # Verify PubSub subscription
-iex> Phoenix.PubSub.subscribe(LumainusWeb.PubSub, "conversion:job:#{job_id}")
+iex> Phoenix.PubSub.subscribe(MedlumWeb.PubSub, "conversion:job:#{job_id}")
 
 # Check events are being broadcast
-iex> Lumainus.Conversion.Events.broadcast_progress(%{id: job_id}, 50)
+iex> Medlum.Conversion.Events.broadcast_progress(%{id: job_id}, 50)
 ```
 
 ---
@@ -876,14 +876,14 @@ iex> Lumainus.Conversion.Events.broadcast_progress(%{id: job_id}, 50)
 | File | Action | Status |
 |------|--------|--------|
 | `priv/repo/migrations/*_create_conversion_jobs.exs` | Run migration | ⬜ |
-| `lib/lumainus/conversion/adapter.ex` | Create | ⬜ |
-| `test/lumainus/conversion/adapter_test.exs` | Create | ⬜ |
+| `lib/medlum/conversion/adapter.ex` | Create | ⬜ |
+| `test/medlum/conversion/adapter_test.exs` | Create | ⬜ |
 | `config/config.exs` | Add `use_v2` flag | ⬜ |
 | `config/runtime.exs` | Add env override | ⬜ |
-| `lib/lumainus/documents/ingestion_processor.ex` | Add v2 routing | ⬜ |
-| `lib/lumainus_web/live/reports_live.ex` | Add v2 event handlers | ⬜ |
-| `lib/lumainus_web/controllers/api/v2/conversion_controller.ex` | Create (optional) | ⬜ |
-| `lib/lumainus_web/router.ex` | Add v2 routes (optional) | ⬜ |
+| `lib/medlum/documents/ingestion_processor.ex` | Add v2 routing | ⬜ |
+| `lib/medlum_web/live/reports_live.ex` | Add v2 event handlers | ⬜ |
+| `lib/medlum_web/controllers/api/v2/conversion_controller.ex` | Create (optional) | ⬜ |
+| `lib/medlum_web/router.ex` | Add v2 routes (optional) | ⬜ |
 
 ---
 

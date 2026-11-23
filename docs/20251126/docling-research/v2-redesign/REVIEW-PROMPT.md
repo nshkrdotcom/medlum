@@ -1,6 +1,6 @@
 # Critical Review Prompt: Docling v2 Redesign
 
-**Purpose:** This prompt provides all context needed for an independent agent to critically review the v2 Docling integration redesign for the Lumainus medical reporting platform.
+**Purpose:** This prompt provides all context needed for an independent agent to critically review the v2 Docling integration redesign for the Medlum medical reporting platform.
 
 ---
 
@@ -26,59 +26,59 @@ Read these files to understand what exists today:
 
 #### Core Elixir Integration
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\docling.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\http.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\backend.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\setting.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\settings.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\queue.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\sse_consumer.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\docling.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\http.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\backend.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\setting.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\settings.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\queue.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\sse_consumer.ex
 ```
 
 #### Backend Implementations
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\backends\local.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\backends\remote.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\backends\vast_ai.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\backends\local.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\backends\remote.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\backends\vast_ai.ex
 ```
 
 #### Vast.ai Integration
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\vast_ai\instance_manager.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\vast_ai\auto_shutdown.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus\docling\vast_ai\activity_tracker.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\vast_ai\instance_manager.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\vast_ai\auto_shutdown.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum\docling\vast_ai\activity_tracker.ex
 ```
 
 #### Web/LiveView Integration
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus_web\live\reports_live.ex
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\lib\lumainus_web\live\admin\docling_settings_live.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum_web\live\reports_live.ex
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\lib\medlum_web\live\admin\docling_settings_live.ex
 ```
 
 #### Python Docling Service
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docling_service\app\main.py
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docling_service\Dockerfile.gpu
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docling_service\Dockerfile.gpu-base
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docling_service\app\main.py
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docling_service\Dockerfile.gpu
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docling_service\Dockerfile.gpu-base
 ```
 
 #### Docling Fork (if it exists)
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docling\docling\document_converter.py
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docling\pyproject.toml
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docling\docling\document_converter.py
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docling\pyproject.toml
 ```
 
 #### Configuration
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\config\config.exs
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\config\test.exs
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\config\config.exs
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\config\test.exs
 ```
 
 #### Scripts
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\scripts\docling-ports.env
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\scripts\docling-compose.sh
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docker-compose.yml
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\scripts\docling-ports.env
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\scripts\docling-compose.sh
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docker-compose.yml
 ```
 
 ### Phase 2: Read the Original Analysis
@@ -86,13 +86,13 @@ Read these files to understand what exists today:
 These documents analyzed the current state and identified problems:
 
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\00-overview.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\01-elixir-core.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\02-docker-deployment.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\03-docling-fork.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\04-testing.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\05-web-liveview.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\06-extraction-analysis.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\00-overview.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\01-elixir-core.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\02-docker-deployment.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\03-docling-fork.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\04-testing.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\05-web-liveview.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\06-extraction-analysis.md
 ```
 
 ### Phase 3: Review the Proposed Redesign
@@ -100,24 +100,24 @@ These documents analyzed the current state and identified problems:
 These are the documents you are critically reviewing:
 
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\00-redesign-overview.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\01-architecture.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\02-resilience.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\03-telemetry.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\04-testing.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\05-ui-abstraction.md
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\06-migration-plan.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\00-redesign-overview.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\01-architecture.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\02-resilience.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\03-telemetry.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\04-testing.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\05-ui-abstraction.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\06-migration-plan.md
 ```
 
 ---
 
 ## Context
 
-### What is Lumainus?
+### What is Medlum?
 A medical reporting platform that processes PDF documents (medical records, lab reports, etc.) and converts them to structured markdown for AI-assisted report generation.
 
 ### What is Docling?
-An open-source Python library (from IBM) that performs PDF-to-markdown conversion with OCR, table extraction, and layout analysis. Lumainus uses a forked version with custom telemetry.
+An open-source Python library (from IBM) that performs PDF-to-markdown conversion with OCR, table extraction, and layout analysis. Medlum uses a forked version with custom telemetry.
 
 ### Current Architecture
 - 5 backends on ports 8040-8044 (native CPU/GPU, Docker CPU/GPU, Vast.ai cloud)
@@ -339,7 +339,7 @@ Write a comprehensive review document that includes:
 
 Write your review to:
 ```
-\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docs\20251126\docling-research\v2-redesign\REVIEW-RESPONSE.md
+\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docs\20251126\docling-research\v2-redesign\REVIEW-RESPONSE.md
 ```
 
 ---

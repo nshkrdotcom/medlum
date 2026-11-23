@@ -19,10 +19,10 @@ We'll build the new system without touching the old one, then migrate when ready
 
 ### 1.1 New Settings Schema
 
-**Create:** `lib/lumainus/docling/settings_v2.ex`
+**Create:** `lib/medlum/docling/settings_v2.ex`
 
 ```elixir
-defmodule Lumainus.Docling.SettingsV2 do
+defmodule Medlum.Docling.SettingsV2 do
   # New simplified schema (see 02-SIMPLIFIED-ARCHITECTURE.md)
   # Completely separate from existing settings
 end
@@ -30,7 +30,7 @@ end
 
 **Migration:**
 ```elixir
-defmodule Lumainus.Repo.Migrations.CreateDoclingSettingsV2 do
+defmodule Medlum.Repo.Migrations.CreateDoclingSettingsV2 do
   use Ecto.Migration
 
   def change do
@@ -62,7 +62,7 @@ end
 
 ### 1.2 Local Manager
 
-**Create:** `lib/lumainus/backends/local_manager.ex`
+**Create:** `lib/medlum/backends/local_manager.ex`
 
 **Tasks:**
 - [ ] Create GenServer structure
@@ -87,7 +87,7 @@ LocalManager.get_endpoint()
 
 ### 1.3 Cloud Manager
 
-**Create:** `lib/lumainus/backends/cloud_manager.ex`
+**Create:** `lib/medlum/backends/cloud_manager.ex`
 
 **Tasks:**
 - [ ] Create GenServer structure
@@ -113,7 +113,7 @@ CloudManager.health()
 
 ### 1.4 Backend Router
 
-**Create:** `lib/lumainus/backends/router.ex`
+**Create:** `lib/medlum/backends/router.ex`
 
 **Tasks:**
 - [ ] Create module with `get_endpoint/1`
@@ -133,7 +133,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 2.1 Simplified Processor
 
-**Create:** `lib/lumainus/documents/processor_v2.ex`
+**Create:** `lib/medlum/documents/processor_v2.ex`
 
 **Tasks:**
 - [ ] Create process/1 function
@@ -147,7 +147,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 2.2 Oban Worker
 
-**Create:** `lib/lumainus/workers/document_worker_v2.ex`
+**Create:** `lib/medlum/workers/document_worker_v2.ex`
 
 **Tasks:**
 - [ ] Create Oban worker
@@ -159,7 +159,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 2.3 Documents Context Extension
 
-**Modify:** `lib/lumainus/documents.ex` (add functions, don't change existing)
+**Modify:** `lib/medlum/documents.ex` (add functions, don't change existing)
 
 **Tasks:**
 - [ ] Add `queue_processing_v2/1`
@@ -173,7 +173,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 3.1 LiveView
 
-**Create:** `lib/lumainus_web/live/upload_live.ex`
+**Create:** `lib/medlum_web/live/upload_live.ex`
 
 **Tasks:**
 - [ ] Create mount with subscriptions
@@ -199,7 +199,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 3.3 Router
 
-**Modify:** `lib/lumainus_web/router.ex`
+**Modify:** `lib/medlum_web/router.ex`
 
 **Tasks:**
 - [ ] Add `/upload` route (new, separate from /reports)
@@ -211,7 +211,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 4.1 Unit Tests
 
-**Create:** `test/lumainus/backends/`
+**Create:** `test/medlum/backends/`
 
 **Tasks:**
 - [ ] LocalManager tests (with mocked Docker)
@@ -224,7 +224,7 @@ Router.get_endpoint(force_cloud: true)
 
 ### 4.2 Integration Tests
 
-**Create:** `test/lumainus_web/live/upload_live_test.exs`
+**Create:** `test/medlum_web/live/upload_live_test.exs`
 
 **Tasks:**
 - [ ] Upload flow test
@@ -255,12 +255,12 @@ Router.get_endpoint(force_cloud: true)
 
 ### 5.1 Feature Flag
 
-**Create:** `lib/lumainus/feature_flags.ex`
+**Create:** `lib/medlum/feature_flags.ex`
 
 ```elixir
-defmodule Lumainus.FeatureFlags do
+defmodule Medlum.FeatureFlags do
   def use_v2_docling? do
-    Application.get_env(:lumainus, :use_v2_docling, false)
+    Application.get_env(:medlum, :use_v2_docling, false)
   end
 end
 ```
@@ -268,17 +268,17 @@ end
 **Config:**
 ```elixir
 # config/dev.exs
-config :lumainus, use_v2_docling: true
+config :medlum, use_v2_docling: true
 
 # config/prod.exs
-config :lumainus, use_v2_docling: System.get_env("USE_V2_DOCLING") == "true"
+config :medlum, use_v2_docling: System.get_env("USE_V2_DOCLING") == "true"
 ```
 
 ---
 
 ### 5.2 Supervision Tree Update
 
-**Modify:** `lib/lumainus/application.ex`
+**Modify:** `lib/medlum/application.ex`
 
 ```elixir
 def start(_type, _args) do
@@ -292,8 +292,8 @@ end
 defp v2_children do
   if FeatureFlags.use_v2_docling?() do
     [
-      Lumainus.Backends.LocalManager,
-      Lumainus.Backends.CloudManager
+      Medlum.Backends.LocalManager,
+      Medlum.Backends.CloudManager
     ]
   else
     []
@@ -310,9 +310,9 @@ end
 Or: Script to copy relevant settings:
 ```elixir
 def migrate_settings do
-  v1 = Lumainus.Docling.Settings.get()
+  v1 = Medlum.Docling.Settings.get()
 
-  %Lumainus.Docling.SettingsV2{}
+  %Medlum.Docling.SettingsV2{}
   |> SettingsV2.changeset(%{
     mode: if(v1.default_mode == "cloud", do: "cloud", else: "local"),
     local_endpoint: v1.docker_cpu_url,
@@ -344,7 +344,7 @@ live "/reports", ReportsLive, :index  # Keep for now
 
 **Delete:**
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── setting.ex              # Old schema
 ├── settings.ex             # Old settings module
 ├── health_manager.ex       # Replaced
@@ -355,7 +355,7 @@ lib/lumainus/docling/
 │   ├── auto_shutdown.ex
 │   └── provisioning_state.ex
 
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── backend_router.ex       # Replaced
 ├── processing_profile.ex   # Profiles removed
 └── cloud_status.ex         # Simplified
@@ -440,7 +440,7 @@ end
 ### New Files to Create
 
 ```
-lib/lumainus/
+lib/medlum/
 ├── backends/
 │   ├── local_manager.ex      # NEW
 │   ├── cloud_manager.ex      # NEW
@@ -453,14 +453,14 @@ lib/lumainus/
 │   └── document_worker_v2.ex # NEW
 └── feature_flags.ex          # NEW
 
-lib/lumainus_web/
+lib/medlum_web/
 └── live/
     └── upload_live.ex        # NEW
 
 assets/css/
 └── upload.css                # NEW
 
-test/lumainus/
+test/medlum/
 ├── backends/
 │   ├── local_manager_test.exs
 │   ├── cloud_manager_test.exs
@@ -468,7 +468,7 @@ test/lumainus/
 └── documents/
     └── processor_v2_test.exs
 
-test/lumainus_web/live/
+test/medlum_web/live/
 └── upload_live_test.exs
 
 priv/repo/migrations/
@@ -478,7 +478,7 @@ priv/repo/migrations/
 ### Files to Eventually Delete
 
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── setting.ex
 ├── settings.ex
 ├── health_manager.ex
@@ -489,7 +489,7 @@ lib/lumainus/docling/
 │   ├── auto_shutdown.ex
 │   └── provisioning_state.ex
 
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── backend_router.ex
 ├── processing_profile.ex
 └── cloud_status.ex

@@ -87,11 +87,11 @@ Replace `/prompts` with a comprehensive "LLM Config Studio" at `/admin/llm-confi
 ### Component Implementation
 
 ```elixir
-defmodule LumainusWeb.Admin.LlmConfigLive do
-  use LumainusWeb, :live_view
+defmodule MedlumWeb.Admin.LlmConfigLive do
+  use MedlumWeb, :live_view
 
-  alias Lumainus.Reports
-  alias Lumainus.Reports.SchemaValidator
+  alias Medlum.Reports
+  alias Medlum.Reports.SchemaValidator
 
   @impl true
   def mount(_params, _session, socket) do
@@ -288,7 +288,7 @@ end
 
 ```elixir
 # router.ex
-scope "/admin", LumainusWeb.Admin do
+scope "/admin", MedlumWeb.Admin do
   pipe_through [:browser, :require_authenticated_user, :require_admin]
 
   live "/llm-config", LlmConfigLive, :index

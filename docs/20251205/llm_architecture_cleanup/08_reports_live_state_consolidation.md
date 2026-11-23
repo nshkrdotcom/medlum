@@ -76,9 +76,9 @@ disabled={MapSet.member?(@running_sections, to_string(section_entry.section.id))
 ### Consolidate into Single Derived View
 
 ```elixir
-# lib/lumainus_web/live/reports_live.ex
+# lib/medlum_web/live/reports_live.ex
 
-defmodule LumainusWeb.ReportsLive do
+defmodule MedlumWeb.ReportsLive do
   # Single source of truth
   # @sections - always the canonical section data from DB
   # @view_mode - :normal | {:debug, run_id}
@@ -157,9 +157,9 @@ assign(socket, :view_mode, :normal)
 ### Centralize ID Handling
 
 ```elixir
-# lib/lumainus_web/live/reports_live/section_helpers.ex
+# lib/medlum_web/live/reports_live/section_helpers.ex
 
-defmodule LumainusWeb.ReportsLive.SectionHelpers do
+defmodule MedlumWeb.ReportsLive.SectionHelpers do
   @moduledoc """
   Helper functions for section state management.
   """
@@ -198,16 +198,16 @@ end
 ### State Transition Functions
 
 ```elixir
-# lib/lumainus_web/live/reports_live/state.ex
+# lib/medlum_web/live/reports_live/state.ex
 
-defmodule LumainusWeb.ReportsLive.State do
+defmodule MedlumWeb.ReportsLive.State do
   @moduledoc """
   State transition functions for ReportsLive.
 
   All section state changes go through here to ensure consistency.
   """
 
-  alias LumainusWeb.ReportsLive.SectionHelpers
+  alias MedlumWeb.ReportsLive.SectionHelpers
 
   @doc """
   Mark sections as running (about to start execution).
@@ -316,9 +316,9 @@ end
 
 ## Files to Modify
 
-- `lib/lumainus_web/live/reports_live.ex` - Main LiveView
-- `lib/lumainus_web/live/reports_live/section_helpers.ex` - New
-- `lib/lumainus_web/live/reports_live/state.ex` - New
+- `lib/medlum_web/live/reports_live.ex` - Main LiveView
+- `lib/medlum_web/live/reports_live/section_helpers.ex` - New
+- `lib/medlum_web/live/reports_live/state.ex` - New
 
 ## Testing
 

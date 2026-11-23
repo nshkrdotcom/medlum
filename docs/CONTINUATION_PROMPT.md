@@ -1,4 +1,4 @@
-# Continuation Prompt — Docling Telemetry Integration (Lumainus)
+# Continuation Prompt — Docling Telemetry Integration (Medlum)
 
 ## Context (state as of 2025-11-20)
 - Docling service (FastAPI) now has:
@@ -9,13 +9,13 @@
   - Config: `config/config.exs` sets `:docling` `queue_mode: :http_queue`; test env stays inline.
   - Ingestion pipeline dedupes progress updates; LiveView handles `DateTime` timeouts without crashing.
   - Currently still polling `/jobs/:id/status` every ~1s (no SSE consumer yet); progress DB writes are suppressed unless values change, but logs remain noisy.
-- Docling fork installed editable (`docling` version tagged `2.63.0+lumainus`) and docling_service run script installs it by default.
+- Docling fork installed editable (`docling` version tagged `2.63.0+medlum`) and docling_service run script installs it by default.
 
 ## Required reading before coding
 - `docling_service/app/main.py` (SSE + status payloads)
-- `lib/lumainus/docling/queue.ex` (polling client)
-- `lib/lumainus/documents/ingestion_processor.ex` (progress handling)
-- `lib/lumainus_web/live/reports_live.ex` (ingestion UI updates + timeout handling)
+- `lib/medlum/docling/queue.ex` (polling client)
+- `lib/medlum/documents/ingestion_processor.ex` (progress handling)
+- `lib/medlum_web/live/reports_live.ex` (ingestion UI updates + timeout handling)
 - Configs: `config/config.exs` (queue mode), `config/test.exs` (inline mode for tests)
 - Addenda: `AGENTS.md` + Telemetry Addendum, `docs/20251120/telemetry.md`
 

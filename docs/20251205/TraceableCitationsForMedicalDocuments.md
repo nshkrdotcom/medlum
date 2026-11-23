@@ -1,6 +1,6 @@
 # Traceable Citations for Medical Documents — Ideal Workflow
 
-Based on the existing Lumainus architecture and the Medlum use case (physician burnout, EMR automation), here's an ideal workflow that makes every clinical claim defensible and auditable.
+Based on the existing Medlum architecture and the Medlum use case (physician burnout, EMR automation), here's an ideal workflow that makes every clinical claim defensible and auditable.
 
 ---
 
@@ -149,7 +149,7 @@ Based on the existing Lumainus architecture and the Medlum use case (physician b
 ## 4. Validation: The "Grounding Check"
 
 ```elixir
-defmodule Lumainus.AI.CitationValidator do
+defmodule Medlum.AI.CitationValidator do
   @doc """
   Validates that a citation actually grounds the claim it's attached to.
   """

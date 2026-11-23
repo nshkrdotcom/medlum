@@ -30,9 +30,9 @@ Model specs constructed inline in:
 ### Central Model Registry
 
 ```elixir
-# lib/lumainus/ai/models.ex
+# lib/medlum/ai/models.ex
 
-defmodule Lumainus.AI.Models do
+defmodule Medlum.AI.Models do
   @moduledoc """
   Central registry for LLM model configurations.
 
@@ -166,16 +166,16 @@ end
 ### Environment-Based Overrides
 
 ```elixir
-# lib/lumainus/ai/models.ex
+# lib/medlum/ai/models.ex
 
-defmodule Lumainus.AI.Models do
+defmodule Medlum.AI.Models do
   @compile_time_models %{...}
 
   @doc """
   Get model with runtime override support.
   """
   def get(use_case) do
-    case Application.get_env(:lumainus, :model_overrides, %{})[use_case] do
+    case Application.get_env(:medlum, :model_overrides, %{})[use_case] do
       nil ->
         Map.get(@compile_time_models, use_case)
         |> case do
@@ -202,13 +202,13 @@ end
 ```elixir
 # config/config.exs
 
-config :lumainus, :model_overrides, %{
+config :medlum, :model_overrides, %{
   # Override for testing/development
   # report_section: "google/gemini-1.5-flash"
 }
 
 # config/prod.exs
-config :lumainus, :model_overrides, %{
+config :medlum, :model_overrides, %{
   # Production overrides if needed
 }
 ```
@@ -216,9 +216,9 @@ config :lumainus, :model_overrides, %{
 ### Update SectionRunner
 
 ```elixir
-# lib/lumainus/ai/section_runner.ex
+# lib/medlum/ai/section_runner.ex
 
-alias Lumainus.AI.Models
+alias Medlum.AI.Models
 
 defp get_model_spec(section_run, _options) do
   use_case =
@@ -244,7 +244,7 @@ end
 
 ### Phase 1: Create Registry
 
-1. Create `Lumainus.AI.Models` module
+1. Create `Medlum.AI.Models` module
 2. Define all current use cases
 3. Add to docs
 
@@ -262,9 +262,9 @@ end
 
 ## Files to Modify
 
-- `lib/lumainus/ai/models.ex` - New module
-- `lib/lumainus/ai/section_runner.ex` - Use registry
-- `lib/lumainus/llm.ex` - Validate against registry
+- `lib/medlum/ai/models.ex` - New module
+- `lib/medlum/ai/section_runner.ex` - Use registry
+- `lib/medlum/llm.ex` - Validate against registry
 - `config/config.exs` - Override config
 
 ## Testing

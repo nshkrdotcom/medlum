@@ -14,14 +14,14 @@
 ## Implementation Steps (sequence)
 
 1) **Backend Abstraction Finalization**
-   - Land the `Lumainus.Docling.Backend` behaviour and `Lumainus.Docling.HTTP` client (from the 20251123 design).
+   - Land the `Medlum.Docling.Backend` behaviour and `Medlum.Docling.HTTP` client (from the 20251123 design).
    - Implement and register two backends: `Local` (CPU) and `Remote` (GPU/Vast). `Remote` reads `:docling, :remote_url`.
-   - Wire `Lumainus.Docling` facade to select backend by name and keep a default (`:local`).
+   - Wire `Medlum.Docling` facade to select backend by name and keep a default (`:local`).
 
 2) **Configuration**
    - Add config keys:
      ```elixir
-     config :lumainus, :docling,
+     config :medlum, :docling,
        backend: :local,
        timeout_ms: 1_200_000,
        local_url: "http://127.0.0.1:8042",
@@ -37,7 +37,7 @@
    - Ensure the selected backend is injected into ingestion job opts (see step 4).
 
 4) **Ingestion Pipeline Wiring**
-   - When queuing ingestion (`Documents.queue_ingestion/…`), pass `backend` from user setting into `Lumainus.Docling.enqueue/2` or `convert/2`.
+   - When queuing ingestion (`Documents.queue_ingestion/…`), pass `backend` from user setting into `Medlum.Docling.enqueue/2` or `convert/2`.
    - Store `backend` on `ingestion_jobs` (add column) and propagate to `DocumentUpload.metadata` for later display.
    - In `IngestionProcessor.await`, respect the job’s backend module when calling `await/2`.
 
@@ -60,7 +60,7 @@
    - Add a small info note explaining that “Fast” incurs GPU cost.
 
 8) **Health & Fallback**
-   - `Lumainus.Docling.health/0` should check the currently selected backend. If fast backend is unhealthy, prompt the user to switch back to Standard, and automatically fall back to local for new jobs.
+   - `Medlum.Docling.health/0` should check the currently selected backend. If fast backend is unhealthy, prompt the user to switch back to Standard, and automatically fall back to local for new jobs.
 
 9) **Testing Checklist**
    - Unit: user setting persists; backend selection returns expected module.
@@ -96,7 +96,7 @@
 ## What You Need To Do (summary)
 
 1. Add migrations: `users.docling_backend` default “local”; `ingestion_jobs.backend` (nullable default “local”).
-2. Implement backend behaviour + HTTP client + Local/Remote backends; wire `Lumainus.Docling` facade to select backend and respect job.backend in await.
+2. Implement backend behaviour + HTTP client + Local/Remote backends; wire `Medlum.Docling` facade to select backend and respect job.backend in await.
 3. Add user-setting toggle in `/reports`, persist choice, and pass it into ingestion jobs.
 4. Wire basic cost tracking fields (backend, pages, duration) and a simple admin summary.
 5. Provision Vast instance and set `DOCLING_REMOTE_URL`; test both modes; add health/fallback logic.

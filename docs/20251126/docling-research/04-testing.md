@@ -1,13 +1,13 @@
 # Docling Testing Infrastructure
 
 **Date:** November 26, 2025
-**Component:** `test/lumainus/docling/`
+**Component:** `test/medlum/docling/`
 
 ---
 
 ## Executive Summary
 
-The lumainus project has a well-structured testing infrastructure for Docling PDF-to-Markdown conversion. The tests are organized into unit tests, integration tests, and system-level tests, with extensive use of mocking via the Bypass library.
+The medlum project has a well-structured testing infrastructure for Docling PDF-to-Markdown conversion. The tests are organized into unit tests, integration tests, and system-level tests, with extensive use of mocking via the Bypass library.
 
 ---
 
@@ -16,7 +16,7 @@ The lumainus project has a well-structured testing infrastructure for Docling PD
 ### Core Docling Tests
 
 ```
-test/lumainus/docling/
+test/medlum/docling/
 ├── docling_test.exs                    # Main facade module tests
 ├── http_test.exs                       # HTTP client tests
 ├── health_check_worker_test.exs        # Health monitoring
@@ -31,7 +31,7 @@ test/lumainus/docling/
 ### Related Document Processing Tests
 
 ```
-test/lumainus/documents/
+test/medlum/documents/
 ├── docling_ingestion_worker_test.exs   # Job processing worker
 ├── ingestion_processor_test.exs        # High-level ingestion pipeline
 ├── ingestion_job_lifecycle_test.exs    # Job state transitions
@@ -78,7 +78,7 @@ end
 
 **File:** `docling_test.exs`
 
-Tests the main `Lumainus.Docling` facade module:
+Tests the main `Medlum.Docling` facade module:
 - Backend resolution (`backend/0`)
 - Configuration loading
 - Capability detection
@@ -87,15 +87,15 @@ Tests the main `Lumainus.Docling` facade module:
 **Key test patterns:**
 ```elixir
 test "returns configured backend" do
-  original_config = Application.get_env(:lumainus, :docling, [])
-  Application.put_env(:lumainus, :docling,
+  original_config = Application.get_env(:medlum, :docling, [])
+  Application.put_env(:medlum, :docling,
     Keyword.put(original_config, :backend, :remote))
 
   on_exit(fn ->
-    Application.put_env(:lumainus, :docling, original_config)
+    Application.put_env(:medlum, :docling, original_config)
   end)
 
-  assert Docling.backend() == Lumainus.Docling.Backends.Remote
+  assert Docling.backend() == Medlum.Docling.Backends.Remote
 end
 ```
 
@@ -144,12 +144,12 @@ setup do
   bypass = Bypass.open()
   base_url = "http://localhost:#{bypass.port}"
 
-  original_config = Application.get_env(:lumainus, :docling, [])
-  Application.put_env(:lumainus, :docling,
+  original_config = Application.get_env(:medlum, :docling, [])
+  Application.put_env(:medlum, :docling,
     Keyword.put(original_config, :local_url, base_url))
 
   on_exit(fn ->
-    Application.put_env(:lumainus, :docling, original_config)
+    Application.put_env(:medlum, :docling, original_config)
   end)
 
   {:ok, bypass: bypass, base_url: base_url}
@@ -182,8 +182,8 @@ new_config = Keyword.put(original_config, :vast_ai,
 defp create_test_tenant do
   slug = "test-tenant-#{System.unique_integer([:positive])}"
 
-  %Lumainus.Tenancy.Tenant{}
-  |> Lumainus.Tenancy.Tenant.changeset(%{name: "Test Tenant", slug: slug})
+  %Medlum.Tenancy.Tenant{}
+  |> Medlum.Tenancy.Tenant.changeset(%{name: "Test Tenant", slug: slug})
   |> Repo.insert!()
 end
 
@@ -233,7 +233,7 @@ use ExUnit.Case, async: false  # Backend tests (Bypass port management)
 ### 4.2 Test Configuration (config/test.exs)
 
 ```elixir
-config :lumainus, :docling,
+config :medlum, :docling,
   queue_mode: :inline,  # Oban runs jobs inline
   default_mode: :local,
   active_local_backend: :docker_cpu,

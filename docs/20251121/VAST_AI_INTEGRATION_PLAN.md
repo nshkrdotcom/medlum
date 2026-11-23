@@ -243,7 +243,7 @@ sudo ufw allow from 127.0.0.1 to any port 8042
 ### 4.1 Config Management
 Update `config/config.exs`:
 ```elixir
-config :lumainus, :docling,
+config :medlum, :docling,
   # Dev: localhost tunnel, Prod: localhost tunnel (both use 8042)
   base_url: System.get_env("DOCLING_BASE_URL", "http://127.0.0.1:8042"),
   request_timeout: 1_200_000,
@@ -251,9 +251,9 @@ config :lumainus, :docling,
 ```
 
 ### 4.2 Health Check GenServer
-Create `lib/lumainus/docling/health_monitor.ex`:
+Create `lib/medlum/docling/health_monitor.ex`:
 ```elixir
-defmodule Lumainus.Docling.HealthMonitor do
+defmodule Medlum.Docling.HealthMonitor do
   use GenServer
   require Logger
 
@@ -267,7 +267,7 @@ defmodule Lumainus.Docling.HealthMonitor do
   end
 
   def handle_info(:check_health, state) do
-    config = Application.get_env(:lumainus, :docling)
+    config = Application.get_env(:medlum, :docling)
     url = "#{config[:base_url]}/health"
     
     healthy = case Req.get(url, receive_timeout: 5000) do
@@ -296,7 +296,7 @@ cd docling_service && ./run.sh
 
 # Terminal 2: Test from Elixir
 iex -S mix phx.server
-Lumainus.Docling.Queue.submit_pdf("/path/to/test.pdf")
+Medlum.Docling.Queue.submit_pdf("/path/to/test.pdf")
 ```
 
 ### 5.2 Vast.ai Integration Testing
@@ -321,8 +321,8 @@ curl http://localhost:8042/health
 
 # Check Elixir connection
 ssh prod-server
-cd /app && bin/lumainus remote
-Lumainus.Docling.Queue.submit_pdf(...)
+cd /app && bin/medlum remote
+Medlum.Docling.Queue.submit_pdf(...)
 ```
 
 ## Phase 6: Cost Management & Monitoring

@@ -18,7 +18,7 @@ Existing tenants have `report_section_templates` with minimal configuration. The
 
 ```elixir
 # priv/repo/migrations/20251205000100_add_llm_config_fields.exs
-defmodule Lumainus.Repo.Migrations.AddLlmConfigFields do
+defmodule Medlum.Repo.Migrations.AddLlmConfigFields do
   use Ecto.Migration
 
   def change do
@@ -74,11 +74,11 @@ end
 
 ```elixir
 # priv/repo/migrations/20251205000200_backfill_llm_defaults.exs
-defmodule Lumainus.Repo.Migrations.BackfillLlmDefaults do
+defmodule Medlum.Repo.Migrations.BackfillLlmDefaults do
   use Ecto.Migration
 
   @default_system_prompt """
-  You are Lumainus, a clinical documentation system.
+  You are Medlum, a clinical documentation system.
   Produce structured markdown with inline citations like [doc-001].
   Return JSON that matches the provided schema exactly.
   """
@@ -124,7 +124,7 @@ end
 
 - Extract `Reports.Blueprints` and point seeding/helper code to it.
 - Add `SchemaValidator` to `ReportSectionTemplate` changesets (and any template-level schema entry points).
-- Extend `Lumainus.AI.options/1` and `Lumainus.LLM.build_request_opts/3` to honor new fields (`stop_sequences`, penalties, fallback provider/model, response_mime_type, retries).
+- Extend `Medlum.AI.options/1` and `Medlum.LLM.build_request_opts/3` to honor new fields (`stop_sequences`, penalties, fallback provider/model, response_mime_type, retries).
 - Establish precedence: section column → template default (`default_prompt_options`, template `system_prompt`) → application config.
 
 ### Phase 4: UI Deployment
@@ -197,11 +197,11 @@ If gradual rollout desired:
 
 ```elixir
 # config/runtime.exs
-config :lumainus, :features,
+config :medlum, :features,
   llm_config_studio: System.get_env("FEATURE_LLM_CONFIG_STUDIO", "false") == "true"
 
 # In router
-if Application.get_env(:lumainus, :features)[:llm_config_studio] do
+if Application.get_env(:medlum, :features)[:llm_config_studio] do
   live "/admin/llm-config", LlmConfigLive, :index
 end
 ```

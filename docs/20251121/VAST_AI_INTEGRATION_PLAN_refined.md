@@ -310,20 +310,20 @@ if __name__ == "__main__":
 ### 5.1 Update Config
 ```elixir
 # config/config.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   base_url: System.get_env("DOCLING_BASE_URL", "http://127.0.0.1:8042"),
   request_timeout: 1_200_000,
   retry_attempts: 3
 
 # config/runtime.exs (for production)
-config :lumainus, :docling,
+config :medlum, :docling,
   base_url: System.fetch_env!("DOCLING_BASE_URL")
 ```
 
 ### 5.2 Health Monitor
 ```elixir
-# lib/lumainus/docling/health_monitor.ex
-defmodule Lumainus.Docling.HealthMonitor do
+# lib/medlum/docling/health_monitor.ex
+defmodule Medlum.Docling.HealthMonitor do
   use GenServer
   require Logger
 
@@ -355,15 +355,15 @@ defmodule Lumainus.Docling.HealthMonitor do
   end
 
   defp schedule_check, do: Process.send_after(self(), :check, @check_interval)
-  defp docling_url, do: Application.get_env(:lumainus, :docling)[:base_url]
+  defp docling_url, do: Application.get_env(:medlum, :docling)[:base_url]
 end
 ```
 
-Add to supervision tree in `lib/lumainus/application.ex`:
+Add to supervision tree in `lib/medlum/application.ex`:
 ```elixir
 children = [
   # ...
-  Lumainus.Docling.HealthMonitor,
+  Medlum.Docling.HealthMonitor,
 ]
 ```
 
@@ -380,7 +380,7 @@ python manage_vast.py provision
 # Terminal 2: Update Elixir and test
 export DOCLING_BASE_URL="http://45.123.45.67:8042"
 iex -S mix phx.server
-Lumainus.Docling.Queue.submit_pdf("/path/to/test.pdf")
+Medlum.Docling.Queue.submit_pdf("/path/to/test.pdf")
 ```
 
 ### 6.2 Production Setup
@@ -393,14 +393,14 @@ export VAST_API_KEY="prod-key"
 export DOCLING_BASE_URL="http://vast-instance-ip:8042"
 
 # Provision instance (one-time or on-demand)
-cd /opt/lumainus/docling_service
+cd /opt/medlum/docling_service
 python manage_vast.py provision
 
 # Update .env or systemd service
-echo "DOCLING_BASE_URL=http://vast-ip:8042" >> /opt/lumainus/.env
+echo "DOCLING_BASE_URL=http://vast-ip:8042" >> /opt/medlum/.env
 
 # Restart Elixir app
-systemctl restart lumainus
+systemctl restart medlum
 ```
 
 ### 6.3 Cost Management Script
@@ -445,7 +445,7 @@ python manage_vast.py provision
 # 4. Test from Elixir
 export DOCLING_BASE_URL="http://vast-ip:8042"
 iex -S mix
-Lumainus.Docling.Queue.submit_pdf("/path/to/test.pdf")
+Medlum.Docling.Queue.submit_pdf("/path/to/test.pdf")
 
 # 5. Monitor logs (SSH to Vast instance)
 vastai ssh-url <instance-id>

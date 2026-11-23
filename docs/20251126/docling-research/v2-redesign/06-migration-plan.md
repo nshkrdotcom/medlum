@@ -41,30 +41,30 @@ Week 1          Week 2          Week 3          Week 4          Week 5
 #### 1.1 Create Directory Structure
 
 ```bash
-mkdir -p lib/lumainus/conversion/{application,infrastructure/{backends,resilience,http,telemetry},adapters}
-mkdir -p test/lumainus/conversion/{application,infrastructure}
+mkdir -p lib/medlum/conversion/{application,infrastructure/{backends,resilience,http,telemetry},adapters}
+mkdir -p test/medlum/conversion/{application,infrastructure}
 ```
 
 #### 1.2 Implement Domain Layer
 
 ```elixir
-# lib/lumainus/conversion/job.ex
-# lib/lumainus/conversion/job_status.ex
-# lib/lumainus/conversion/processing_profile.ex
-# lib/lumainus/conversion/policy.ex
+# lib/medlum/conversion/job.ex
+# lib/medlum/conversion/job_status.ex
+# lib/medlum/conversion/processing_profile.ex
+# lib/medlum/conversion/policy.ex
 ```
 
 **Tests:**
 ```elixir
-# test/lumainus/conversion/job_test.exs
-# test/lumainus/conversion/job_status_test.exs
-# test/lumainus/conversion/policy_test.exs
+# test/medlum/conversion/job_test.exs
+# test/medlum/conversion/job_status_test.exs
+# test/medlum/conversion/policy_test.exs
 ```
 
 #### 1.3 Create Service Facade (Dual Path)
 
 ```elixir
-defmodule Lumainus.Conversion.Service do
+defmodule Medlum.Conversion.Service do
   @moduledoc """
   New conversion service with feature flag for v1/v2 path.
   """
@@ -79,12 +79,12 @@ defmodule Lumainus.Conversion.Service do
   end
 
   defp use_v2? do
-    Application.get_env(:lumainus, :conversion_v2_enabled, false)
+    Application.get_env(:medlum, :conversion_v2_enabled, false)
   end
 
   defp v1_submit(binary, opts) do
     # Wrap existing Docling.enqueue/2 call
-    Lumainus.Docling.enqueue(binary, convert_opts_v1(opts))
+    Medlum.Docling.enqueue(binary, convert_opts_v1(opts))
   end
 
   defp v2_submit(binary, opts) do
@@ -98,10 +98,10 @@ end
 
 ```elixir
 # config/config.exs
-config :lumainus, :conversion_v2_enabled, false
+config :medlum, :conversion_v2_enabled, false
 
 # config/dev.exs
-config :lumainus, :conversion_v2_enabled, System.get_env("CONVERSION_V2") == "1"
+config :medlum, :conversion_v2_enabled, System.get_env("CONVERSION_V2") == "1"
 ```
 
 ### Deliverables
@@ -113,10 +113,10 @@ config :lumainus, :conversion_v2_enabled, System.get_env("CONVERSION_V2") == "1"
 ### Verification
 ```bash
 # Run new tests
-mix test test/lumainus/conversion/
+mix test test/medlum/conversion/
 
 # Verify v1 path still works
-CONVERSION_V2=0 mix test test/lumainus/docling/
+CONVERSION_V2=0 mix test test/medlum/docling/
 ```
 
 ---
@@ -134,35 +134,35 @@ CONVERSION_V2=0 mix test test/lumainus/docling/
 #### 2.1 Circuit Breaker
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/resilience/circuit_breaker.ex
-# test/lumainus/conversion/infrastructure/circuit_breaker_test.exs
+# lib/medlum/conversion/infrastructure/resilience/circuit_breaker.ex
+# test/medlum/conversion/infrastructure/circuit_breaker_test.exs
 ```
 
 #### 2.2 Retry Policy
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/resilience/retry_policy.ex
-# test/lumainus/conversion/infrastructure/retry_policy_test.exs
+# lib/medlum/conversion/infrastructure/resilience/retry_policy.ex
+# test/medlum/conversion/infrastructure/retry_policy_test.exs
 ```
 
 #### 2.3 Health Manager
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/health_manager.ex
-# test/lumainus/conversion/infrastructure/health_manager_test.exs
+# lib/medlum/conversion/infrastructure/health_manager.ex
+# test/medlum/conversion/infrastructure/health_manager_test.exs
 ```
 
 #### 2.4 Connection Pool Configuration
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/connection_pool.ex
+# lib/medlum/conversion/infrastructure/connection_pool.ex
 
 # Update application.ex
 def start(_type, _args) do
   children = [
     # ... existing children ...
-    {Lumainus.Conversion.Infrastructure.ConnectionPool, []},
-    {Registry, keys: :unique, name: Lumainus.Conversion.Registry}
+    {Medlum.Conversion.Infrastructure.ConnectionPool, []},
+    {Registry, keys: :unique, name: Medlum.Conversion.Registry}
   ]
 end
 ```
@@ -170,7 +170,7 @@ end
 #### 2.5 Backend Router with Resilience
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/backend_router.ex
+# lib/medlum/conversion/infrastructure/backend_router.ex
 # - Uses circuit breaker
 # - Uses health manager
 # - Implements failover
@@ -186,7 +186,7 @@ end
 ### Verification
 ```bash
 # Run resilience tests
-mix test test/lumainus/conversion/infrastructure/
+mix test test/medlum/conversion/infrastructure/
 
 # Property tests
 mix test --only property
@@ -207,15 +207,15 @@ mix test --only property
 #### 3.1 Telemetry Infrastructure
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/telemetry/emitter.ex
-# lib/lumainus/conversion/infrastructure/telemetry/metrics.ex
-# lib/lumainus/conversion/infrastructure/telemetry/handler.ex
+# lib/medlum/conversion/infrastructure/telemetry/emitter.ex
+# lib/medlum/conversion/infrastructure/telemetry/metrics.ex
+# lib/medlum/conversion/infrastructure/telemetry/handler.ex
 ```
 
 #### 3.2 HTTP Client with Telemetry
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/http/client.ex
+# lib/medlum/conversion/infrastructure/http/client.ex
 # - Wraps Req/Finch
 # - Emits telemetry events
 # - Uses connection pool
@@ -224,14 +224,14 @@ mix test --only property
 #### 3.3 Backend Implementations
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/backends/local_backend.ex
-# lib/lumainus/conversion/infrastructure/backends/cloud_backend.ex
+# lib/medlum/conversion/infrastructure/backends/local_backend.ex
+# lib/medlum/conversion/infrastructure/backends/cloud_backend.ex
 ```
 
 #### 3.4 SSE Stream with Reconnection
 
 ```elixir
-# lib/lumainus/conversion/infrastructure/http/sse_stream.ex
+# lib/medlum/conversion/infrastructure/http/sse_stream.ex
 ```
 
 #### 3.5 Complete Service Implementation
@@ -264,7 +264,7 @@ end
 mix test
 
 # Verify telemetry events
-mix test test/lumainus/conversion/infrastructure/telemetry/
+mix test test/medlum/conversion/infrastructure/telemetry/
 
 # Enable v2 in dev
 CONVERSION_V2=1 mix phx.server
@@ -285,7 +285,7 @@ CONVERSION_V2=1 mix phx.server
 #### 4.1 Create Components
 
 ```elixir
-# lib/lumainus_web/components/conversion.ex
+# lib/medlum_web/components/conversion.ex
 # - profile_selector
 # - job_status
 # - availability_indicator
@@ -296,7 +296,7 @@ CONVERSION_V2=1 mix phx.server
 
 ```elixir
 # priv/repo/migrations/XXX_simplify_processing_preference.exs
-defmodule Lumainus.Repo.Migrations.SimplifyProcessingPreference do
+defmodule Medlum.Repo.Migrations.SimplifyProcessingPreference do
   use Ecto.Migration
 
   def change do
@@ -314,7 +314,7 @@ end
 Create new version alongside old:
 
 ```elixir
-# lib/lumainus_web/live/reports_live_v2.ex
+# lib/medlum_web/live/reports_live_v2.ex
 # - Uses ConversionService
 # - Uses new components
 # - No backend knowledge
@@ -334,7 +334,7 @@ end
 #### 4.5 Update Events
 
 ```elixir
-# lib/lumainus/conversion/events.ex
+# lib/medlum/conversion/events.ex
 # - User-friendly events
 # - No backend details in payloads
 ```
@@ -373,14 +373,14 @@ CONVERSION_V2_UI=1 mix phx.server
 
 ```elixir
 # Enable for percentage of users
-config :lumainus, :conversion_v2_rollout_percent, 10  # Start at 10%
+config :medlum, :conversion_v2_rollout_percent, 10  # Start at 10%
 
 defp use_v2?(user) do
-  if Application.get_env(:lumainus, :conversion_v2_enabled) do
+  if Application.get_env(:medlum, :conversion_v2_enabled) do
     true
   else
     # Gradual rollout based on user ID
-    percent = Application.get_env(:lumainus, :conversion_v2_rollout_percent, 0)
+    percent = Application.get_env(:medlum, :conversion_v2_rollout_percent, 0)
     :erlang.phash2(user.id, 100) < percent
   end
 end
@@ -396,9 +396,9 @@ During rollout, monitor:
 
 ```promql
 # Compare error rates
-sum(rate(lumainus_conversion_job_failed_count{version="v2"}[5m]))
+sum(rate(medlum_conversion_job_failed_count{version="v2"}[5m]))
 /
-sum(rate(lumainus_conversion_job_failed_count{version="v1"}[5m]))
+sum(rate(medlum_conversion_job_failed_count{version="v1"}[5m]))
 ```
 
 #### 5.3 Full Enable
@@ -407,19 +407,19 @@ Once validated at 100%:
 
 ```elixir
 # config/config.exs
-config :lumainus, :conversion_v2_enabled, true
+config :medlum, :conversion_v2_enabled, true
 ```
 
 #### 5.4 Remove Old Code
 
 ```bash
 # Remove old modules
-rm lib/lumainus/docling.ex
-rm -rf lib/lumainus/docling/
-rm lib/lumainus_web/live/reports_live.ex  # Keep v2 only
+rm lib/medlum/docling.ex
+rm -rf lib/medlum/docling/
+rm lib/medlum_web/live/reports_live.ex  # Keep v2 only
 
 # Remove old tests
-rm -rf test/lumainus/docling/
+rm -rf test/medlum/docling/
 
 # Remove feature flags
 # In config files, remove :conversion_v2_enabled, :conversion_v2_rollout_percent
@@ -429,7 +429,7 @@ rm -rf test/lumainus/docling/
 
 ```elixir
 # priv/repo/migrations/XXX_remove_docling_backend_column.exs
-defmodule Lumainus.Repo.Migrations.RemoveDoclingBackendColumn do
+defmodule Medlum.Repo.Migrations.RemoveDoclingBackendColumn do
   use Ecto.Migration
 
   def change do
@@ -444,7 +444,7 @@ end
 
 ```elixir
 # Optionally move to shorter names
-# Lumainus.Conversion.Service -> Lumainus.Conversion
+# Medlum.Conversion.Service -> Medlum.Conversion
 # Or keep as-is for clarity
 ```
 
@@ -479,8 +479,8 @@ If issues during phase 5:
 
 ```bash
 # Emergency restore
-git checkout HEAD~1 -- lib/lumainus/docling.ex lib/lumainus/docling/
-git checkout HEAD~1 -- lib/lumainus_web/live/reports_live.ex
+git checkout HEAD~1 -- lib/medlum/docling.ex lib/medlum/docling/
+git checkout HEAD~1 -- lib/medlum_web/live/reports_live.ex
 mix deps.get && mix compile
 ```
 
@@ -571,7 +571,7 @@ mix deps.get && mix compile
 ### New Files to Create
 
 ```
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── conversion.ex                    # Re-export service
 ├── job.ex
 ├── job_status.ex
@@ -615,13 +615,13 @@ lib/lumainus/conversion/
     ├── oban_worker.ex
     └── pubsub_broadcaster.ex
 
-lib/lumainus_web/
+lib/medlum_web/
 ├── components/
 │   └── conversion.ex
 └── live/
     └── reports_live_v2.ex
 
-test/lumainus/conversion/
+test/medlum/conversion/
 ├── job_test.exs
 ├── job_status_test.exs
 ├── policy_test.exs
@@ -645,19 +645,19 @@ test/support/
 ### Files to Remove (Phase 5)
 
 ```
-lib/lumainus/docling.ex
-lib/lumainus/docling/
-lib/lumainus_web/live/reports_live.ex (keep v2)
-lib/lumainus_web/live/admin/docling_settings_live.ex (refactor to conversion_settings_live.ex)
-test/lumainus/docling/
+lib/medlum/docling.ex
+lib/medlum/docling/
+lib/medlum_web/live/reports_live.ex (keep v2)
+lib/medlum_web/live/admin/docling_settings_live.ex (refactor to conversion_settings_live.ex)
+test/medlum/docling/
 ```
 
 ### Files to Modify
 
 ```
-lib/lumainus/application.ex          # Add new supervisors
-lib/lumainus_web/router.ex           # Feature flag routing
-lib/lumainus/accounts/user.ex        # processing_profile field
+lib/medlum/application.ex          # Add new supervisors
+lib/medlum_web/router.ex           # Feature flag routing
+lib/medlum/accounts/user.ex        # processing_profile field
 config/config.exs                    # New configuration
 config/test.exs                      # Test configuration
 ```

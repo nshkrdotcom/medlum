@@ -1,7 +1,7 @@
 # Docling v2 Redesign – Critical Review
 
 ## Executive Summary
-Proceed only after major revision. The clean-architecture direction is sensible, but the proposal has blocking gaps around traceability, resilience semantics, observability scalability, and migration safety. Several assumptions conflict with Lumainus’ “every token traceable” mandate and with operational realities (Vast.ai provisioning, long-running jobs). Timeline and rollback plans are optimistic given the surface area.
+Proceed only after major revision. The clean-architecture direction is sensible, but the proposal has blocking gaps around traceability, resilience semantics, observability scalability, and migration safety. Several assumptions conflict with Medlum’ “every token traceable” mandate and with operational realities (Vast.ai provisioning, long-running jobs). Timeline and rollback plans are optimistic given the surface area.
 
 ## Critical Issues (must fix before implementation)
 - **Traceability regression (blocking)** – `05-ui-abstraction.md` and `06-migration-plan.md` remove user/backend provenance (only `:standard|:enhanced` plus `was_enhanced` boolean). This conflicts with auditability needs and existing document metadata that store concrete backend/capability, breaking post-incident forensics and billing attribution.
@@ -26,7 +26,7 @@ Proceed only after major revision. The clean-architecture direction is sensible,
 - **Rollback gaps** – Schema changes that drop columns cannot be safely “git checkout”-ed. No plan to keep dual writes or shadow reads to retain provenance during the cutover.
 
 ## Alternative Approaches
-- **Incremental hardening of v1** – Introduce behaviors/DI into existing `Lumainus.Docling` modules, add circuit breaker/retry wrappers at the HTTP layer only, and keep existing job provenance schemas intact. Avoid full namespace move until stability proves out.
+- **Incremental hardening of v1** – Introduce behaviors/DI into existing `Medlum.Docling` modules, add circuit breaker/retry wrappers at the HTTP layer only, and keep existing job provenance schemas intact. Avoid full namespace move until stability proves out.
 - **Persisted job registry** – Store job→backend/profile/provisioning state in DB (or ETS with WAL) to survive restarts and support await/cancel across nodes; replicate via PubSub rather than in-process trackers.
 - **Safer resilience defaults** – Use error classifiers to exclude 4xx/user errors from breaker counts; cap half-open probes; integrate health checks with timeouts and jittered schedules; expose breaker/health state to operators even if hidden from end users.
 - **Telemetry via OpenTelemetry** – Propagate W3C trace/context headers to the Python service and emit spans through OTP’s OpenTelemetry exporter; reduce metric tags (drop tenant_id/job_id/error strings) and sample progress events.

@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document expands the consolidated v2 specification into actionable implementation guidance. It incorporates findings from analyzing the existing Lumainus codebase (~3,500 lines of Docling-related Elixir), mapping new abstractions to current patterns where beneficial.
+This document expands the consolidated v2 specification into actionable implementation guidance. It incorporates findings from analyzing the existing Medlum codebase (~3,500 lines of Docling-related Elixir), mapping new abstractions to current patterns where beneficial.
 
 **Core Principle:** Build a reliable, auditable PDF→Markdown conversion stack. Prioritize correctness and clarity over scale or premature optimization.
 
@@ -20,7 +20,7 @@ This document expands the consolidated v2 specification into actionable implemen
 ### 1.1 ProcessingProfile
 
 ```elixir
-defmodule Lumainus.Conversion.ProcessingProfile do
+defmodule Medlum.Conversion.ProcessingProfile do
   @moduledoc """
   User-facing processing profiles that abstract backend selection.
 
@@ -51,7 +51,7 @@ end
 ### 1.2 Job
 
 ```elixir
-defmodule Lumainus.Conversion.Job do
+defmodule Medlum.Conversion.Job do
   @moduledoc """
   Represents a conversion job from submission to completion.
 
@@ -154,7 +154,7 @@ end
 ### 1.3 JobStatus (View Struct)
 
 ```elixir
-defmodule Lumainus.Conversion.JobStatus do
+defmodule Medlum.Conversion.JobStatus do
   @moduledoc """
   Read-only view of job status, returned by status/1 and await/3.
 
@@ -240,7 +240,7 @@ end
 ### 1.4 Policy
 
 ```elixir
-defmodule Lumainus.Conversion.Policy do
+defmodule Medlum.Conversion.Policy do
   @moduledoc """
   Validation and authorization policies for conversion jobs.
 
@@ -306,7 +306,7 @@ end
 ### 2.1 Database Schema
 
 ```elixir
-defmodule Lumainus.Repo.Migrations.CreateConversionJobs do
+defmodule Medlum.Repo.Migrations.CreateConversionJobs do
   use Ecto.Migration
 
   def change do
@@ -376,7 +376,7 @@ document_metadata = %{
 ### 2.3 JobTracker (In-Memory Cache)
 
 ```elixir
-defmodule Lumainus.Conversion.Application.JobTracker do
+defmodule Medlum.Conversion.Application.JobTracker do
   @moduledoc """
   ETS-backed cache for active job lookups.
 
@@ -390,8 +390,8 @@ defmodule Lumainus.Conversion.Application.JobTracker do
   use GenServer
   require Logger
 
-  alias Lumainus.Conversion.Job
-  alias Lumainus.Repo
+  alias Medlum.Conversion.Job
+  alias Medlum.Repo
 
   @table :conversion_job_tracker
 
@@ -509,7 +509,7 @@ end
 ### 3.1 Service Module
 
 ```elixir
-defmodule Lumainus.Conversion.Service do
+defmodule Medlum.Conversion.Service do
   @moduledoc """
   Public API for document conversion.
 
@@ -533,9 +533,9 @@ defmodule Lumainus.Conversion.Service do
       )
   """
 
-  alias Lumainus.Conversion.{Job, JobStatus, Policy, ProcessingProfile}
-  alias Lumainus.Conversion.Application.JobTracker
-  alias Lumainus.Conversion.Infrastructure.{BackendRouter, Telemetry}
+  alias Medlum.Conversion.{Job, JobStatus, Policy, ProcessingProfile}
+  alias Medlum.Conversion.Application.JobTracker
+  alias Medlum.Conversion.Infrastructure.{BackendRouter, Telemetry}
 
   require Logger
 
@@ -749,11 +749,11 @@ defmodule Lumainus.Conversion.Service do
     end
   end
 
-  defp backend_module_for(:local_cpu), do: Lumainus.Conversion.Backends.LocalBackend
-  defp backend_module_for(:local_gpu), do: Lumainus.Conversion.Backends.LocalBackend
-  defp backend_module_for(:docker_cpu), do: Lumainus.Conversion.Backends.LocalBackend
-  defp backend_module_for(:docker_gpu), do: Lumainus.Conversion.Backends.LocalBackend
-  defp backend_module_for(:cloud), do: Lumainus.Conversion.Backends.CloudBackend
+  defp backend_module_for(:local_cpu), do: Medlum.Conversion.Backends.LocalBackend
+  defp backend_module_for(:local_gpu), do: Medlum.Conversion.Backends.LocalBackend
+  defp backend_module_for(:docker_cpu), do: Medlum.Conversion.Backends.LocalBackend
+  defp backend_module_for(:docker_gpu), do: Medlum.Conversion.Backends.LocalBackend
+  defp backend_module_for(:cloud), do: Medlum.Conversion.Backends.CloudBackend
 
   defp job_to_backend_job(job) do
     %{
@@ -782,7 +782,7 @@ end
 ### 4.1 Backend Behavior
 
 ```elixir
-defmodule Lumainus.Conversion.Backend do
+defmodule Medlum.Conversion.Backend do
   @moduledoc """
   Behavior for conversion backends.
 
@@ -826,23 +826,23 @@ end
 ```
 
 **Mapping to existing code:**
-- Current `Lumainus.Docling.Backend` behavior (152 lines) has similar callbacks
+- Current `Medlum.Docling.Backend` behavior (152 lines) has similar callbacks
 - Added explicit `backend_type/0` for metric tagging
 
 ### 4.2 LocalBackend
 
 ```elixir
-defmodule Lumainus.Conversion.Backends.LocalBackend do
+defmodule Medlum.Conversion.Backends.LocalBackend do
   @moduledoc """
   Backend for local CPU/GPU instances (native or Docker).
 
   Delegates HTTP operations to shared client module.
   """
 
-  @behaviour Lumainus.Conversion.Backend
+  @behaviour Medlum.Conversion.Backend
 
-  alias Lumainus.Conversion.Infrastructure.HTTP.Client
-  alias Lumainus.Conversion.Infrastructure.Context
+  alias Medlum.Conversion.Infrastructure.HTTP.Client
+  alias Medlum.Conversion.Infrastructure.Context
 
   @impl true
   def enqueue(binary, opts) do
@@ -888,7 +888,7 @@ defmodule Lumainus.Conversion.Backends.LocalBackend do
 
   defp get_active_endpoint do
     # Read from config/settings
-    config = Application.get_env(:lumainus, :conversion, [])
+    config = Application.get_env(:medlum, :conversion, [])
     backend = config[:active_local_backend] || :docker_cpu
 
     case backend do
@@ -900,13 +900,13 @@ defmodule Lumainus.Conversion.Backends.LocalBackend do
   end
 
   defp get_backend_name do
-    config = Application.get_env(:lumainus, :conversion, [])
+    config = Application.get_env(:medlum, :conversion, [])
     config[:active_local_backend] || :docker_cpu
   end
 
   defp get_endpoint_for_job(job_id) do
     # Look up from JobTracker
-    case Lumainus.Conversion.Application.JobTracker.get(job_id) do
+    case Medlum.Conversion.Application.JobTracker.get(job_id) do
       {:ok, job} -> job.backend_endpoint
       _ -> get_active_endpoint()
     end
@@ -917,7 +917,7 @@ end
 ### 4.3 CloudBackend
 
 ```elixir
-defmodule Lumainus.Conversion.Backends.CloudBackend do
+defmodule Medlum.Conversion.Backends.CloudBackend do
   @moduledoc """
   Backend for Vast.ai cloud GPU instances.
 
@@ -925,11 +925,11 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
   Provisioning state is surfaced through health/status.
   """
 
-  @behaviour Lumainus.Conversion.Backend
+  @behaviour Medlum.Conversion.Backend
 
-  alias Lumainus.Conversion.Infrastructure.HTTP.Client
-  alias Lumainus.Docling.VastAI.InstanceManager  # Reuse existing
-  alias Lumainus.Docling.VastAI.ActivityTracker
+  alias Medlum.Conversion.Infrastructure.HTTP.Client
+  alias Medlum.Docling.VastAI.InstanceManager  # Reuse existing
+  alias Medlum.Docling.VastAI.ActivityTracker
 
   require Logger
 
@@ -1006,7 +1006,7 @@ defmodule Lumainus.Conversion.Backends.CloudBackend do
   end
 
   defp get_configured_cloud_url do
-    Application.get_env(:lumainus, :conversion, [])[:cloud_url]
+    Application.get_env(:medlum, :conversion, [])[:cloud_url]
   end
 
   defp record_activity do
@@ -1018,12 +1018,12 @@ end
 
 **Mapping to existing code:**
 - Reuses existing `InstanceManager` (1,377 lines) for provisioning
-- Pattern matches current `Lumainus.Docling.Backends.VastAI` fallback logic
+- Pattern matches current `Medlum.Docling.Backends.VastAI` fallback logic
 
 ### 4.4 BackendRouter
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
+defmodule Medlum.Conversion.Infrastructure.BackendRouter do
   @moduledoc """
   Routes processing profiles to available backends.
 
@@ -1042,7 +1042,7 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   Latency ties broken by config order.
   """
 
-  alias Lumainus.Conversion.Infrastructure.{HealthManager, CircuitBreaker}
+  alias Medlum.Conversion.Infrastructure.{HealthManager, CircuitBreaker}
 
   require Logger
 
@@ -1071,7 +1071,7 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   Get all backends configured for a profile.
   """
   def backends_for_profile(:standard) do
-    config = Application.get_env(:lumainus, :conversion, [])
+    config = Application.get_env(:medlum, :conversion, [])
 
     [
       %{name: :local_cpu, module: LocalBackend,
@@ -1084,7 +1084,7 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
   end
 
   def backends_for_profile(:enhanced) do
-    config = Application.get_env(:lumainus, :conversion, [])
+    config = Application.get_env(:medlum, :conversion, [])
 
     [
       %{name: :local_gpu, module: LocalBackend,
@@ -1157,7 +1157,7 @@ end
 ### 5.1 Circuit Breaker
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker do
+defmodule Medlum.Conversion.Infrastructure.Resilience.CircuitBreaker do
   @moduledoc """
   Per-backend circuit breaker using Registry-backed GenServer.
 
@@ -1334,7 +1334,7 @@ defmodule Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker do
   # Private
 
   defp via(backend_name) do
-    {:via, Registry, {Lumainus.Conversion.Registry, {:circuit_breaker, backend_name}}}
+    {:via, Registry, {Medlum.Conversion.Registry, {:circuit_breaker, backend_name}}}
   end
 
   defp evaluate_state(%{state: :open, open_until: open_until}) do
@@ -1377,7 +1377,7 @@ end
 ### 5.2 Retry Policy
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Resilience.RetryPolicy do
+defmodule Medlum.Conversion.Infrastructure.Resilience.RetryPolicy do
   @moduledoc """
   Retry policy with exponential backoff.
 
@@ -1487,7 +1487,7 @@ end
 ### 5.3 Health Manager
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.HealthManager do
+defmodule Medlum.Conversion.Infrastructure.HealthManager do
   @moduledoc """
   Periodic health checking for all backends.
 
@@ -1506,7 +1506,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
   use GenServer
   require Logger
 
-  alias Lumainus.Conversion.Infrastructure.Resilience.RetryPolicy
+  alias Medlum.Conversion.Infrastructure.Resilience.RetryPolicy
 
   @check_interval_ms 30_000
   @local_timeout_ms 10_000
@@ -1669,7 +1669,7 @@ end
 ### 6.1 SSE Stream
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
+defmodule Medlum.Conversion.Infrastructure.HTTP.SSEStream do
   @moduledoc """
   Server-Sent Events client with automatic reconnection.
 
@@ -1803,7 +1803,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.SSEStream do
     parent = self()
 
     Task.start_link(fn ->
-      Finch.stream(request, Lumainus.Finch, nil, fn
+      Finch.stream(request, Medlum.Finch, nil, fn
         {:status, status}, _acc when status in 200..299 ->
           nil
 
@@ -1877,7 +1877,7 @@ end
 ### 7.1 Telemetry Emitter
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
+defmodule Medlum.Conversion.Infrastructure.Telemetry.Emitter do
   @moduledoc """
   Telemetry event emission.
 
@@ -1894,7 +1894,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_job_submitted(job) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :submitted],
+      [:medlum, :conversion, :job, :submitted],
       %{count: 1},
       %{profile: job.profile, backend_type: backend_type(job.backend_used)}
     )
@@ -1904,7 +1904,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
     duration = DateTime.diff(DateTime.utc_now(), job.submitted_at, :millisecond)
 
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :completed],
+      [:medlum, :conversion, :job, :completed],
       %{count: 1, duration_ms: duration},
       %{profile: job.profile, backend_type: backend_type(job.backend_used)}
     )
@@ -1912,7 +1912,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_job_failed(job, error_type) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :failed],
+      [:medlum, :conversion, :job, :failed],
       %{count: 1},
       %{
         profile: job.profile,
@@ -1924,7 +1924,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_job_cancelled(job) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :cancelled],
+      [:medlum, :conversion, :job, :cancelled],
       %{count: 1},
       %{profile: job.profile, backend_type: backend_type(job.backend_used)}
     )
@@ -1934,7 +1934,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
     # Sample: only emit every 10%
     if rem(progress, @progress_sample_rate) == 0 do
       :telemetry.execute(
-        [:lumainus, :conversion, :job, :progress],
+        [:medlum, :conversion, :job, :progress],
         %{progress: progress},
         %{profile: job.profile, backend_type: backend_type(job.backend_used)}
       )
@@ -1945,7 +1945,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_circuit_opened(backend_name) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :opened],
+      [:medlum, :conversion, :circuit, :opened],
       %{count: 1},
       %{backend: backend_name}
     )
@@ -1953,7 +1953,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_circuit_closed(backend_name) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :closed],
+      [:medlum, :conversion, :circuit, :closed],
       %{count: 1},
       %{backend: backend_name}
     )
@@ -1961,7 +1961,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_circuit_rejected(backend_name) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :rejected],
+      [:medlum, :conversion, :circuit, :rejected],
       %{count: 1},
       %{backend: backend_name}
     )
@@ -1971,7 +1971,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_retry_scheduled(attempt, delay_ms, _reason) do
     :telemetry.execute(
-      [:lumainus, :conversion, :retry, :scheduled],
+      [:medlum, :conversion, :retry, :scheduled],
       %{count: 1, delay_ms: delay_ms},
       %{attempt: attempt}
     )
@@ -1979,7 +1979,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_retry_exhausted(attempts, _error) do
     :telemetry.execute(
-      [:lumainus, :conversion, :retry, :exhausted],
+      [:medlum, :conversion, :retry, :exhausted],
       %{count: 1},
       %{attempts: attempts}
     )
@@ -1989,7 +1989,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_health_checked(backend_name, latency_ms) do
     :telemetry.execute(
-      [:lumainus, :conversion, :health, :checked],
+      [:medlum, :conversion, :health, :checked],
       %{latency_ms: latency_ms},
       %{backend: backend_name}
     )
@@ -1997,7 +1997,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_health_unhealthy(backend_name) do
     :telemetry.execute(
-      [:lumainus, :conversion, :health, :unhealthy],
+      [:medlum, :conversion, :health, :unhealthy],
       %{count: 1},
       %{backend: backend_name}
     )
@@ -2007,7 +2007,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_sse_connected(job_id) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :connected],
+      [:medlum, :conversion, :sse, :connected],
       %{count: 1},
       %{}  # No job_id in metrics
     )
@@ -2015,7 +2015,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_sse_reconnecting(job_id, delay_ms) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :reconnecting],
+      [:medlum, :conversion, :sse, :reconnecting],
       %{count: 1, delay_ms: delay_ms},
       %{}
     )
@@ -2023,7 +2023,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_sse_error(job_id, _reason) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :error],
+      [:medlum, :conversion, :sse, :error],
       %{count: 1},
       %{}
     )
@@ -2031,7 +2031,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_sse_heartbeat_timeout(job_id) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :heartbeat_timeout],
+      [:medlum, :conversion, :sse, :heartbeat_timeout],
       %{count: 1},
       %{}
     )
@@ -2041,7 +2041,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry.Emitter do
 
   def emit_http_request(method, status, duration_ms, backend_type) do
     :telemetry.execute(
-      [:lumainus, :conversion, :http, :request],
+      [:medlum, :conversion, :http, :request],
       %{duration_ms: duration_ms},
       %{
         method: method,
@@ -2076,7 +2076,7 @@ end
 ### 7.2 Trace Context
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Context do
+defmodule Medlum.Conversion.Infrastructure.Context do
   @moduledoc """
   Request context for correlation and tracing.
 
@@ -2084,7 +2084,7 @@ defmodule Lumainus.Conversion.Infrastructure.Context do
   for easy access throughout a request lifecycle.
   """
 
-  @context_key :lumainus_conversion_context
+  @context_key :medlum_conversion_context
 
   defstruct [:trace_id, :span_id, :correlation_id, :job_id, :tenant_id, :user_id]
 
@@ -2151,7 +2151,7 @@ end
 ## Part 8: HTTP Client
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.HTTP.Client do
+defmodule Medlum.Conversion.Infrastructure.HTTP.Client do
   @moduledoc """
   HTTP client wrapper with trace header injection.
 
@@ -2159,7 +2159,7 @@ defmodule Lumainus.Conversion.Infrastructure.HTTP.Client do
   Does NOT implement retry (caller's responsibility for idempotent ops).
   """
 
-  alias Lumainus.Conversion.Infrastructure.{Context, Telemetry}
+  alias Medlum.Conversion.Infrastructure.{Context, Telemetry}
   require Logger
 
   @default_timeout 15_000
@@ -2448,7 +2448,7 @@ end
 ```elixir
 # config/config.exs
 
-config :lumainus, :conversion,
+config :medlum, :conversion,
   # File limits
   max_file_size_bytes: 100 * 1024 * 1024,  # 100 MB
 
@@ -2504,7 +2504,7 @@ config :lumainus, :conversion,
 ### 11.1 Test Module Structure
 
 ```
-test/lumainus/conversion/
+test/medlum/conversion/
 ├── job_test.exs
 ├── job_status_test.exs
 ├── policy_test.exs
@@ -2528,14 +2528,14 @@ test/lumainus/conversion/
 ### 11.2 Mock Backend
 
 ```elixir
-defmodule Lumainus.Conversion.Support.MockBackend do
+defmodule Medlum.Conversion.Support.MockBackend do
   @moduledoc """
   Per-test mock backend using Agent for isolation.
 
   Each test starts its own mock with `start_supervised!/1`.
   """
 
-  @behaviour Lumainus.Conversion.Backend
+  @behaviour Medlum.Conversion.Backend
 
   def start_link(opts) do
     name = Keyword.fetch!(opts, :name)
@@ -2592,11 +2592,11 @@ end
 ### 11.3 Critical Test Cases
 
 ```elixir
-defmodule Lumainus.Conversion.ServiceTest do
-  use Lumainus.DataCase, async: true
+defmodule Medlum.Conversion.ServiceTest do
+  use Medlum.DataCase, async: true
 
-  alias Lumainus.Conversion.{Service, Job}
-  alias Lumainus.Conversion.Support.MockBackend
+  alias Medlum.Conversion.{Service, Job}
+  alias Medlum.Conversion.Support.MockBackend
 
   setup do
     # Start per-test mock
@@ -2663,10 +2663,10 @@ defmodule Lumainus.Conversion.ServiceTest do
   end
 end
 
-defmodule Lumainus.Conversion.Infrastructure.Resilience.CircuitBreakerTest do
+defmodule Medlum.Conversion.Infrastructure.Resilience.CircuitBreakerTest do
   use ExUnit.Case, async: true
 
-  alias Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker
+  alias Medlum.Conversion.Infrastructure.Resilience.CircuitBreaker
 
   describe "error classification" do
     test "counts 5xx as failure" do
@@ -2715,7 +2715,7 @@ end
 ## Part 12: Directory Structure
 
 ```
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── job.ex                           # Job schema
 ├── job_status.ex                    # JobStatus view struct
 ├── processing_profile.ex            # Profile enum + config
@@ -2749,7 +2749,7 @@ lib/lumainus/conversion/
 │
 └── events.ex                        # PubSub event broadcasting
 
-test/lumainus/conversion/
+test/medlum/conversion/
 ├── job_test.exs
 ├── job_status_test.exs
 ├── policy_test.exs
@@ -2814,22 +2814,22 @@ The existing `InstanceManager` (1,377 lines) should be reused for Vast.ai provis
 
 | Event | Measurements | Tags |
 |-------|--------------|------|
-| `[:lumainus, :conversion, :job, :submitted]` | count: 1 | profile, backend_type |
-| `[:lumainus, :conversion, :job, :completed]` | count: 1, duration_ms | profile, backend_type |
-| `[:lumainus, :conversion, :job, :failed]` | count: 1 | profile, backend_type, error_type |
-| `[:lumainus, :conversion, :job, :cancelled]` | count: 1 | profile, backend_type |
-| `[:lumainus, :conversion, :job, :progress]` | progress (0-100) | profile, backend_type |
-| `[:lumainus, :conversion, :circuit, :opened]` | count: 1 | backend |
-| `[:lumainus, :conversion, :circuit, :closed]` | count: 1 | backend |
-| `[:lumainus, :conversion, :circuit, :rejected]` | count: 1 | backend |
-| `[:lumainus, :conversion, :retry, :scheduled]` | count: 1, delay_ms | attempt |
-| `[:lumainus, :conversion, :retry, :exhausted]` | count: 1 | attempts |
-| `[:lumainus, :conversion, :health, :checked]` | latency_ms | backend |
-| `[:lumainus, :conversion, :health, :unhealthy]` | count: 1 | backend |
-| `[:lumainus, :conversion, :sse, :connected]` | count: 1 | — |
-| `[:lumainus, :conversion, :sse, :reconnecting]` | count: 1, delay_ms | — |
-| `[:lumainus, :conversion, :sse, :error]` | count: 1 | — |
-| `[:lumainus, :conversion, :http, :request]` | duration_ms | method, status_bucket, backend_type |
+| `[:medlum, :conversion, :job, :submitted]` | count: 1 | profile, backend_type |
+| `[:medlum, :conversion, :job, :completed]` | count: 1, duration_ms | profile, backend_type |
+| `[:medlum, :conversion, :job, :failed]` | count: 1 | profile, backend_type, error_type |
+| `[:medlum, :conversion, :job, :cancelled]` | count: 1 | profile, backend_type |
+| `[:medlum, :conversion, :job, :progress]` | progress (0-100) | profile, backend_type |
+| `[:medlum, :conversion, :circuit, :opened]` | count: 1 | backend |
+| `[:medlum, :conversion, :circuit, :closed]` | count: 1 | backend |
+| `[:medlum, :conversion, :circuit, :rejected]` | count: 1 | backend |
+| `[:medlum, :conversion, :retry, :scheduled]` | count: 1, delay_ms | attempt |
+| `[:medlum, :conversion, :retry, :exhausted]` | count: 1 | attempts |
+| `[:medlum, :conversion, :health, :checked]` | latency_ms | backend |
+| `[:medlum, :conversion, :health, :unhealthy]` | count: 1 | backend |
+| `[:medlum, :conversion, :sse, :connected]` | count: 1 | — |
+| `[:medlum, :conversion, :sse, :reconnecting]` | count: 1, delay_ms | — |
+| `[:medlum, :conversion, :sse, :error]` | count: 1 | — |
+| `[:medlum, :conversion, :http, :request]` | duration_ms | method, status_bucket, backend_type |
 
 ---
 

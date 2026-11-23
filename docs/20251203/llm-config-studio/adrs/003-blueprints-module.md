@@ -5,7 +5,7 @@ Proposed
 
 ## Context
 
-The 11 report section definitions are currently buried in `lib/lumainus/reports.ex` (lines 637-750), mixed with business logic. The user wants these to remain hard-coded but in a "clean and obvious" location.
+The 11 report section definitions are currently buried in `lib/medlum/reports.ex` (lines 637-750), mixed with business logic. The user wants these to remain hard-coded but in a "clean and obvious" location.
 
 Current problems:
 - Blueprints scattered across multiple private functions
@@ -15,12 +15,12 @@ Current problems:
 
 ## Decision
 
-Extract all blueprint-related code to a dedicated module: `lib/lumainus/reports/blueprints.ex`
+Extract all blueprint-related code to a dedicated module: `lib/medlum/reports/blueprints.ex`
 
 ### New Module Structure
 
 ```elixir
-defmodule Lumainus.Reports.Blueprints do
+defmodule Medlum.Reports.Blueprints do
   @moduledoc """
   Hard-coded report section blueprints and template definitions.
 
@@ -125,8 +125,8 @@ end
 ### Updates to `reports.ex`
 
 ```elixir
-defmodule Lumainus.Reports do
-  alias Lumainus.Reports.Blueprints
+defmodule Medlum.Reports do
+  alias Medlum.Reports.Blueprints
 
   def default_sections(template_id) do
     Blueprints.section_blueprints()
@@ -154,7 +154,7 @@ end
 ### File Organization
 
 ```
-lib/lumainus/reports/
+lib/medlum/reports/
 ├── blueprints.ex          # NEW - Hard-coded section definitions
 ├── report_template.ex     # Schema
 ├── report_section_template.ex  # Schema
@@ -162,7 +162,7 @@ lib/lumainus/reports/
 ├── report_section_run.ex  # Schema
 └── ... other schemas
 
-lib/lumainus/reports.ex    # Context module (streamlined)
+lib/medlum/reports.ex    # Context module (streamlined)
 ```
 
 ## Consequences

@@ -193,7 +193,7 @@ query = "bw_nvlink>100 num_gpus>=4"
 ## Elixir Implementation
 
 ```elixir
-defmodule Lumainus.VastAI.Search do
+defmodule Medlum.VastAI.Search do
   @moduledoc """
   Build search queries for Vast.ai offers.
   """

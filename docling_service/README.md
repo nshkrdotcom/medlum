@@ -1,6 +1,6 @@
 # Docling REST Microservice
 
-A minimal FastAPI application that exposes Docling's PDF → Markdown pipeline over HTTP for private use inside Lumainus.
+A minimal FastAPI application that exposes Docling's PDF → Markdown pipeline over HTTP for private use inside Medlum.
 
 ## Contents
 
@@ -161,7 +161,7 @@ The image is hosted on GitHub Container Registry (ghcr.io) as a **private** pack
    ```
 3. Login and push using the management script (options 8 & 9)
 
-For Vast.ai to pull private images, the Lumainus admin UI automatically includes `docker_login` credentials when provisioning. Configure in your environment:
+For Vast.ai to pull private images, the Medlum admin UI automatically includes `docker_login` credentials when provisioning. Configure in your environment:
 ```bash
 export VAST_API_KEY=your_vast_key
 export GHCR_TOKEN=ghp_xxxx  # Same token, needs read:packages
@@ -171,7 +171,7 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for the complete deployment guide.
 
 ### Vast.ai via Admin UI
 
-1. Go to `/admin/vast_ai` in the Lumainus web interface
+1. Go to `/admin/vast_ai` in the Medlum web interface
 2. Search for GPU offers (RTX 3090 recommended)
 3. Select "Docling GPU (pre-built)" from the image dropdown
 4. Click "Provision" on your chosen offer
@@ -182,13 +182,13 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for the complete deployment guide.
 
 ```bash
 # Build
-docker build -f Dockerfile.gpu -t ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest ..
+docker build -f Dockerfile.gpu -t ghcr.io/nshkrdotcom/medlum-docling-gpu:latest ..
 
 # Run (CPU)
-docker run -p 8042:8042 ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest
+docker run -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
 
 # Run (GPU)
-docker run --gpus all -p 8042:8042 ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest
+docker run --gpus all -p 8042:8042 ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
 
 # Test
 curl http://localhost:8042/health
@@ -201,11 +201,11 @@ For manual GPU setup without Docker, you can use the bootstrap script:
 
 1. Rent a GPU on Vast.ai (public IP + open port), note the `user@host:port`.
 2. Run from your laptop: `scripts/bootstrap_vast_gpu.sh user@host:port main`
-   - Env overrides: `PORT` (default 8042), `REMOTE_ROOT` (default `/opt/lumainus`), `REPO_URL` (defaults to your git origin), `PIP_EXTRA_INDEX_URL` (defaults to CUDA 12.1 wheels).
-   - The script installs deps, clones this repo, installs GPU wheels, and backgrounds `docling_service` on the remote host. Logs at `/opt/lumainus/docling_service.log`.
-3. Point Lumainus admin Docling endpoint to `http://<host>:8042`.
+   - Env overrides: `PORT` (default 8042), `REMOTE_ROOT` (default `/opt/medlum`), `REPO_URL` (defaults to your git origin), `PIP_EXTRA_INDEX_URL` (defaults to CUDA 12.1 wheels).
+   - The script installs deps, clones this repo, installs GPU wheels, and backgrounds `docling_service` on the remote host. Logs at `/opt/medlum/docling_service.log`.
+3. Point Medlum admin Docling endpoint to `http://<host>:8042`.
 
-To restart, rerun the script; to view logs: `ssh user@host "tail -f /opt/lumainus/docling_service.log"`.
+To restart, rerun the script; to view logs: `ssh user@host "tail -f /opt/medlum/docling_service.log"`.
 
 > **Note:** The bootstrap approach takes 8-15 minutes vs 3-5 minutes for the pre-built Docker image.
 

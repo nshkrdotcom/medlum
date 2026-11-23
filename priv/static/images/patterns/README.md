@@ -1,6 +1,6 @@
 # SVG Background Patterns for Medical AI Platform
 
-Sophisticated SVG background patterns designed for the Lumainus medical AI platform login page, embodying the theme of **Traceable AI Intelligence** - where medical precision meets neural networks and data flows through transparent systems.
+Sophisticated SVG background patterns designed for the Medlum medical AI platform login page, embodying the theme of **Traceable AI Intelligence** - where medical precision meets neural networks and data flows through transparent systems.
 
 ## Pattern Collection
 
@@ -471,7 +471,7 @@ priv/static/images/patterns/
 
 ## Credits
 
-Created for **Lumainus Medical AI Platform**
+Created for **Medlum Medical AI Platform**
 Theme: Traceable AI Intelligence
 Generated: November 2025
 

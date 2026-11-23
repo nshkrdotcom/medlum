@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document details the backend implementation for streaming LLM responses in the Lumainus Phoenix/Elixir application. The design leverages existing `gemini_ex` streaming infrastructure (`HTTPStreaming.stream_to_process/6` and `UnifiedManager`) while maintaining backward compatibility with the current non-streaming implementation.
+This document details the backend implementation for streaming LLM responses in the Medlum Phoenix/Elixir application. The design leverages existing `gemini_ex` streaming infrastructure (`HTTPStreaming.stream_to_process/6` and `UnifiedManager`) while maintaining backward compatibility with the current non-streaming implementation.
 
 ---
 
@@ -39,7 +39,7 @@ This document details the backend implementation for streaming LLM responses in 
                       4. invoke_llm()       |
                                             v
                                    +-----------------+
-                                   |  Lumainus.LLM   |
+                                   |  Medlum.LLM   |
                                    +--------+--------+
                                             |
                       5. generate_object()  |
@@ -54,10 +54,10 @@ This document details the backend implementation for streaming LLM responses in 
 
 | File | Current Role |
 |------|--------------|
-| `lib/lumainus/llm.ex` | Facade for LLM calls, normalizes responses, handles errors |
-| `lib/lumainus/ai/section_runner.ex` | Orchestrates section generation, builds prompts, persists results |
-| `lib/lumainus/reports/section_run_worker.ex` | Oban worker that triggers section runs asynchronously |
-| `lib/lumainus/reports.ex` | Context module with PubSub patterns |
+| `lib/medlum/llm.ex` | Facade for LLM calls, normalizes responses, handles errors |
+| `lib/medlum/ai/section_runner.ex` | Orchestrates section generation, builds prompts, persists results |
+| `lib/medlum/reports/section_run_worker.ex` | Oban worker that triggers section runs asynchronously |
+| `lib/medlum/reports.ex` | Context module with PubSub patterns |
 
 ### Existing PubSub Pattern
 
@@ -67,11 +67,11 @@ This document details the backend implementation for streaming LLM responses in 
 defp run_topic(record_set_id), do: "#{@run_topic_prefix}:#{record_set_id}"
 
 # Subscription
-PubSub.subscribe(LumainusWeb.PubSub, run_topic(record_set_id))
+PubSub.subscribe(MedlumWeb.PubSub, run_topic(record_set_id))
 
 # Notification (section completion)
 PubSub.broadcast(
-  LumainusWeb.PubSub,
+  MedlumWeb.PubSub,
   run_topic(record_set_id),
   {:section_run_updated, record_set_id}
 )
@@ -116,7 +116,7 @@ PubSub.broadcast(
                       4. stream_generate()  |
                                             v
                                    +-----------------+
-                                   |  Lumainus.LLM   |
+                                   |  Medlum.LLM   |
                                    +--------+--------+
                                             |
                       5. UnifiedManager     |
@@ -132,7 +132,7 @@ PubSub.broadcast(
 
 ## Implementation Details
 
-### 1. LLM Module Changes (`lib/lumainus/llm.ex`)
+### 1. LLM Module Changes (`lib/medlum/llm.ex`)
 
 #### New Streaming Function
 
@@ -241,7 +241,7 @@ defp stream_event_loop(stream_id, subscriber_pid, schema, acc) do
 end
 ```
 
-### 2. SectionRunner Changes (`lib/lumainus/ai/section_runner.ex`)
+### 2. SectionRunner Changes (`lib/medlum/ai/section_runner.ex`)
 
 #### New Streaming Entry Point
 
@@ -309,7 +309,7 @@ end
 
 defp broadcast_chunk(record_set_id, section_run_id, chunk) do
   Phoenix.PubSub.broadcast(
-    LumainusWeb.PubSub,
+    MedlumWeb.PubSub,
     "report-run:#{record_set_id}",
     {:llm_chunk, %{
       section_run_id: section_run_id,
@@ -320,7 +320,7 @@ defp broadcast_chunk(record_set_id, section_run_id, chunk) do
 end
 ```
 
-### 3. Worker Changes (`lib/lumainus/reports/section_run_worker.ex`)
+### 3. Worker Changes (`lib/medlum/reports/section_run_worker.ex`)
 
 ```elixir
 @impl true
@@ -346,7 +346,7 @@ def perform(%Oban.Job{args: %{"section_run_id" => section_run_id} = args}) do
 end
 ```
 
-### 4. Reports Context Changes (`lib/lumainus/reports.ex`)
+### 4. Reports Context Changes (`lib/medlum/reports.ex`)
 
 ```elixir
 def run_sections(%Scope{} = scope, patient, record_set, template, section_ids, opts \\ []) do
@@ -397,7 +397,7 @@ end
 ## Migration Path
 
 ### Phase 1: Add Infrastructure (No Breaking Changes)
-1. Add `stream_generate/5` to `Lumainus.LLM`
+1. Add `stream_generate/5` to `Medlum.LLM`
 2. Add `run_section_streaming/5` to `SectionRunner`
 3. Add `stream` parameter to worker args
 4. Add new PubSub message types
@@ -405,7 +405,7 @@ end
 ### Phase 2: Feature Flag
 ```elixir
 defp streaming_enabled? do
-  Application.get_env(:lumainus, :features, [])
+  Application.get_env(:medlum, :features, [])
   |> Keyword.get(:llm_streaming, false)
 end
 ```

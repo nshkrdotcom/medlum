@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-The Docling integration in Lumainus is well-architected but deeply integrated with the application's multi-tenant model, database schemas, and real-time features. Extraction is **feasible** but requires careful consideration of trade-offs.
+The Docling integration in Medlum is well-architected but deeply integrated with the application's multi-tenant model, database schemas, and real-time features. Extraction is **feasible** but requires careful consideration of trade-offs.
 
 **Recommendation:** Extract as a **standalone Elixir library** with pluggable configuration, keeping the Python/Docker infrastructure as-is.
 
@@ -19,8 +19,8 @@ The Docling integration in Lumainus is well-architected but deeply integrated wi
 
 | Component | Integration | Difficulty to Extract |
 |-----------|-------------|----------------------|
-| `Lumainus.Docling.Setting` | Ecto schema, singleton pattern | Medium |
-| `Lumainus.Docling.HealthCheck` | Ecto schema, Oban worker | Medium |
+| `Medlum.Docling.Setting` | Ecto schema, singleton pattern | Medium |
+| `Medlum.Docling.HealthCheck` | Ecto schema, Oban worker | Medium |
 | `InstanceManager` | GenServer, tenant-agnostic | Low |
 | `Settings.fetch_or_init/0` | Repo dependency | Medium |
 | `HealthCheckWorker` | Oban, Application-level | High |
@@ -33,9 +33,9 @@ The Docling integration in Lumainus is well-architected but deeply integrated wi
 
 | Component | Description | Notes |
 |-----------|-------------|-------|
-| `Lumainus.Docling` (facade) | Pure functions, config-driven | Core extraction target |
-| `Lumainus.Docling.HTTP` | HTTP client, no DB deps | Easy |
-| `Lumainus.Docling.Backend` | Behavior definition | Easy |
+| `Medlum.Docling` (facade) | Pure functions, config-driven | Core extraction target |
+| `Medlum.Docling.HTTP` | HTTP client, no DB deps | Easy |
+| `Medlum.Docling.Backend` | Behavior definition | Easy |
 | `Backends.Local` | HTTP wrapper | Easy |
 | `Backends.Remote` | HTTP wrapper | Easy |
 | `Backends.VastAI` (core) | HTTP + provisioning | Medium (needs API key config) |
@@ -89,7 +89,7 @@ config :docling_ex,
 ```
 
 **Pros:**
-- Clean separation from Lumainus business logic
+- Clean separation from Medlum business logic
 - Reusable across projects
 - No Ecto/Phoenix dependencies
 - Well-defined API contract
@@ -133,7 +133,7 @@ docling_gateway/
 - HTTP API makes it language-agnostic
 
 **Cons:**
-- Adds network hop for Lumainus
+- Adds network hop for Medlum
 - Need to reimplement job queuing
 - Need to reimplement health persistence
 - More infrastructure to maintain
@@ -196,13 +196,13 @@ Supervisor.start_link(children, strategy: :one_for_one)
 ### Pros of Extraction
 
 #### 1. **Reusability**
-- Other Elixir projects can use Docling without Lumainus
+- Other Elixir projects can use Docling without Medlum
 - Clear boundaries make testing easier
 - Can be open-sourced independently
 
 #### 2. **Maintainability**
 - Smaller, focused codebase
-- Easier to upgrade Docling (Python) without affecting Lumainus
+- Easier to upgrade Docling (Python) without affecting Medlum
 - Clear versioning and compatibility
 
 #### 3. **Testing**
@@ -229,13 +229,13 @@ Supervisor.start_link(children, strategy: :one_for_one)
 - Multi-tenant context passing
 
 #### 2. **Migration Effort**
-- Need to update Lumainus to use extracted library
+- Need to update Medlum to use extracted library
 - Potential API changes during extraction
 - Test migration and verification
 
 #### 3. **Maintenance Overhead**
 - Two repositories to maintain (or monorepo setup)
-- Version coordination between library and Lumainus
+- Version coordination between library and Medlum
 - Breaking changes affect both
 
 #### 4. **Feature Gaps**
@@ -299,9 +299,9 @@ Supervisor.start_link(children, strategy: :one_for_one)
 
 ### Phase 3: Integration Layer (Week 3)
 
-1. **Create Lumainus adapter**
+1. **Create Medlum adapter**
    ```elixir
-   defmodule Lumainus.Docling.Adapter do
+   defmodule Medlum.Docling.Adapter do
      @behaviour Docling.ConfigProvider
      @behaviour Docling.HealthRecorder
 
@@ -310,13 +310,13 @@ Supervisor.start_link(children, strategy: :one_for_one)
    end
    ```
 
-2. **Update Lumainus to use library**
+2. **Update Medlum to use library**
    - Add `docling_ex` dependency
-   - Update `Lumainus.Docling` to delegate to library
-   - Keep Oban workers in Lumainus
+   - Update `Medlum.Docling` to delegate to library
+   - Keep Oban workers in Medlum
 
 3. **Verify all tests pass**
-   - Run Lumainus test suite
+   - Run Medlum test suite
    - Run extracted library test suite
 
 ### Phase 4: Polish (Week 4)
@@ -421,11 +421,11 @@ Extract as an Elixir library with optional OTP application components:
 
 This provides:
 - Maximum flexibility for consumers
-- Minimal migration effort for Lumainus
+- Minimal migration effort for Medlum
 - Clear extension points
 - No infrastructure duplication
 
-### What Stays in Lumainus
+### What Stays in Medlum
 
 - Ecto schemas (`Setting`, `HealthCheck`)
 - Oban workers (`HealthCheckWorker`, `AutoShutdown`)
@@ -450,6 +450,6 @@ This provides:
 4. Begin Phase 1 (prepare boundaries)
 5. Document API contract
 6. Execute extraction
-7. Update Lumainus integration
+7. Update Medlum integration
 8. Comprehensive testing
 9. Documentation and release

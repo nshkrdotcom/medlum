@@ -1,6 +1,6 @@
-# Lumainus Deployment Guide
+# Medlum Deployment Guide
 
-Deployment to dev.lumainus.com (production environment, no releases).
+Deployment to dev.medlumai.com (production environment, no releases).
 
 ## Prerequisites
 
@@ -9,13 +9,27 @@ Deployment to dev.lumainus.com (production environment, no releases).
 - Git access configured on server
 - PostgreSQL installed on server
 
+## Renaming an Existing Installation
+
+Schedule downtime and stop the old application and Docling Compose project. Back up
+PostgreSQL and `.env.prod`, then move the checkout and service configuration to the
+paths below. Update the server checkout's `origin` and preserve the database contents
+and runtime secrets. If you rename the database or role, update `DATABASE_URL` to match.
+Run `MIX_ENV=prod mix ecto.migrate` against the existing database before starting
+Medlum so queued Oban jobs use the new module names. Users will sign in again because
+the session and remember-me cookie names change.
+
+Build both Docling images under their new tags before restarting the Compose services.
+The base image build requires the local Docling fork at `docling/`. Cloud workers
+need the new tags in the registry before they can pull them.
+
 ## Initial Server Setup (One Time)
 
 ### 1. Update Repository URL
 
 Edit `scripts/server_setup.sh` and set your repo URL:
 ```bash
-REPO_URL="git@github.com:YOUR_USERNAME/lumainus.git"
+REPO_URL="git@github.com:YOUR_USERNAME/medlum.git"
 ```
 
 ### 2. Run Server Setup
@@ -26,8 +40,8 @@ ssh lu 'bash -s' < scripts/server_setup.sh
 ```
 
 This will:
-- Create `lumainus` user
-- Clone repository to `/var/www/lumainus`
+- Create `medlum` user
+- Clone repository to `/var/www/medlum`
 - Install PostgreSQL and Postfix
 - Create database and user
 - Generate environment file
@@ -41,7 +55,7 @@ This will:
 SSH to server and edit environment:
 ```bash
 ssh lu
-sudo nano /var/www/lumainus/.env.prod
+sudo nano /var/www/medlum/.env.prod
 ```
 
 Update:
@@ -50,22 +64,22 @@ Update:
 SECRET_KEY_BASE=your_actual_secret
 
 # Update database password (use ecto:// scheme so Ecto parses it correctly)
-DATABASE_URL=ecto://lumainus:STRONG_PASSWORD@localhost/lumainus_prod
+DATABASE_URL=ecto://medlum:STRONG_PASSWORD@localhost/medlum_prod
 
 # Set correct host
-PHX_HOST=dev.lumainus.com
+PHX_HOST=dev.medlumai.com
 ```
 
 ### 4. Restart Service
 
 ```bash
-sudo systemctl restart lumainus
+sudo systemctl restart medlum
 ```
 
 ### 5. Create Admin Account
 
 ```bash
-cd /var/www/lumainus
+cd /var/www/medlum
 source .env.prod
 mix run priv/repo/seeds.exs
 ```
@@ -83,9 +97,9 @@ This will:
 2. Install prod dependencies (`MIX_ENV=prod`)
 3. Compile assets
 4. Run migrations with the environment exported from `.env.prod`
-5. Restart the `lumainus` systemd unit and show its status
+5. Restart the `medlum` systemd unit and show its status
 
-> **Tip:** The script executes all app commands as the `lumainus` user, so file permissions stay consistent and git never complains about ownership.
+> **Tip:** The script executes all app commands as the `medlum` user, so file permissions stay consistent and git never complains about ownership.
 
 ## Viewing Logs
 
@@ -96,7 +110,7 @@ This will:
 Or on server:
 ```bash
 ssh lu
-sudo journalctl -u lumainus -f
+sudo journalctl -u medlum -f
 ```
 
 ## Service Management
@@ -105,24 +119,24 @@ sudo journalctl -u lumainus -f
 
 ```bash
 ssh lu
-sudo systemctl start lumainus
-sudo systemctl stop lumainus
-sudo systemctl restart lumainus
+sudo systemctl start medlum
+sudo systemctl stop medlum
+sudo systemctl restart medlum
 ```
 
 ### Check Status
 
 ```bash
 ssh lu
-sudo systemctl status lumainus
+sudo systemctl status medlum
 ```
 
 ### Enable/Disable Auto-start
 
 ```bash
 ssh lu
-sudo systemctl enable lumainus   # Start on boot
-sudo systemctl disable lumainus  # Don't start on boot
+sudo systemctl enable medlum   # Start on boot
+sudo systemctl disable medlum  # Don't start on boot
 ```
 
 ## Database Management
@@ -131,7 +145,7 @@ sudo systemctl disable lumainus  # Don't start on boot
 
 ```bash
 ssh lu
-cd /var/www/lumainus
+cd /var/www/medlum
 source .env.prod
 ```
 
@@ -156,7 +170,7 @@ mix ecto.reset
 ### Database Console
 
 ```bash
-psql lumainus_prod lumainus
+psql medlum_prod medlum
 ```
 
 ## Email Configuration
@@ -171,7 +185,7 @@ SMTP_PORT=25
 
 ### External SMTP (Optional)
 
-Edit `/var/www/lumainus/.env.prod`:
+Edit `/var/www/medlum/.env.prod`:
 ```bash
 SMTP_RELAY=smtp.example.com
 SMTP_PORT=587
@@ -181,7 +195,7 @@ SMTP_PASSWORD=your_password
 
 Then restart:
 ```bash
-sudo systemctl restart lumainus
+sudo systemctl restart medlum
 ```
 
 ## Nginx/Caddy Reverse Proxy (Recommended)
@@ -203,7 +217,7 @@ sudo nano /etc/caddy/Caddyfile
 ```
 
 ```
-dev.lumainus.com {
+dev.medlumai.com {
     reverse_proxy localhost:4000
 }
 ```
@@ -218,7 +232,7 @@ sudo systemctl reload caddy
 ```nginx
 server {
     listen 80;
-    server_name dev.lumainus.com;
+    server_name dev.medlumai.com;
 
     location / {
         proxy_pass http://localhost:4000;
@@ -239,13 +253,13 @@ server {
 
 Check logs:
 ```bash
-sudo journalctl -u lumainus -n 100
+sudo journalctl -u medlum -n 100
 ```
 
 Common issues:
 - Database not running: `sudo systemctl start postgresql`
 - Port in use: `sudo lsof -i:4000`
-- Environment file: Check `/var/www/lumainus/.env.prod`
+- Environment file: Check `/var/www/medlum/.env.prod`
 
 ### Database Connection Errors
 
@@ -254,16 +268,16 @@ Common issues:
 sudo systemctl status postgresql
 
 # Test connection
-psql -U lumainus -d lumainus_prod -h localhost
+psql -U medlum -d medlum_prod -h localhost
 ```
 
 ### Assets Not Loading
 
 ```bash
-cd /var/www/lumainus
+cd /var/www/medlum
 source .env.prod
 mix assets.deploy
-sudo systemctl restart lumainus
+sudo systemctl restart medlum
 ```
 
 ### Email Not Sending
@@ -277,9 +291,9 @@ sudo tail -f /var/log/mail.log
 ## File Locations
 
 ```
-/var/www/lumainus/              # Application directory
-/var/www/lumainus/.env.prod     # Environment variables
-/etc/systemd/system/lumainus.service  # Systemd service file
+/var/www/medlum/              # Application directory
+/var/www/medlum/.env.prod     # Environment variables
+/etc/systemd/system/medlum.service  # Systemd service file
 /var/log/syslog                 # General system logs
 ```
 
@@ -289,10 +303,10 @@ sudo tail -f /var/log/mail.log
 |--------|---------|
 | Deploy updates | `./scripts/deploy.sh` |
 | View logs | `./scripts/logs.sh` |
-| Restart service | `ssh lu 'sudo systemctl restart lumainus'` |
-| Check status | `ssh lu 'sudo systemctl status lumainus'` |
+| Restart service | `ssh lu 'sudo systemctl restart medlum'` |
+| Check status | `ssh lu 'sudo systemctl status medlum'` |
 | SSH to server | `ssh lu` |
-| Run migrations | `ssh lu 'cd /var/www/lumainus && source .env.prod && mix ecto.migrate'` |
+| Run migrations | `ssh lu 'cd /var/www/medlum && source .env.prod && mix ecto.migrate'` |
 
 ## Security Checklist
 

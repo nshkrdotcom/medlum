@@ -1,15 +1,15 @@
 # Docling Fork Analysis
 
 **Date:** November 26, 2025
-**Location:** `docling/` (within lumainus project)
+**Location:** `docling/` (within medlum project)
 **Status:** Active fork with custom telemetry extensions
-**Version:** `2.63.0+lumainus`
+**Version:** `2.63.0+medlum`
 
 ---
 
 ## Executive Summary
 
-The Lumainus fork extends Docling 2.63.0 with **real-time progress telemetry** for medical document ingestion pipelines. Core modifications add a callback API that enables page-by-page progress tracking during PDF conversion.
+The Medlum fork extends Docling 2.63.0 with **real-time progress telemetry** for medical document ingestion pipelines. Core modifications add a callback API that enables page-by-page progress tracking during PDF conversion.
 
 ---
 
@@ -17,7 +17,7 @@ The Lumainus fork extends Docling 2.63.0 with **real-time progress telemetry** f
 
 ### Repository Details
 
-- **Location:** `\\wsl.localhost\ubuntu-dev\home\home\p\g\n\lumainus\docling`
+- **Location:** `\\wsl.localhost\ubuntu-dev\home\home\p\g\n\medlum\docling`
 - **Remote (origin):** `n:nshkrdotcom/docling.git`
 - **Remote (upstream):** `https://github.com/docling-project/docling.git`
 - **Base Version:** 2.63.0 (stable)
@@ -53,7 +53,7 @@ docling/document_converter.py          # +imports, +progress_callback param
 docling/datamodel/pipeline_options.py  # +Callable field
 docling/pipeline/base_pipeline.py      # +_emit_progress method
 docling/pipeline/standard_pdf_pipeline.py  # +per-page event emission
-pyproject.toml                         # version string marked "+lumainus"
+pyproject.toml                         # version string marked "+medlum"
 docs/20251120/telemetry.md             # design documentation
 ```
 
@@ -64,7 +64,7 @@ docs/20251120/telemetry.md             # design documentation
 ### Upstream (2.63.0)
 No progress feedback mechanism.
 
-### Lumainus Fork (2.63.0+lumainus)
+### Medlum Fork (2.63.0+medlum)
 
 1. **Add callback during conversion initialization:**
    ```python
@@ -219,7 +219,7 @@ Response (200):
 
 ---
 
-## Integration with Lumainus
+## Integration with Medlum
 
 ### Data Flow
 
@@ -227,13 +227,13 @@ Response (200):
 Phoenix Web UI (LiveView)
     |
     v
-Lumainus.Docling API (Elixir facade)
+Medlum.Docling API (Elixir facade)
     |
     v
 Backend Router (resolve local/cloud)
     |
     v
-HTTP Transport (Lumainus.Docling.HTTP)
+HTTP Transport (Medlum.Docling.HTTP)
     |
     v
 Local Service (/jobs, /jobs/{id}/stream) OR Vast.ai Cloud
@@ -249,19 +249,19 @@ SSE Events -> Phoenix PubSub -> LiveView Progress Cards
 
 ```elixir
 # Synchronous conversion
-{:ok, result} = Lumainus.Docling.convert(pdf_binary,
+{:ok, result} = Medlum.Docling.convert(pdf_binary,
   filename: "document.pdf",
   backend: :docker_gpu
 )
 markdown = result["markdown"]
 
 # Asynchronous with progress streaming
-{:ok, job} = Lumainus.Docling.enqueue(pdf_binary,
+{:ok, job} = Medlum.Docling.enqueue(pdf_binary,
   filename: "document.pdf",
   mode: :local
 )
 
-{:ok, result} = Lumainus.Docling.await(job,
+{:ok, result} = Medlum.Docling.await(job,
   on_status: fn status ->
     progress = status["progress"] || 0
     IO.inspect("Progress: #{progress}%")
@@ -270,7 +270,7 @@ markdown = result["markdown"]
 )
 
 # Cloud mode with auto-provisioning
-{:ok, result} = Lumainus.Docling.convert(pdf_binary,
+{:ok, result} = Medlum.Docling.convert(pdf_binary,
   filename: "document.pdf",
   mode: :cloud
 )
@@ -338,7 +338,7 @@ markdown = result["markdown"]
 
 ## Summary
 
-The Lumainus Docling fork is a **production integration** that extends the official Docling 2.63.0 library with:
+The Medlum Docling fork is a **production integration** that extends the official Docling 2.63.0 library with:
 
 1. **Real-time progress tracking** via Python callback API
 2. **SSE-first streaming** for Elixir/Phoenix integration

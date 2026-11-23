@@ -1,4 +1,4 @@
-# Small Document Set Reporting Flow (Lumainus)
+# Small Document Set Reporting Flow (Medlum)
 
 Optimized for short PDFs or a few pages where full-text fits comfortably in prompts without heavy retrieval or caching.
 

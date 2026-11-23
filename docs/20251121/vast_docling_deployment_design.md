@@ -1,7 +1,7 @@
 # Vast.ai–Backed Docling Deployment Design (with Local + Nginx Sidecar)
 
 **Date:** 2025-11-22  
-**Author:** AI Agents @ Lumainus  
+**Author:** AI Agents @ Medlum
 **Scope:** End-to-end design for running our **Docling fork** in three modes: (a) local CPU (default dev), (b) local GPU (future dev), (c) Vast.ai GPU with public HTTP guarded by an Nginx sidecar (mTLS/basic token capable). No SSH tunnels; single HTTP base URL consumed by Elixir via `DOCLING_BASE_URL`.
 
 ---
@@ -25,7 +25,7 @@
 
 ```
             ┌─────────────────────────────┐
-            │  Lumainus (Elixir)          │
+            │  Medlum (Elixir)          │
             │  DOCLING_BASE_URL=...       │
             └──────────────┬──────────────┘
                            │

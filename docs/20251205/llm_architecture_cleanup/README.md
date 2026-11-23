@@ -4,7 +4,7 @@ Design documents for addressing architectural issues discovered during rate limi
 
 ## Context
 
-Investigation into why `max_concurrency_per_model: 1` wasn't being respected revealed multiple architectural smells in how lumainus handles LLM operations.
+Investigation into why `max_concurrency_per_model: 1` wasn't being respected revealed multiple architectural smells in how medlum handles LLM operations.
 
 ## Documents
 

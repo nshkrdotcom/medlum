@@ -65,10 +65,10 @@
 
 ### 1. Simplified Settings Schema
 
-**File:** `lib/lumainus/docling/settings.ex` (REWRITE)
+**File:** `lib/medlum/docling/settings.ex` (REWRITE)
 
 ```elixir
-defmodule Lumainus.Docling.Settings do
+defmodule Medlum.Docling.Settings do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -131,10 +131,10 @@ end
 
 ### 2. Local Manager (Auto-Managed Docker)
 
-**File:** `lib/lumainus/backends/local_manager.ex` (NEW)
+**File:** `lib/medlum/backends/local_manager.ex` (NEW)
 
 ```elixir
-defmodule Lumainus.Backends.LocalManager do
+defmodule Medlum.Backends.LocalManager do
   @moduledoc """
   Manages local Docker Docling container.
   Auto-starts on app boot, auto-restarts on failure.
@@ -144,7 +144,7 @@ defmodule Lumainus.Backends.LocalManager do
 
   @health_check_interval_ms 30_000
   @startup_timeout_ms 60_000
-  @container_name "lumainus-docling"
+  @container_name "medlum-docling"
 
   defstruct [:endpoint, :status, :container_id, :last_health_check]
 
@@ -174,7 +174,7 @@ defmodule Lumainus.Backends.LocalManager do
 
   @impl true
   def init(_opts) do
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
 
     state = %__MODULE__{
       endpoint: settings.local_endpoint,
@@ -272,7 +272,7 @@ defmodule Lumainus.Backends.LocalManager do
   end
 
   defp ensure_container_exists do
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
     image = if settings.local_gpu_enabled, do: "docling:gpu", else: "docling:cpu"
 
     # Check if container exists
@@ -344,7 +344,7 @@ defmodule Lumainus.Backends.LocalManager do
 
   defp broadcast_status(status) do
     Phoenix.PubSub.broadcast(
-      LumainusWeb.PubSub,
+      MedlumWeb.PubSub,
       "docling:status",
       {:docling_status, :local, status}
     )
@@ -364,10 +364,10 @@ end
 
 ### 3. Cloud Manager (True Auto-Boot)
 
-**File:** `lib/lumainus/backends/cloud_manager.ex` (NEW)
+**File:** `lib/medlum/backends/cloud_manager.ex` (NEW)
 
 ```elixir
-defmodule Lumainus.Backends.CloudManager do
+defmodule Medlum.Backends.CloudManager do
   @moduledoc """
   Manages Vast.ai cloud GPU instance.
   True auto-provision: Creates instance on first request if none exists.
@@ -482,7 +482,7 @@ defmodule Lumainus.Backends.CloudManager do
 
   @impl true
   def handle_info(:sync_with_vastai, state) do
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
 
     if settings.mode == "cloud" and settings.cloud_api_key do
       case VastAI.list_instances(settings.cloud_api_key) do
@@ -504,7 +504,7 @@ defmodule Lumainus.Backends.CloudManager do
 
   @impl true
   def handle_info(:idle_check, state) do
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
     idle_timeout = settings.cloud_idle_timeout_minutes * 60
 
     new_state = if should_stop_for_idle?(state, idle_timeout) do
@@ -541,7 +541,7 @@ defmodule Lumainus.Backends.CloudManager do
 
   defp do_ensure_running(%{instance_id: nil} = state) do
     # No instance exists, provision one
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
 
     if settings.cloud_auto_provision do
       provision_new_instance(state, settings)
@@ -590,7 +590,7 @@ defmodule Lumainus.Backends.CloudManager do
   end
 
   defp start_instance(%{instance_id: instance_id} = state) do
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
 
     case VastAI.start_instance(settings.cloud_api_key, instance_id) do
       {:ok, instance} ->
@@ -607,7 +607,7 @@ defmodule Lumainus.Backends.CloudManager do
   end
 
   defp stop_instance(%{instance_id: instance_id} = state) do
-    settings = Lumainus.Docling.Settings.get()
+    settings = Medlum.Docling.Settings.get()
 
     case VastAI.stop_instance(settings.cloud_api_key, instance_id) do
       :ok ->
@@ -659,7 +659,7 @@ defmodule Lumainus.Backends.CloudManager do
 
   defp broadcast_status(status) do
     Phoenix.PubSub.broadcast(
-      LumainusWeb.PubSub,
+      MedlumWeb.PubSub,
       "docling:status",
       {:docling_status, :cloud, status}
     )
@@ -679,17 +679,17 @@ end
 
 ### 4. Unified Backend Router
 
-**File:** `lib/lumainus/backends/router.ex` (NEW)
+**File:** `lib/medlum/backends/router.ex` (NEW)
 
 ```elixir
-defmodule Lumainus.Backends.Router do
+defmodule Medlum.Backends.Router do
   @moduledoc """
   Single entry point for backend selection.
   No profiles, no complexity - just get an endpoint.
   """
 
-  alias Lumainus.Backends.{LocalManager, CloudManager}
-  alias Lumainus.Docling.Settings
+  alias Medlum.Backends.{LocalManager, CloudManager}
+  alias Medlum.Docling.Settings
 
   @doc """
   Get an endpoint for PDF processing.
@@ -750,7 +750,7 @@ end
 After implementing the new architecture, these files should be removed:
 
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── setting.ex              # REWRITE (simplified)
 ├── settings.ex             # MERGE into new settings
 ├── health_manager.ex       # DELETE (replaced by LocalManager/CloudManager)
@@ -761,7 +761,7 @@ lib/lumainus/docling/
 │   ├── auto_shutdown.ex    # DELETE (built into CloudManager)
 │   └── provisioning_state.ex # DELETE (not needed)
 
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── backend_router.ex       # DELETE (replaced by backends/router.ex)
 ├── processing_profile.ex   # DELETE (profiles removed)
 └── circuit_breaker.ex      # SIMPLIFY (one breaker per mode)
@@ -776,7 +776,7 @@ lib/lumainus/conversion/
 ### Before (Current System)
 ```elixir
 # 20+ configuration options
-config :lumainus, :docling,
+config :medlum, :docling,
   default_mode: :local,
   active_local_backend: :docker_cpu,
   native_cpu_url: "http://127.0.0.1:8040",
@@ -792,7 +792,7 @@ config :lumainus, :docling,
 ### After (New System)
 ```elixir
 # 10 configuration options
-config :lumainus, :docling,
+config :medlum, :docling,
   mode: "local",  # or "cloud"
   local_endpoint: "http://127.0.0.1:8042",
   local_gpu_enabled: false,

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines how to fully integrate the Conversion System v2 into the Lumainus Phoenix application. The v2 system provides a robust, resilient document conversion pipeline with:
+This document outlines how to fully integrate the Conversion System v2 into the Medlum Phoenix application. The v2 system provides a robust, resilient document conversion pipeline with:
 
 - Config-driven backend routing
 - Circuit breakers and health monitoring
@@ -15,23 +15,23 @@ This document outlines how to fully integrate the Conversion System v2 into the 
 
 | Module | Location | Purpose |
 |--------|----------|---------|
-| Job | `lib/lumainus/conversion/job.ex` | Ecto schema for conversion jobs |
-| JobStatus | `lib/lumainus/conversion/job_status.ex` | Status struct with provenance |
-| Policy | `lib/lumainus/conversion/policy.ex` | Validation rules (size, type, access) |
-| ProcessingProfile | `lib/lumainus/conversion/processing_profile.ex` | :standard / :enhanced profiles |
-| Context | `lib/lumainus/conversion/infrastructure/context.ex` | Request tracing context |
-| HTTP.Client | `lib/lumainus/conversion/infrastructure/http/client.ex` | HTTP client for backends |
-| HTTP.SSEStream | `lib/lumainus/conversion/infrastructure/http/sse_stream.ex` | SSE progress streaming |
-| CircuitBreaker | `lib/lumainus/conversion/infrastructure/resilience/circuit_breaker.ex` | Per-backend circuit breaker |
-| RetryPolicy | `lib/lumainus/conversion/infrastructure/resilience/retry_policy.ex` | Exponential backoff retries |
-| Telemetry.Emitter | `lib/lumainus/conversion/infrastructure/telemetry/emitter.ex` | Metrics emission |
-| HealthManager | `lib/lumainus/conversion/infrastructure/health_manager.ex` | Backend health monitoring |
-| BackendRouter | `lib/lumainus/conversion/infrastructure/backend_router.ex` | Config-driven routing |
-| LocalBackend | `lib/lumainus/conversion/backends/local_backend.ex` | Docker/native backends |
-| CloudBackend | `lib/lumainus/conversion/backends/cloud_backend.ex` | Vast.ai cloud backend |
-| JobTracker | `lib/lumainus/conversion/application/job_tracker.ex` | ETS cache + DB persistence |
-| Service | `lib/lumainus/conversion/service.ex` | Public API |
-| Events | `lib/lumainus/conversion/events.ex` | PubSub broadcasting |
+| Job | `lib/medlum/conversion/job.ex` | Ecto schema for conversion jobs |
+| JobStatus | `lib/medlum/conversion/job_status.ex` | Status struct with provenance |
+| Policy | `lib/medlum/conversion/policy.ex` | Validation rules (size, type, access) |
+| ProcessingProfile | `lib/medlum/conversion/processing_profile.ex` | :standard / :enhanced profiles |
+| Context | `lib/medlum/conversion/infrastructure/context.ex` | Request tracing context |
+| HTTP.Client | `lib/medlum/conversion/infrastructure/http/client.ex` | HTTP client for backends |
+| HTTP.SSEStream | `lib/medlum/conversion/infrastructure/http/sse_stream.ex` | SSE progress streaming |
+| CircuitBreaker | `lib/medlum/conversion/infrastructure/resilience/circuit_breaker.ex` | Per-backend circuit breaker |
+| RetryPolicy | `lib/medlum/conversion/infrastructure/resilience/retry_policy.ex` | Exponential backoff retries |
+| Telemetry.Emitter | `lib/medlum/conversion/infrastructure/telemetry/emitter.ex` | Metrics emission |
+| HealthManager | `lib/medlum/conversion/infrastructure/health_manager.ex` | Backend health monitoring |
+| BackendRouter | `lib/medlum/conversion/infrastructure/backend_router.ex` | Config-driven routing |
+| LocalBackend | `lib/medlum/conversion/backends/local_backend.ex` | Docker/native backends |
+| CloudBackend | `lib/medlum/conversion/backends/cloud_backend.ex` | Vast.ai cloud backend |
+| JobTracker | `lib/medlum/conversion/application/job_tracker.ex` | ETS cache + DB persistence |
+| Service | `lib/medlum/conversion/service.ex` | Public API |
+| Events | `lib/medlum/conversion/events.ex` | PubSub broadcasting |
 | Migration | `priv/repo/migrations/20251126200256_create_conversion_jobs.exs` | Database schema |
 
 ### Architecture Diagram
@@ -82,7 +82,7 @@ This document outlines how to fully integrate the Conversion System v2 into the 
 ### Step 1: Run Database Migration
 
 ```bash
-cd /home/home/p/g/n/lumainus
+cd /path/to/medlum
 mix ecto.migrate
 ```
 
@@ -98,7 +98,7 @@ Edit `config/config.exs` or `config/runtime.exs`:
 
 ```elixir
 # Default configuration (already added)
-config :lumainus, :conversion,
+config :medlum, :conversion,
   backends: [
     {:docker_cpu, endpoint: "http://localhost:8042", type: :local},
     {:docker_gpu, endpoint: "http://localhost:8043", type: :local},
@@ -114,7 +114,7 @@ config :lumainus, :conversion,
 
 **Cloud-Only** (production without local GPU):
 ```elixir
-config :lumainus, :conversion,
+config :medlum, :conversion,
   backends: [{:cloud, type: :cloud}],
   profiles: %{
     standard: [:cloud],
@@ -124,7 +124,7 @@ config :lumainus, :conversion,
 
 **Local-Only** (development):
 ```elixir
-config :lumainus, :conversion,
+config :medlum, :conversion,
   backends: [{:docker_cpu, endpoint: "http://localhost:8042", type: :local}],
   profiles: %{
     standard: [:docker_cpu],
@@ -134,16 +134,16 @@ config :lumainus, :conversion,
 
 ### Step 3: Create REST API Controller
 
-Create `lib/lumainus_web/controllers/api/v2/conversion_controller.ex`:
+Create `lib/medlum_web/controllers/api/v2/conversion_controller.ex`:
 
 ```elixir
-defmodule LumainusWeb.API.V2.ConversionController do
-  use LumainusWeb, :controller
+defmodule MedlumWeb.API.V2.ConversionController do
+  use MedlumWeb, :controller
 
-  alias Lumainus.Conversion.Service
-  alias Lumainus.Conversion.Events
+  alias Medlum.Conversion.Service
+  alias Medlum.Conversion.Events
 
-  action_fallback LumainusWeb.FallbackController
+  action_fallback MedlumWeb.FallbackController
 
   @doc "POST /api/v2/conversions"
   def create(conn, %{"file" => upload} = params) do
@@ -249,10 +249,10 @@ defmodule LumainusWeb.API.V2.ConversionController do
 end
 ```
 
-Add routes in `lib/lumainus_web/router.ex`:
+Add routes in `lib/medlum_web/router.ex`:
 
 ```elixir
-scope "/api/v2", LumainusWeb.API.V2 do
+scope "/api/v2", MedlumWeb.API.V2 do
   pipe_through :api
 
   resources "/conversions", ConversionController, only: [:create, :show, :delete]
@@ -265,10 +265,10 @@ end
 Subscribe to job events in LiveView for real-time updates:
 
 ```elixir
-defmodule LumainusWeb.ConversionLive do
-  use LumainusWeb, :live_view
+defmodule MedlumWeb.ConversionLive do
+  use MedlumWeb, :live_view
 
-  alias Lumainus.Conversion.{Service, Events}
+  alias Medlum.Conversion.{Service, Events}
 
   def mount(_params, _session, socket) do
     {:ok, assign(socket, jobs: [], uploading: false)}
@@ -327,13 +327,13 @@ end
 
 ### Step 5: Integrate with Existing Documents Module
 
-The existing `Lumainus.Documents` module can call the v2 Service:
+The existing `Medlum.Documents` module can call the v2 Service:
 
 ```elixir
-# In lib/lumainus/documents.ex
+# In lib/medlum/documents.ex
 
-defmodule Lumainus.Documents do
-  alias Lumainus.Conversion.Service, as: ConversionV2
+defmodule Medlum.Documents do
+  alias Medlum.Conversion.Service, as: ConversionV2
 
   @doc """
   Start conversion using v2 system.
@@ -372,7 +372,7 @@ end
 
 ### Step 6: Add Telemetry Handlers (Optional)
 
-Create `lib/lumainus_web/telemetry.ex` handlers for metrics:
+Create `lib/medlum_web/telemetry.ex` handlers for metrics:
 
 ```elixir
 # In existing telemetry.ex, add:
@@ -380,22 +380,22 @@ Create `lib/lumainus_web/telemetry.ex` handlers for metrics:
 defp conversion_metrics do
   [
     # Job lifecycle
-    counter("lumainus.conversion.job.submitted.count"),
-    counter("lumainus.conversion.job.completed.count"),
-    counter("lumainus.conversion.job.failed.count"),
+    counter("medlum.conversion.job.submitted.count"),
+    counter("medlum.conversion.job.completed.count"),
+    counter("medlum.conversion.job.failed.count"),
 
     # Durations
-    distribution("lumainus.conversion.job.completed.duration_ms",
+    distribution("medlum.conversion.job.completed.duration_ms",
       unit: :millisecond,
       reporter_options: [buckets: [100, 500, 1000, 5000, 10000, 30000, 60000]]
     ),
 
     # Circuit breaker
-    counter("lumainus.conversion.circuit.opened.count"),
-    counter("lumainus.conversion.circuit.rejected.count"),
+    counter("medlum.conversion.circuit.opened.count"),
+    counter("medlum.conversion.circuit.rejected.count"),
 
     # Health
-    distribution("lumainus.conversion.health.checked.latency_ms")
+    distribution("medlum.conversion.health.checked.latency_ms")
   ]
 end
 ```
@@ -480,15 +480,15 @@ Events.subscribe(job_id)
 Run all conversion tests:
 
 ```bash
-mix test test/lumainus/conversion/
+mix test test/medlum/conversion/
 # 217 tests, 0 failures
 ```
 
 Run specific module tests:
 
 ```bash
-mix test test/lumainus/conversion/service_test.exs
-mix test test/lumainus/conversion/infrastructure/backend_router_test.exs
+mix test test/medlum/conversion/service_test.exs
+mix test test/medlum/conversion/infrastructure/backend_router_test.exs
 ```
 
 ---
@@ -498,32 +498,32 @@ mix test test/lumainus/conversion/infrastructure/backend_router_test.exs
 ### Check Backend Health
 
 ```elixir
-iex> Lumainus.Conversion.Infrastructure.HealthManager.status(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.HealthManager.status(:docker_cpu)
 :healthy
 
-iex> Lumainus.Conversion.Infrastructure.HealthManager.latency(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.HealthManager.latency(:docker_cpu)
 45  # milliseconds
 ```
 
 ### Check Circuit Breaker State
 
 ```elixir
-iex> Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker.state(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.Resilience.CircuitBreaker.state(:docker_cpu)
 :closed
 ```
 
 ### Route a Profile
 
 ```elixir
-iex> Lumainus.Conversion.Infrastructure.BackendRouter.route(:standard)
+iex> Medlum.Conversion.Infrastructure.BackendRouter.route(:standard)
 {:ok, %{name: :docker_cpu, endpoint: "http://localhost:8042", ...}}
 ```
 
 ### Get Job Status
 
 ```elixir
-iex> Lumainus.Conversion.Service.status("job-uuid-here")
-{:ok, %Lumainus.Conversion.JobStatus{
+iex> Medlum.Conversion.Service.status("job-uuid-here")
+{:ok, %Medlum.Conversion.JobStatus{
   job_id: "...",
   state: :processing,
   progress: 45,

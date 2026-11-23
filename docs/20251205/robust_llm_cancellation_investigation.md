@@ -7,13 +7,13 @@ Scope: Create a hard-cancel design for report sections that truly stops Gemini H
 
 ## Background (current flow to anchor the investigation)
 
-- Section execution runs inside Oban, not the LiveView. `Lumainus.Reports.SectionRunWorker.perform/1` triggers `SectionRunner.run_section/5` or `.run_section_streaming/5` depending on args (`lib/lumainus/reports/section_run_worker.ex:15-44`).
-- LLM calls are made synchronously inside `Lumainus.AI.SectionRunner`:
-  - Non-streaming path calls `AI.client().generate_object/4`, which uses `Gemini.generate/2` under the hood (`lib/lumainus/ai/section_runner.ex:18-129`, `lib/lumainus/llm.ex:18-119`).
-  - Streaming path uses `Gemini.Streaming.UnifiedManager.start_stream/3` and spawns a translator process that receives UnifiedManager events and forwards them to the worker process (`lib/lumainus/ai/section_runner.ex:131-291`, `lib/lumainus/llm.ex:141-291`).
-- The LiveView only tracks `running_sections` as a UI MapSet derived from section status; it does **not** hold PIDs or Oban job IDs (`lib/lumainus_web/live/reports_live.ex:733-760`). Navigating away or closing the LiveView does not stop the running section.
+- Section execution runs inside Oban, not the LiveView. `Medlum.Reports.SectionRunWorker.perform/1` triggers `SectionRunner.run_section/5` or `.run_section_streaming/5` depending on args (`lib/medlum/reports/section_run_worker.ex:15-44`).
+- LLM calls are made synchronously inside `Medlum.AI.SectionRunner`:
+  - Non-streaming path calls `AI.client().generate_object/4`, which uses `Gemini.generate/2` under the hood (`lib/medlum/ai/section_runner.ex:18-129`, `lib/medlum/llm.ex:18-119`).
+  - Streaming path uses `Gemini.Streaming.UnifiedManager.start_stream/3` and spawns a translator process that receives UnifiedManager events and forwards them to the worker process (`lib/medlum/ai/section_runner.ex:131-291`, `lib/medlum/llm.ex:141-291`).
+- The LiveView only tracks `running_sections` as a UI MapSet derived from section status; it does **not** hold PIDs or Oban job IDs (`lib/medlum_web/live/reports_live.ex:733-760`). Navigating away or closing the LiveView does not stop the running section.
 - Timeouts: the streaming receive loop in `SectionRunner` has a 10-minute `receive` timeout; this does not actively abort the underlying HTTP request.
-- Data models: `report_section_runs.status` and `llm_invocations.status` currently use strings like `"pending"`, `"running"`, `"completed"`, `"error"`; no explicit `"cancelled"` state yet (`lib/lumainus/reports/report_section_run.ex:6-42`, `lib/lumainus/ai/llm_invocation.ex:7-67`).
+- Data models: `report_section_runs.status` and `llm_invocations.status` currently use strings like `"pending"`, `"running"`, `"completed"`, `"error"`; no explicit `"cancelled"` state yet (`lib/medlum/reports/report_section_run.ex:6-42`, `lib/medlum/ai/llm_invocation.ex:7-67`).
 
 ## Problem to solve
 
@@ -43,7 +43,7 @@ Scope: Create a hard-cancel design for report sections that truly stops Gemini H
    - Identify exactly which processes own Gemini calls for both streaming and non-streaming flows (SectionRunner vs translator vs Oban worker).
    - Confirm whether SectionRunner uses Task, Task.Supervisor, or plain function calls (today looks synchronous).
 2. **Find all Gemini entry points**
-   - Trace every call into `Lumainus.LLM` and `Gemini.Streaming.UnifiedManager` (streaming start/stop, subscriptions).
+   - Trace every call into `Medlum.LLM` and `Gemini.Streaming.UnifiedManager` (streaming start/stop, subscriptions).
    - Note any long-lived processes or monitors.
 3. **Assess cancel hooks**
    - Check if gemini_ex exposes any cancel/stop besides `stop_stream/1`.
@@ -97,7 +97,7 @@ Scope: Create a hard-cancel design for report sections that truly stops Gemini H
 Use the following prompt verbatim when engaging the subagent:
 
 ```
-You are investigating how to implement a truly hard “Cancel” for report generation in the Lumainus codebase.
+You are investigating how to implement a truly hard “Cancel” for report generation in the Medlum codebase.
 
 Context:
 - Stack: Elixir/Phoenix 1.8, LiveView, Oban for background jobs, gemini_ex client for LLM, Req HTTP under the hood.

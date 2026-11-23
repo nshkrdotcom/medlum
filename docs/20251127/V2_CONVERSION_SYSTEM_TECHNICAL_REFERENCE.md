@@ -29,7 +29,7 @@
 
 ### 1.1 Purpose
 
-The V2 Conversion System is a complete rewrite of Lumainus's document conversion pipeline, designed to:
+The V2 Conversion System is a complete rewrite of Medlum's document conversion pipeline, designed to:
 
 - Provide unified backend routing for local and cloud GPU processing
 - Support on-demand cloud GPU provisioning via Vast.ai
@@ -210,7 +210,7 @@ The V2 Conversion System is a complete rewrite of Lumainus's document conversion
 
 ### 3.1 Conversion.Service
 
-**File:** `lib/lumainus/conversion/service.ex`
+**File:** `lib/medlum/conversion/service.ex`
 
 The public API for document conversion. Handles job submission, status tracking, and completion awaiting.
 
@@ -263,7 +263,7 @@ The public API for document conversion. Handles job submission, status tracking,
 
 ### 3.2 Conversion.Job
 
-**File:** `lib/lumainus/conversion/job.ex`
+**File:** `lib/medlum/conversion/job.ex`
 
 Ecto schema representing a conversion job with full provenance tracking.
 
@@ -305,7 +305,7 @@ end
 
 ### 3.3 Conversion.JobStatus
 
-**File:** `lib/lumainus/conversion/job_status.ex`
+**File:** `lib/medlum/conversion/job_status.ex`
 
 Normalized status representation for API responses and progress tracking.
 
@@ -324,7 +324,7 @@ Normalized status representation for API responses and progress tracking.
 
 ### 3.4 Conversion.ProcessingProfile
 
-**File:** `lib/lumainus/conversion/processing_profile.ex`
+**File:** `lib/medlum/conversion/processing_profile.ex`
 
 Defines processing profiles with their characteristics.
 
@@ -351,7 +351,7 @@ Defines processing profiles with their characteristics.
 
 ### 3.5 Conversion.Policy
 
-**File:** `lib/lumainus/conversion/policy.ex`
+**File:** `lib/medlum/conversion/policy.ex`
 
 Validation and authorization policies for conversion jobs.
 
@@ -385,7 +385,7 @@ end
 
 CloudStatus is the **single source of truth** for cloud backend availability. It wraps the InstanceManager state machine and provides a clean, consistent API for both v1 (legacy) and v2 systems.
 
-**File:** `lib/lumainus/conversion/cloud_status.ex`
+**File:** `lib/medlum/conversion/cloud_status.ex`
 
 ### 4.2 Availability States
 
@@ -448,9 +448,9 @@ CloudStatus is the **single source of truth** for cloud backend availability. It
 ### 4.4 Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.CloudStatus do
-  alias Lumainus.Docling.VastAI.InstanceManager
-  alias Lumainus.Docling.Settings
+defmodule Medlum.Conversion.CloudStatus do
+  alias Medlum.Docling.VastAI.InstanceManager
+  alias Medlum.Docling.Settings
 
   @spec get() :: t()
   def get do
@@ -544,7 +544,7 @@ end
 
 ### 5.1 BackendRouter
 
-**File:** `lib/lumainus/conversion/infrastructure/backend_router.ex`
+**File:** `lib/medlum/conversion/infrastructure/backend_router.ex`
 
 Routes processing profiles to available backends using health status and circuit breaker state.
 
@@ -624,7 +624,7 @@ Routes processing profiles to available backends using health status and circuit
 
 ### 5.3 Profile to Backend Mapping
 
-Configured in database via `Lumainus.Docling.Settings`:
+Configured in database via `Medlum.Docling.Settings`:
 
 ```elixir
 %{
@@ -639,7 +639,7 @@ Configured in database via `Lumainus.Docling.Settings`:
 
 ### 6.1 HealthManager
 
-**File:** `lib/lumainus/conversion/infrastructure/health_manager.ex`
+**File:** `lib/medlum/conversion/infrastructure/health_manager.ex`
 
 Periodic health checking for **local** backends. Cloud backends are handled by CloudStatus.
 
@@ -683,7 +683,7 @@ end
 
 ### 6.2 CircuitBreaker
 
-**File:** `lib/lumainus/conversion/infrastructure/resilience/circuit_breaker.ex`
+**File:** `lib/medlum/conversion/infrastructure/resilience/circuit_breaker.ex`
 
 Prevents cascade failures by tracking backend error rates.
 
@@ -892,7 +892,7 @@ end
 
 ### 9.1 ReportsLive
 
-**File:** `lib/lumainus_web/live/reports_live.ex`
+**File:** `lib/medlum_web/live/reports_live.ex`
 
 Main upload interface with cloud status display.
 
@@ -957,7 +957,7 @@ end
 
 ### 9.2 VastAI Admin LiveView
 
-**File:** `lib/lumainus_web/live/admin/vast_ai_live.ex`
+**File:** `lib/medlum_web/live/admin/vast_ai_live.ex`
 
 Admin interface for Vast.ai instance management.
 
@@ -1061,12 +1061,12 @@ end
 
 | File | Coverage |
 |------|----------|
-| `test/lumainus/conversion/service_test.exs` | Service API |
-| `test/lumainus/conversion/policy_test.exs` | Authorization |
-| `test/lumainus/conversion/backends/cloud_backend_test.exs` | Cloud backend |
-| `test/lumainus/conversion/backends/local_backend_test.exs` | Local backend |
-| `test/lumainus/conversion/infrastructure/backend_router_test.exs` | Routing |
-| `test/lumainus/conversion/infrastructure/health_manager_test.exs` | Health checks |
+| `test/medlum/conversion/service_test.exs` | Service API |
+| `test/medlum/conversion/policy_test.exs` | Authorization |
+| `test/medlum/conversion/backends/cloud_backend_test.exs` | Cloud backend |
+| `test/medlum/conversion/backends/local_backend_test.exs` | Local backend |
+| `test/medlum/conversion/infrastructure/backend_router_test.exs` | Routing |
+| `test/medlum/conversion/infrastructure/health_manager_test.exs` | Health checks |
 
 ---
 
@@ -1076,7 +1076,7 @@ end
 
 ```elixir
 # config/config.exs
-config :lumainus, :conversion,
+config :medlum, :conversion,
   native_cpu_url: "http://localhost:8040",
   native_gpu_url: "http://localhost:8041",
   docker_cpu_url: "http://localhost:8042",
@@ -1087,7 +1087,7 @@ config :lumainus, :conversion,
 
 ### 11.2 Database Settings
 
-Via `Lumainus.Docling.Settings`:
+Via `Medlum.Docling.Settings`:
 
 ```elixir
 %Settings{
@@ -1126,13 +1126,13 @@ Via `Lumainus.Docling.Settings`:
 **Debug:**
 ```elixir
 # Check CloudStatus
-iex> Lumainus.Conversion.CloudStatus.get()
+iex> Medlum.Conversion.CloudStatus.get()
 
 # Check HealthManager
-iex> Lumainus.Conversion.Infrastructure.HealthManager.status(:docker_cpu)
+iex> Medlum.Conversion.Infrastructure.HealthManager.status(:docker_cpu)
 
 # Check CircuitBreaker
-iex> Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker.state(:cloud)
+iex> Medlum.Conversion.Infrastructure.Resilience.CircuitBreaker.state(:cloud)
 ```
 
 **Solutions:**
@@ -1170,19 +1170,19 @@ iex> CloudStatus.get()
 ```elixir
 # Check all backend health
 for backend <- [:docker_cpu, :docker_gpu, :local_cpu, :local_gpu] do
-  status = Lumainus.Conversion.Infrastructure.HealthManager.status(backend)
+  status = Medlum.Conversion.Infrastructure.HealthManager.status(backend)
   IO.puts("#{backend}: #{status}")
 end
 
 # Check CloudStatus
-IO.inspect(Lumainus.Conversion.CloudStatus.get(), label: "CloudStatus")
+IO.inspect(Medlum.Conversion.CloudStatus.get(), label: "CloudStatus")
 
 # Check InstanceManager
-IO.inspect(GenServer.call(Lumainus.Docling.VastAI.InstanceManager, :status),
+IO.inspect(GenServer.call(Medlum.Docling.VastAI.InstanceManager, :status),
            label: "InstanceManager")
 
 # Force health check
-Lumainus.Conversion.Infrastructure.HealthManager.check_now(:docker_gpu)
+Medlum.Conversion.Infrastructure.HealthManager.check_now(:docker_gpu)
 ```
 
 ---
@@ -1227,23 +1227,23 @@ The V2 system maintains compatibility with V1 patterns:
 
 | File | Purpose |
 |------|---------|
-| `lib/lumainus/conversion/cloud_status.ex` | Single source of truth for cloud availability |
-| `lib/lumainus/conversion/service.ex` | Public API for conversion |
-| `lib/lumainus/conversion/job.ex` | Job schema |
-| `lib/lumainus/conversion/job_status.ex` | Status normalization |
-| `lib/lumainus/conversion/processing_profile.ex` | Profile definitions |
-| `lib/lumainus/conversion/policy.ex` | Validation & authorization |
-| `lib/lumainus/conversion/infrastructure/backend_router.ex` | Backend routing |
-| `lib/lumainus/conversion/infrastructure/health_manager.ex` | Health checking |
-| `lib/lumainus/conversion/infrastructure/resilience/circuit_breaker.ex` | Circuit breaker |
-| `lib/lumainus/conversion/infrastructure/http/client.ex` | HTTP client |
-| `lib/lumainus/conversion/backends/local_backend.ex` | Local backend |
-| `lib/lumainus/conversion/backends/cloud_backend.ex` | Cloud backend |
-| `lib/lumainus/conversion/application/job_tracker.ex` | Job state tracking |
-| `lib/lumainus/documents/ingestion_processor.ex` | Ingestion orchestration |
-| `lib/lumainus/documents/docling_ingestion_worker.ex` | Oban worker |
-| `lib/lumainus_web/live/reports_live.ex` | Upload UI |
-| `lib/lumainus_web/live/admin/vast_ai_live.ex` | Admin UI |
+| `lib/medlum/conversion/cloud_status.ex` | Single source of truth for cloud availability |
+| `lib/medlum/conversion/service.ex` | Public API for conversion |
+| `lib/medlum/conversion/job.ex` | Job schema |
+| `lib/medlum/conversion/job_status.ex` | Status normalization |
+| `lib/medlum/conversion/processing_profile.ex` | Profile definitions |
+| `lib/medlum/conversion/policy.ex` | Validation & authorization |
+| `lib/medlum/conversion/infrastructure/backend_router.ex` | Backend routing |
+| `lib/medlum/conversion/infrastructure/health_manager.ex` | Health checking |
+| `lib/medlum/conversion/infrastructure/resilience/circuit_breaker.ex` | Circuit breaker |
+| `lib/medlum/conversion/infrastructure/http/client.ex` | HTTP client |
+| `lib/medlum/conversion/backends/local_backend.ex` | Local backend |
+| `lib/medlum/conversion/backends/cloud_backend.ex` | Cloud backend |
+| `lib/medlum/conversion/application/job_tracker.ex` | Job state tracking |
+| `lib/medlum/documents/ingestion_processor.ex` | Ingestion orchestration |
+| `lib/medlum/documents/docling_ingestion_worker.ex` | Oban worker |
+| `lib/medlum_web/live/reports_live.ex` | Upload UI |
+| `lib/medlum_web/live/admin/vast_ai_live.ex` | Admin UI |
 
 ---
 
@@ -1263,4 +1263,4 @@ The V2 system maintains compatibility with V1 patterns:
 ---
 
 *Document generated: November 27, 2025*
-*System version: Lumainus V2 Conversion System*
+*System version: Medlum V2 Conversion System*

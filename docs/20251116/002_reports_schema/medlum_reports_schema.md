@@ -1,7 +1,7 @@
-# Lumainus Reports Data Architecture (v1)
+# Medlum Reports Data Architecture (v1)
 
 **Date:** 2025-11-16  
-**Owner:** Lumainus AI Agents  
+**Owner:** Medlum AI Agents
 **Scope:** `/reports` ingestion → LLM analysis → structured report delivery  
 **Goal:** Land the first single-tenant deployment while keeping schemas tenancy-aware so we can onboard additional domains without rewrites.
 
@@ -10,7 +10,7 @@
 ## 1. Requirements Recap
 - `/reports` must pull from a **traceable ingestion pipeline**: PDF upload → parsing → LLM summarization (markdown) → report UI.
 - Every artifact (uploads, prompts, outputs, provenance) lives in Postgres with timestamps and FK chains for HIPAA audits.
-- Multi-tenancy: start with one tenant, but all domain objects need a `tenant_id` (or derivable tenant) and role-aware access via `Lumainus.Accounts.Scope`.
+- Multi-tenancy: start with one tenant, but all domain objects need a `tenant_id` (or derivable tenant) and role-aware access via `Medlum.Accounts.Scope`.
 - Patients are deduplicated + versioned (slowly changing dimension) because the LLM may update demographics over time but we keep the full history.
 - `/reports` runs per patient, per template section; each run makes **one GeminiEx structured-output call** through the LLM facade.
 - Logs: store prompts, responses, tool metadata, provider usage metrics, human edits.
@@ -21,13 +21,13 @@
 
 | Table | Purpose | Notes |
 | --- | --- | --- |
-| `tenants` | Primary tenant/org record | One row today (Lumainus Clinical) |
+| `tenants` | Primary tenant/org record | One row today (Medlum Clinical) |
 | `tenant_domains` | Domain/email routing + hostnames | Allows future `tenant.foo.com` |
 | `tenant_settings` | JSONB configs (LLM limits, storage caps) | Type-2 history using `effective_at` columns |
 | `users` | Existing table gains `tenant_id`, `locale`, `timezone` | `role` stays (guest, doctor, admin, system_administrator) |
 | `user_memberships` | Optional future extension if users can join multiple tenants | For now `users.tenant_id` is required but schema supports pivot |
 
-`Lumainus.Accounts.Scope` will embed both `tenant` and `user`, so downstream queries always filter by `tenant_id`.
+`Medlum.Accounts.Scope` will embed both `tenant` and `user`, so downstream queries always filter by `tenant_id`.
 
 ---
 
@@ -105,8 +105,8 @@ Published reports always point to the exact section run + patient profile used a
 - **Key management:** Configure `:gemini_ex` via runtime config (`GEMINI_API_KEY`/`GOOGLE_API_KEY`). Tenants may later carry their own API keys through `tenant_settings`.
 - **Service module outline:**
   ```elixir
-  defmodule Lumainus.AI.SectionRunner do
-    @behaviour Lumainus.AI.Runner
+  defmodule Medlum.AI.SectionRunner do
+    @behaviour Medlum.AI.Runner
 
     def run(section_template, documents, patient_profile, opts) do
       context = build_context(...)
@@ -114,7 +114,7 @@ Published reports always point to the exact section run + patient profile used a
       model = section_template.model || default_model(section_template.provider)
 
       {:ok, response} =
-        Lumainus.LLM.generate_object(
+        Medlum.LLM.generate_object(
           model,
           render_prompt(context),
           schema,

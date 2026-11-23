@@ -174,7 +174,7 @@ Defaults (tunable)
 
 Implementation Skeleton (Elixir names)
 
-- lib/lumainus/conversion/
+- lib/medlum/conversion/
     - job.ex, job_status.ex, processing_profile.ex, policy.ex
     - service.ex (public API)
     - application/job_tracker.ex (DB-backed with ETS cache)
@@ -188,7 +188,7 @@ Implementation Skeleton (Elixir names)
     - infrastructure/context.ex (correlation/trace IDs)
     - backends/{local_backend,cloud_backend}.ex
     - events.ex (PubSub broadcasts without backend details)
-- Tests under test/lumainus/conversion/** with per-test mock modules.
+- Tests under test/medlum/conversion/** with per-test mock modules.
 
 ———
 

@@ -1,23 +1,23 @@
 # Web/LiveView Integration for Docling
 
 **Date:** November 26, 2025
-**Component:** `lib/lumainus_web/`
+**Component:** `lib/medlum_web/`
 
 ---
 
 ## Executive Summary
 
-The lumainus project implements a sophisticated web-based interface for PDF-to-Markdown conversion using Docling. The architecture separates concerns into admin management, user-facing document processing, and real-time status tracking.
+The medlum project implements a sophisticated web-based interface for PDF-to-Markdown conversion using Docling. The architecture separates concerns into admin management, user-facing document processing, and real-time status tracking.
 
 ---
 
 ## 1. Route Configuration
 
-**File:** `lib/lumainus_web/router.ex`
+**File:** `lib/medlum_web/router.ex`
 
 ```elixir
 # Public API for document uploads and job monitoring
-scope "/api", LumainusWeb do
+scope "/api", MedlumWeb do
   pipe_through :api
   post "/uploads", Api.UploadController, :create
   get "/uploads/:id/status", Api.UploadController, :status
@@ -27,7 +27,7 @@ scope "/api", LumainusWeb do
 end
 
 # Doctor routes - document processing
-scope "/", LumainusWeb do
+scope "/", MedlumWeb do
   live_session :doctor_routes do
     live "/reports", ReportsLive
     live "/prompts", PromptsLive
@@ -35,7 +35,7 @@ scope "/", LumainusWeb do
 end
 
 # Admin routes - system configuration
-scope "/admin", LumainusWeb do
+scope "/admin", MedlumWeb do
   live_session :admin_routes do
     live "/docling", Admin.DoclingSettingsLive
     live "/vast_ai", Admin.VastAILive
@@ -50,7 +50,7 @@ end
 
 ### DoclingSettingsLive Component
 
-**File:** `lib/lumainus_web/live/admin/docling_settings_live.ex`
+**File:** `lib/medlum_web/live/admin/docling_settings_live.ex`
 
 **Purpose:** Centralized admin interface for configuring Docling backends and monitoring their health.
 
@@ -100,7 +100,7 @@ end
 
 ### User Upload Flow in ReportsLive
 
-**File:** `lib/lumainus_web/live/reports_live.ex`
+**File:** `lib/medlum_web/live/reports_live.ex`
 
 **LiveView Upload Setup:**
 ```elixir
@@ -143,7 +143,7 @@ allow_upload(:documents,
 
 ### Upload Controller API
 
-**File:** `lib/lumainus_web/controllers/api/upload_controller.ex`
+**File:** `lib/medlum_web/controllers/api/upload_controller.ex`
 
 **Endpoints:**
 - `POST /api/uploads` - Accept multipart form data with file
@@ -164,7 +164,7 @@ end
 
 ### VastAILive Component
 
-**File:** `lib/lumainus_web/live/admin/vast_ai_live.ex`
+**File:** `lib/medlum_web/live/admin/vast_ai_live.ex`
 
 **Purpose:** Manage cloud GPU instances on Vast.ai
 
@@ -188,7 +188,7 @@ end
 
 ### GPUEventsLive Component
 
-**File:** `lib/lumainus_web/live/admin/gpu_events_live.ex`
+**File:** `lib/medlum_web/live/admin/gpu_events_live.ex`
 
 **Purpose:** Event history and analytics for GPU usage
 
@@ -204,7 +204,7 @@ end
 
 ### Settings Schema
 
-**File:** `lib/lumainus/docling/setting.ex`
+**File:** `lib/medlum/docling/setting.ex`
 
 **Database Table:** `docling_settings` (singleton)
 
@@ -233,7 +233,7 @@ field(:progress_min_interval_ms, :integer) # 50ms
 
 ### DoclingIngestionWorker
 
-**File:** `lib/lumainus/documents/docling_ingestion_worker.ex`
+**File:** `lib/medlum/documents/docling_ingestion_worker.ex`
 
 **Oban Configuration:**
 ```elixir
@@ -296,7 +296,7 @@ end
 
 ### Job Controller - Server-Sent Events (SSE)
 
-**File:** `lib/lumainus_web/controllers/api/job_controller.ex`
+**File:** `lib/medlum_web/controllers/api/job_controller.ex`
 
 **Streaming Endpoint:**
 ```elixir

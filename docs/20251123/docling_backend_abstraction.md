@@ -49,7 +49,7 @@ However, it lacks:
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  Lumainus.Docling                        │
+│                  Medlum.Docling                        │
 │              (Unified API / Façade)                      │
 │                                                          │
 │  convert/2, enqueue/2, await/2, health/0, cancel/1      │
@@ -57,7 +57,7 @@ However, it lacks:
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Lumainus.Docling.Backend                    │
+│              Medlum.Docling.Backend                    │
 │                   (Behaviour)                            │
 │                                                          │
 │  @callback convert(binary, opts) :: result              │
@@ -86,8 +86,8 @@ However, it lacks:
 ### 1. Backend Behaviour
 
 ```elixir
-# lib/lumainus/docling/backend.ex
-defmodule Lumainus.Docling.Backend do
+# lib/medlum/docling/backend.ex
+defmodule Medlum.Docling.Backend do
   @moduledoc """
   Behaviour for Docling conversion backends.
 
@@ -144,8 +144,8 @@ end
 #### 2.1 Local Backend (Development Default)
 
 ```elixir
-# lib/lumainus/docling/backends/local.ex
-defmodule Lumainus.Docling.Backends.Local do
+# lib/medlum/docling/backends/local.ex
+defmodule Medlum.Docling.Backends.Local do
   @moduledoc """
   Local Docling backend for development.
 
@@ -153,43 +153,43 @@ defmodule Lumainus.Docling.Backends.Local do
   This is the default backend - no cloud setup required.
   """
 
-  @behaviour Lumainus.Docling.Backend
+  @behaviour Medlum.Docling.Backend
 
   @default_url "http://127.0.0.1:8042"
 
   @impl true
   def convert(binary, opts) do
     # Delegate to HTTP client with local URL
-    Lumainus.Docling.HTTP.convert(binary, opts, base_url: url())
+    Medlum.Docling.HTTP.convert(binary, opts, base_url: url())
   end
 
   @impl true
   def enqueue(binary, opts) do
-    with {:ok, response} <- Lumainus.Docling.HTTP.enqueue(binary, opts, base_url: url()) do
+    with {:ok, response} <- Medlum.Docling.HTTP.enqueue(binary, opts, base_url: url()) do
       {:ok, build_job(response, opts)}
     end
   end
 
   @impl true
   def await(job, opts) do
-    Lumainus.Docling.HTTP.await(job, opts, base_url: url())
+    Medlum.Docling.HTTP.await(job, opts, base_url: url())
   end
 
   @impl true
   def health do
-    Lumainus.Docling.HTTP.health(base_url: url())
+    Medlum.Docling.HTTP.health(base_url: url())
   end
 
   @impl true
   def cancel(job_id) do
-    Lumainus.Docling.HTTP.cancel(job_id, base_url: url())
+    Medlum.Docling.HTTP.cancel(job_id, base_url: url())
   end
 
   @impl true
   def capabilities, do: [:sync, :async, :sse, :cancel]
 
   defp url do
-    Application.get_env(:lumainus, :docling, [])
+    Application.get_env(:medlum, :docling, [])
     |> Keyword.get(:local_url, @default_url)
   end
 
@@ -210,8 +210,8 @@ end
 #### 2.2 Remote HTTP Backend
 
 ```elixir
-# lib/lumainus/docling/backends/remote.ex
-defmodule Lumainus.Docling.Backends.Remote do
+# lib/medlum/docling/backends/remote.ex
+defmodule Medlum.Docling.Backends.Remote do
   @moduledoc """
   Remote HTTP backend for any Docling service endpoint.
 
@@ -219,40 +219,40 @@ defmodule Lumainus.Docling.Backends.Remote do
   Configure via :docling :remote_url.
   """
 
-  @behaviour Lumainus.Docling.Backend
+  @behaviour Medlum.Docling.Backend
 
   @impl true
   def convert(binary, opts) do
-    Lumainus.Docling.HTTP.convert(binary, opts, base_url: url())
+    Medlum.Docling.HTTP.convert(binary, opts, base_url: url())
   end
 
   @impl true
   def enqueue(binary, opts) do
-    with {:ok, response} <- Lumainus.Docling.HTTP.enqueue(binary, opts, base_url: url()) do
+    with {:ok, response} <- Medlum.Docling.HTTP.enqueue(binary, opts, base_url: url()) do
       {:ok, build_job(response, opts)}
     end
   end
 
   @impl true
   def await(job, opts) do
-    Lumainus.Docling.HTTP.await(job, opts, base_url: url())
+    Medlum.Docling.HTTP.await(job, opts, base_url: url())
   end
 
   @impl true
   def health do
-    Lumainus.Docling.HTTP.health(base_url: url())
+    Medlum.Docling.HTTP.health(base_url: url())
   end
 
   @impl true
   def cancel(job_id) do
-    Lumainus.Docling.HTTP.cancel(job_id, base_url: url())
+    Medlum.Docling.HTTP.cancel(job_id, base_url: url())
   end
 
   @impl true
   def capabilities, do: [:sync, :async, :sse, :cancel]
 
   defp url do
-    Application.get_env(:lumainus, :docling, [])
+    Application.get_env(:medlum, :docling, [])
     |> Keyword.get(:remote_url)
     || raise "Remote backend requires :docling :remote_url config"
   end
@@ -274,8 +274,8 @@ end
 #### 2.3 Vast.ai Backend (Cloud GPU)
 
 ```elixir
-# lib/lumainus/docling/backends/vast_ai.ex
-defmodule Lumainus.Docling.Backends.VastAI do
+# lib/medlum/docling/backends/vast_ai.ex
+defmodule Medlum.Docling.Backends.VastAI do
   @moduledoc """
   Vast.ai GPU backend with automatic instance provisioning.
 
@@ -285,22 +285,22 @@ defmodule Lumainus.Docling.Backends.VastAI do
   Requires: VAST_API_KEY environment variable
   """
 
-  @behaviour Lumainus.Docling.Backend
+  @behaviour Medlum.Docling.Backend
 
-  alias Lumainus.Docling.VastAI.InstanceManager
+  alias Medlum.Docling.VastAI.InstanceManager
 
   @impl true
   def convert(binary, opts) do
     # Ensure we have a running instance
     with {:ok, endpoint} <- InstanceManager.ensure_instance() do
-      Lumainus.Docling.HTTP.convert(binary, opts, base_url: endpoint)
+      Medlum.Docling.HTTP.convert(binary, opts, base_url: endpoint)
     end
   end
 
   @impl true
   def enqueue(binary, opts) do
     with {:ok, endpoint} <- InstanceManager.ensure_instance(),
-         {:ok, response} <- Lumainus.Docling.HTTP.enqueue(binary, opts, base_url: endpoint) do
+         {:ok, response} <- Medlum.Docling.HTTP.enqueue(binary, opts, base_url: endpoint) do
       {:ok, build_job(response, opts, endpoint)}
     end
   end
@@ -308,13 +308,13 @@ defmodule Lumainus.Docling.Backends.VastAI do
   @impl true
   def await(job, opts) do
     endpoint = job.metadata.endpoint
-    Lumainus.Docling.HTTP.await(job, opts, base_url: endpoint)
+    Medlum.Docling.HTTP.await(job, opts, base_url: endpoint)
   end
 
   @impl true
   def health do
     case InstanceManager.get_endpoint() do
-      {:ok, endpoint} -> Lumainus.Docling.HTTP.health(base_url: endpoint)
+      {:ok, endpoint} -> Medlum.Docling.HTTP.health(base_url: endpoint)
       {:error, :no_instance} -> {:ok, %{status: "no_instance", message: "No active Vast.ai instance"}}
     end
   end
@@ -322,7 +322,7 @@ defmodule Lumainus.Docling.Backends.VastAI do
   @impl true
   def cancel(job_id) do
     case InstanceManager.get_endpoint() do
-      {:ok, endpoint} -> Lumainus.Docling.HTTP.cancel(job_id, base_url: endpoint)
+      {:ok, endpoint} -> Medlum.Docling.HTTP.cancel(job_id, base_url: endpoint)
       _ -> {:error, :no_instance}
     end
   end
@@ -350,8 +350,8 @@ end
 ### 3. Shared HTTP Client
 
 ```elixir
-# lib/lumainus/docling/http.ex
-defmodule Lumainus.Docling.HTTP do
+# lib/medlum/docling/http.ex
+defmodule Medlum.Docling.HTTP do
   @moduledoc """
   Shared HTTP client for Docling service communication.
 
@@ -359,7 +359,7 @@ defmodule Lumainus.Docling.HTTP do
   Handles multipart upload, SSE streaming, and polling.
   """
 
-  alias Lumainus.Docling.SSEConsumer
+  alias Medlum.Docling.SSEConsumer
   require Logger
 
   @default_timeout 1_200_000
@@ -472,8 +472,8 @@ end
 ### 4. Updated Façade Module
 
 ```elixir
-# lib/lumainus/docling.ex (updated)
-defmodule Lumainus.Docling do
+# lib/medlum/docling.ex (updated)
+defmodule Medlum.Docling do
   @moduledoc """
   Unified API for Docling PDF-to-Markdown conversion.
 
@@ -482,7 +482,7 @@ defmodule Lumainus.Docling do
 
   ## Configuration
 
-      config :lumainus, :docling,
+      config :medlum, :docling,
         backend: :local,  # or :remote, :vast_ai
         timeout_ms: 1_200_000,
         # Backend-specific options
@@ -497,19 +497,19 @@ defmodule Lumainus.Docling do
   ## Usage
 
       # Synchronous conversion
-      {:ok, result} = Lumainus.Docling.convert(pdf_binary, filename: "doc.pdf")
+      {:ok, result} = Medlum.Docling.convert(pdf_binary, filename: "doc.pdf")
 
       # Async with progress
-      {:ok, job} = Lumainus.Docling.enqueue(pdf_binary, filename: "doc.pdf")
-      {:ok, result} = Lumainus.Docling.await(job, on_status: &handle_progress/1)
+      {:ok, job} = Medlum.Docling.enqueue(pdf_binary, filename: "doc.pdf")
+      {:ok, result} = Medlum.Docling.await(job, on_status: &handle_progress/1)
   """
 
   require Logger
 
   @backends %{
-    local: Lumainus.Docling.Backends.Local,
-    remote: Lumainus.Docling.Backends.Remote,
-    vast_ai: Lumainus.Docling.Backends.VastAI
+    local: Medlum.Docling.Backends.Local,
+    remote: Medlum.Docling.Backends.Remote,
+    vast_ai: Medlum.Docling.Backends.VastAI
   }
 
   @doc "Convert a PDF binary to markdown"
@@ -560,7 +560,7 @@ defmodule Lumainus.Docling do
 
   @doc "Get the full docling config"
   def config do
-    Application.get_env(:lumainus, :docling, [])
+    Application.get_env(:medlum, :docling, [])
   end
 
   defp merge_opts(opts) do
@@ -572,8 +572,8 @@ end
 ### 5. Vast.ai Instance Manager
 
 ```elixir
-# lib/lumainus/docling/vast_ai/instance_manager.ex
-defmodule Lumainus.Docling.VastAI.InstanceManager do
+# lib/medlum/docling/vast_ai/instance_manager.ex
+defmodule Medlum.Docling.VastAI.InstanceManager do
   @moduledoc """
   Manages Vast.ai GPU instance lifecycle.
 
@@ -689,7 +689,7 @@ defmodule Lumainus.Docling.VastAI.InstanceManager do
     # 4. Return the endpoint
 
     # For now, delegate to Python script
-    config = Application.get_env(:lumainus, :docling, [])[:vast_ai] || []
+    config = Application.get_env(:medlum, :docling, [])[:vast_ai] || []
 
     case System.cmd("python3", [
       "docling_service/manage_vast.py",
@@ -727,7 +727,7 @@ end
 
 ```elixir
 # config/dev.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   backend: :local,
   timeout_ms: 1_200_000,
   local_url: "http://127.0.0.1:8042",
@@ -738,7 +738,7 @@ config :lumainus, :docling,
 
 ```elixir
 # config/prod.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   backend: :remote,
   timeout_ms: 1_200_000,
   remote_url: System.get_env("DOCLING_URL"),
@@ -749,7 +749,7 @@ config :lumainus, :docling,
 
 ```elixir
 # config/prod.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   backend: :vast_ai,
   timeout_ms: 1_200_000,
   poll_interval_ms: 5_000,
@@ -765,7 +765,7 @@ config :lumainus, :docling,
 
 ```elixir
 # config/test.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   backend: :local,
   timeout_ms: 30_000,
   local_url: "http://127.0.0.1:8042"
@@ -777,14 +777,14 @@ config :lumainus, :docling,
 
 ### Phase 1: Extract HTTP Client (Low Risk)
 
-1. Create `Lumainus.Docling.HTTP` module
+1. Create `Medlum.Docling.HTTP` module
 2. Move all HTTP logic from `Docling` and `Docling.Queue`
 3. Update existing modules to delegate to HTTP
 4. No behavior change - just refactoring
 
 ### Phase 2: Add Backend Behaviour (Medium Risk)
 
-1. Create `Lumainus.Docling.Backend` behaviour
+1. Create `Medlum.Docling.Backend` behaviour
 2. Create `Backends.Local` implementing the behaviour
 3. Update `Docling` façade to use backend
 4. Test thoroughly
@@ -811,19 +811,19 @@ config :lumainus, :docling,
 
 ```elixir
 # The backend is selected automatically based on config
-{:ok, result} = Lumainus.Docling.convert(pdf_binary, filename: "report.pdf")
+{:ok, result} = Medlum.Docling.convert(pdf_binary, filename: "report.pdf")
 markdown = result["markdown"]
 ```
 
 ### Async with Progress Tracking
 
 ```elixir
-{:ok, job} = Lumainus.Docling.enqueue(pdf_binary,
+{:ok, job} = Medlum.Docling.enqueue(pdf_binary,
   filename: "large_report.pdf",
   job_id: my_job_id
 )
 
-{:ok, result} = Lumainus.Docling.await(job,
+{:ok, result} = Medlum.Docling.await(job,
   on_status: fn status ->
     progress = status["progress"]
     Logger.info("Conversion at #{progress}%")
@@ -834,7 +834,7 @@ markdown = result["markdown"]
 ### Check Backend Capabilities
 
 ```elixir
-caps = Lumainus.Docling.capabilities()
+caps = Medlum.Docling.capabilities()
 # [:sync, :async, :sse, :cancel, :auto_provision, :gpu]
 
 if :gpu in caps do
@@ -846,11 +846,11 @@ end
 
 ```elixir
 # In test setup
-Application.put_env(:lumainus, :docling, backend: :local)
+Application.put_env(:medlum, :docling, backend: :local)
 
 # Or use a mock backend
 defmodule MockBackend do
-  @behaviour Lumainus.Docling.Backend
+  @behaviour Medlum.Docling.Backend
   # ... implement with mocks
 end
 ```
@@ -886,9 +886,9 @@ The following files are relevant context for this design:
 - `AGENTS.md` - AI agent instructions, code style, design philosophy
 
 ### Current Implementation
-- `lib/lumainus/docling.ex` - Current Docling client (lines 1-175)
-- `lib/lumainus/docling/queue.ex` - Queue abstraction with SSE/polling (lines 1-215)
-- `lib/lumainus/documents/ingestion_processor.ex` - Main consumer of Docling API
+- `lib/medlum/docling.ex` - Current Docling client (lines 1-175)
+- `lib/medlum/docling/queue.ex` - Queue abstraction with SSE/polling (lines 1-215)
+- `lib/medlum/documents/ingestion_processor.ex` - Main consumer of Docling API
 
 ### Configuration
 - `config/config.exs` - Current Docling config (lines 27-44)

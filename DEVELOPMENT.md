@@ -1,11 +1,11 @@
-# Lumainus Web – Development Guide
+# Medlum Web – Development Guide
 
-This repo hosts the full Phoenix LiveView application for Lumainus. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView now renders from the ingestion/LLM pipeline (PDF uploads persisted in Postgres + Gemini markdown + section drafting).
+This repo hosts the full Phoenix LiveView application for Medlum. Authentication, invitations, and role-based routing are production-ready; the `/reports` LiveView now renders from the ingestion/LLM pipeline (PDF uploads persisted in Postgres + Gemini markdown + section drafting).
 
 ## Quick start
 
 ```bash
-cd /home/home/p/g/n/lumainus
+cd /path/to/medlum
 mix setup          # deps.get + ecto.create + ecto.migrate + seeds + assets.setup/build
 mix phx.server
 ```
@@ -16,18 +16,18 @@ mix phx.server
 export GEMINI_API_KEY="ya29.your-google-generative-ai-key"
 ```
 
-- App: **http://localhost:4000** (or `lumainus.test:4000` if you added the hosts entry from `README.md`).
+- App: **http://localhost:4000** (or `medlum.test:4000` if you added the hosts entry from `README.md`).
 - Dev mailbox: **http://localhost:4000/dev/mailbox** (magic link emails).
 - LiveDashboard: **http://localhost:4000/dev/dashboard** (dev only).
 
 The `mix setup` alias seeds a confirmed `system_administrator`:
 
 ```
-Email: admin@lumainus.local
-Password: LumainusAdmin!reset
+Email: admin@medlumai.local
+Password: MedlumAdmin!reset
 ```
 
-Override via `LUMAINUS_ADMIN_*` env vars before running `mix setup`.
+Override via `MEDLUM_ADMIN_*` env vars before running `mix setup`.
 
 ## Feature snapshot
 
@@ -35,20 +35,20 @@ Override via `LUMAINUS_ADMIN_*` env vars before running `mix setup`.
 |----------------------------------------------|--------|-------|
 | Password & magic-link login                  | ✅     | `/users/log-in`, `Accounts.login_user_by_magic_link/1` |
 | Invitations & role assignment                | ✅     | `/admin/invitations`, roles: doctor/admin/system_admin |
-| Role-based routing                           | ✅     | `LumainusWeb.UserAuth` plugs guard doctor/admin scopes |
+| Role-based routing                           | ✅     | `MedlumWeb.UserAuth` plugs guard doctor/admin scopes |
 | `/reports` LiveView UI                       | ✅     | Driven by persisted uploads + ingestion jobs |
 | Real ingestion / LLM summarization           | ✅     | PDF uploads -> Gemini structured outputs |
-| Multi-agent critic pipeline & attribution    | 🚧     | See `docs/20251116/001_LUMAINUS_claude.md` |
+| Multi-agent critic pipeline & attribution    | 🚧     | See `docs/20251116/001_MEDLUM_claude.md` |
 
 ## Architecture overview
 
 ```
 lib/
-├── lumainus/                   # Contexts + data sources
+├── medlum/                   # Contexts + data sources
 │   ├── accounts/               # Users, tokens, invitations, scope
 │   ├── medical/mock_documents.ex
 │   └── repo.ex
-└── lumainus_web/               # Phoenix interface
+└── medlum_web/               # Phoenix interface
     ├── components/             # UI components + layouts
     ├── controllers/            # Page + auth controllers
     ├── live/                   # LiveViews (user auth, admin, reports)
@@ -62,15 +62,15 @@ priv/
 
 ### Authentication & invitations
 
-- `Lumainus.Accounts` manages registration, invitations, password updates, session/magic-link tokens, and sudo-mode enforcement.
-- `Lumainus.Accounts.Scope` wraps the current user and is assigned in `LumainusWeb.UserAuth.fetch_current_scope_for_user`.
-- `LumainusWeb.UserAuth` exposes plugs: `require_authenticated_user`, `require_doctor_role`, `require_admin_role`, `require_system_admin_role`.
-- User-facing LiveViews: `lib/lumainus_web/live/user_live/*.ex`.
-- Admin invitation console: `lib/lumainus_web/live/admin/invitations_live.ex`.
+- `Medlum.Accounts` manages registration, invitations, password updates, session/magic-link tokens, and sudo-mode enforcement.
+- `Medlum.Accounts.Scope` wraps the current user and is assigned in `MedlumWeb.UserAuth.fetch_current_scope_for_user`.
+- `MedlumWeb.UserAuth` exposes plugs: `require_authenticated_user`, `require_doctor_role`, `require_admin_role`, `require_system_admin_role`.
+- User-facing LiveViews: `lib/medlum_web/live/user_live/*.ex`.
+- Admin invitation console: `lib/medlum_web/live/admin/invitations_live.ex`.
 
 ### Reports LiveView
 
-`lib/lumainus_web/live/reports_live.ex` now reads from the persisted ingestion tables and renders:
+`lib/medlum_web/live/reports_live.ex` now reads from the persisted ingestion tables and renders:
 
 - Left sidebar of mock documents.
 - Detailed clinical summary sections with inline provenance badges.
@@ -93,7 +93,7 @@ To prototype new sections, update the section prompt in `/prompts`, adjust the o
 
 ### Workspace helpers
 
-- `mix lumainus.purge_uploads` – Remove all persisted uploads/ingestion jobs. Useful when iterating on the `/reports` UI and you need a clean slate.
+- `mix medlum.purge_uploads` – Remove all persisted uploads/ingestion jobs. Useful when iterating on the `/reports` UI and you need a clean slate.
 
 ### Docling ingestion debugging
 
@@ -131,7 +131,7 @@ Available overrides: `DOCLING_HOST`, `DOCLING_PORT`, `DOCLING_PYTHON_BIN`, and `
 
 ### Adjusting mock data
 
-- Edit sample documents/report: `lib/lumainus/medical/mock_documents.ex`.
+- Edit sample documents/report: `lib/medlum/medical/mock_documents.ex`.
 - Add new report sections: extend the `Report` struct, populate data, then add UI sections in `ReportsLive`.
 - Source badges follow the `"text|source:doc-001,doc-002"` pattern already parsed by `<.render_with_sources>` helpers.
 
@@ -146,7 +146,7 @@ Derived from `docs/`:
    - Section-specific prompts via Gemini (or HIPAA-covered providers).
    - Emit structured outputs with evidence IDs.
 3. **Traceable intelligence layer**
-   - Multi-agent critic & ensemble pipeline (see `docs/20251116/001_LUMAINUS_claude.md`).
+   - Multi-agent critic & ensemble pipeline (see `docs/20251116/001_MEDLUM_claude.md`).
    - Token-level telemetry storage + attribution graphs.
 4. **Compliance & deployment hardening**
    - Follow `docs/20251114/*` for HIPAA/FDA processes, hybrid architecture, SBIR-driven validation.
@@ -157,7 +157,7 @@ Derived from `docs/`:
 |-------|-----|
 | Port already in use | `lsof -ti:4000 | xargs kill -9` or set `PORT=4001` |
 | DB connection errors | Ensure PostgreSQL running locally; rerun `mix ecto.setup` |
-| Magic link not arriving | Check `/dev/mailbox`; ensure dev routes enabled (`config :lumainus, dev_routes: true`) |
+| Magic link not arriving | Check `/dev/mailbox`; ensure dev routes enabled (`config :medlum, dev_routes: true`) |
 | Assets not rebuilding | `mix assets.setup && mix assets.build` |
 | Need fresh admin creds | Delete/reset DB or rerun `mix run priv/repo/seeds.exs` with new env vars |
 
@@ -166,6 +166,6 @@ Derived from `docs/`:
 - `AGENTS.md` – project philosophy, design rules, LiveView conventions.
 - `README.md` – deployment/dependency overview.
 - `docs/20251114/*` – HIPAA + FDA strategies.
-- `docs/20251116/001_LUMAINUS_claude.md` – target architecture for traceable AI runtime.
+- `docs/20251116/001_MEDLUM_claude.md` – target architecture for traceable AI runtime.
 
 Stay within the serene/clinical aesthetic described in `AGENTS.md`, keep LiveView best practices (Layouts.app, `current_scope`, `to_form/2`), and lean on the ingestion context for real data instead of ad-hoc mocks.

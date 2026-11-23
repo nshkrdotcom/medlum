@@ -2,11 +2,11 @@
 
 ## Overview
 
-Implemented a robust LLM output cleaner/validator module to handle inconsistent citations in the Lumainus reports system.
+Implemented a robust LLM output cleaner/validator module to handle inconsistent citations in the Medlum reports system.
 
 ## New Files Created
 
-### 1. `/lib/lumainus/ai/citation_sanitizer.ex`
+### 1. `/lib/medlum/ai/citation_sanitizer.ex`
 Complete citation validation and repair module with:
 - `sanitize_citations/2` - Main entry point for batch citation sanitization
 - `sanitize_single_citation/2` - Sanitizes individual citation
@@ -21,7 +21,7 @@ Complete citation validation and repair module with:
 - UUID validation and correction
 - Comprehensive error reporting
 
-### 2. `/test/lumainus/ai/citation_sanitizer_test.exs`
+### 2. `/test/medlum/ai/citation_sanitizer_test.exs`
 Comprehensive test suite with 24 test cases covering:
 - Valid citation pass-through
 - Label repair scenarios
@@ -41,10 +41,10 @@ Complete documentation including:
 
 ## Modified Files
 
-### 1. `/lib/lumainus/ai/section_runner.ex`
+### 1. `/lib/medlum/ai/section_runner.ex`
 
 **Added:**
-- `alias Lumainus.AI.CitationSanitizer` - Import sanitizer module
+- `alias Medlum.AI.CitationSanitizer` - Import sanitizer module
 - `sanitize_citations/2` - Helper to sanitize citations with document map
 - `build_sanitizer_document_map/1` - Builds lookup tables for sanitizer
 - `normalize_for_lookup/1` - Normalizes strings for case-insensitive lookup
@@ -79,7 +79,7 @@ if not Enum.empty?(citation_repair_logs) do
 end
 ```
 
-### 2. `/lib/lumainus/reports/cache_manager.ex`
+### 2. `/lib/medlum/reports/cache_manager.ex`
 
 **Modified:**
 - `build_documents_text/1` - Uses sequential numbering with `Enum.with_index(1)`
@@ -139,7 +139,7 @@ All citations must have:
 
 All tests pass:
 ```bash
-$ mix test test/lumainus/ai/citation_sanitizer_test.exs
+$ mix test test/medlum/ai/citation_sanitizer_test.exs
 24 tests, 0 failures
 ```
 
@@ -147,7 +147,7 @@ Project compiles without warnings:
 ```bash
 $ mix compile
 Compiling 11 files (.ex)
-Generated lumainus app
+Generated medlum app
 ```
 
 ## Benefits

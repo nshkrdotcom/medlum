@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document outlines a complete rearchitecture of the Docling PDF-to-Markdown integration in Lumainus. The current implementation suffers from:
+This document outlines a complete rearchitecture of the Docling PDF-to-Markdown integration in Medlum. The current implementation suffers from:
 
 1. **Zero testability** - Tightly coupled components, no dependency injection
 2. **No telemetry** - Framework installed but unused, no observability
@@ -121,7 +121,7 @@ Zero implementation details in user interfaces:
 User-facing abstraction for conversion capabilities:
 
 ```elixir
-defmodule Lumainus.Conversion.ProcessingProfile do
+defmodule Medlum.Conversion.ProcessingProfile do
   @type t :: :standard | :enhanced
 
   # Standard: Free, slower, always available
@@ -136,7 +136,7 @@ end
 Single entry point for all conversion operations:
 
 ```elixir
-defmodule Lumainus.Conversion.Service do
+defmodule Medlum.Conversion.Service do
   @doc "Submit a PDF for conversion"
   @spec submit(binary(), keyword()) :: {:ok, Job.t()} | {:error, term()}
 
@@ -156,7 +156,7 @@ end
 Normalized status across all backends:
 
 ```elixir
-defmodule Lumainus.Conversion.JobStatus do
+defmodule Medlum.Conversion.JobStatus do
   @type state :: :queued | :processing | :completed | :failed | :cancelled
 
   @type t :: %__MODULE__{
@@ -174,7 +174,7 @@ end
 Routes requests to appropriate backend with resilience:
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
+defmodule Medlum.Conversion.Infrastructure.BackendRouter do
   @doc "Route conversion to best available backend"
   @spec route(ProcessingProfile.t(), binary(), keyword()) :: {:ok, Job.t()} | {:error, term()}
 

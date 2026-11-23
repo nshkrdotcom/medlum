@@ -1,4 +1,4 @@
-# Large / Scan-Heavy Document Set Reporting Flow (Lumainus)
+# Large / Scan-Heavy Document Set Reporting Flow (Medlum)
 
 Optimized for long PDFs, mixed scans/images, and multi-section reports where selective retrieval and multimodal handling are required.
 

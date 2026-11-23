@@ -26,7 +26,7 @@ Implement client-side and server-side JSON Schema validation before saving.
 ### Validation Rules
 
 ```elixir
-defmodule Lumainus.Reports.SchemaValidator do
+defmodule Medlum.Reports.SchemaValidator do
   @moduledoc """
   Validates JSON Schemas for Gemini API compatibility.
   """

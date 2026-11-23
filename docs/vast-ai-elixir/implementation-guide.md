@@ -3,7 +3,7 @@
 ## Module Structure
 
 ```
-lib/lumainus/vast_ai/
+lib/medlum/vast_ai/
 ├── client.ex          # HTTP client, auth, base requests
 ├── instances.ex       # Instance management
 ├── offers.ex          # Search and offers
@@ -17,7 +17,7 @@ lib/lumainus/vast_ai/
 ## Base Client
 
 ```elixir
-defmodule Lumainus.VastAI.Client do
+defmodule Medlum.VastAI.Client do
   @moduledoc """
   HTTP client for Vast.ai API.
   """
@@ -64,7 +64,7 @@ defmodule Lumainus.VastAI.Client do
   end
 
   defp get_api_key do
-    Application.get_env(:lumainus, :vast_ai)[:api_key] ||
+    Application.get_env(:medlum, :vast_ai)[:api_key] ||
       System.get_env("VAST_API_KEY") ||
       raise "VAST_API_KEY not configured"
   end
@@ -74,12 +74,12 @@ end
 ## Instance Management
 
 ```elixir
-defmodule Lumainus.VastAI.Instances do
+defmodule Medlum.VastAI.Instances do
   @moduledoc """
   Instance management operations.
   """
 
-  alias Lumainus.VastAI.Client
+  alias Medlum.VastAI.Client
 
   @doc """
   List all user instances.
@@ -164,12 +164,12 @@ end
 ## Search Offers
 
 ```elixir
-defmodule Lumainus.VastAI.Offers do
+defmodule Medlum.VastAI.Offers do
   @moduledoc """
   Search for GPU offers.
   """
 
-  alias Lumainus.VastAI.Client
+  alias Medlum.VastAI.Client
 
   @doc """
   Search for available GPU offers.
@@ -232,19 +232,19 @@ end
 ## High-Level Workflows
 
 ```elixir
-defmodule Lumainus.VastAI do
+defmodule Medlum.VastAI do
   @moduledoc """
   High-level Vast.ai operations.
   """
 
-  alias Lumainus.VastAI.{Offers, Instances}
+  alias Medlum.VastAI.{Offers, Instances}
 
   @doc """
   Launch a new GPU instance with the given specs.
 
   ## Example
 
-      Lumainus.VastAI.launch_instance(
+      Medlum.VastAI.launch_instance(
         gpu_name: "RTX_4090",
         num_gpus: 1,
         image: "pytorch/pytorch",
@@ -356,18 +356,18 @@ end
 
 ```elixir
 # config/config.exs
-config :lumainus, :vast_ai,
+config :medlum, :vast_ai,
   api_key: System.get_env("VAST_API_KEY")
 
 # config/runtime.exs (for releases)
-config :lumainus, :vast_ai,
+config :medlum, :vast_ai,
   api_key: System.fetch_env!("VAST_API_KEY")
 ```
 
 ## Error Handling
 
 ```elixir
-defmodule Lumainus.VastAI.Error do
+defmodule Medlum.VastAI.Error do
   defexception [:message, :code, :status]
 
   def from_response(%{status: status, body: body}) do
@@ -383,7 +383,7 @@ end
 ## Testing
 
 ```elixir
-defmodule Lumainus.VastAI.MockClient do
+defmodule Medlum.VastAI.MockClient do
   @moduledoc """
   Mock client for testing.
   """
@@ -413,7 +413,7 @@ end
 
 ```elixir
 # Launch a 4x RTX 4090 instance for training
-{:ok, instance_id} = Lumainus.VastAI.launch_instance(
+{:ok, instance_id} = Medlum.VastAI.launch_instance(
   gpu_name: "RTX_4090",
   num_gpus: 4,
   gpu_ram: 20,
@@ -433,10 +433,10 @@ end
 )
 
 # Wait for it to be ready
-{:ok, ^instance_id} = Lumainus.VastAI.wait_for_ready(instance_id)
+{:ok, ^instance_id} = Medlum.VastAI.wait_for_ready(instance_id)
 
 # Get SSH info
-{:ok, ssh} = Lumainus.VastAI.ssh_info(instance_id)
+{:ok, ssh} = Medlum.VastAI.ssh_info(instance_id)
 IO.puts("Connect with: #{ssh.command}")
 ```
 
@@ -449,7 +449,7 @@ tasks = 1..10
 instance_ids =
   tasks
   |> Task.async_stream(fn task_id ->
-    Lumainus.VastAI.launch_instance(
+    Medlum.VastAI.launch_instance(
       gpu_name: "RTX_3090",
       num_gpus: 1,
       image: "my-processor:latest",
@@ -460,13 +460,13 @@ instance_ids =
   |> Enum.map(fn {:ok, {:ok, id}} -> id end)
 
 # Cleanup when done
-Lumainus.VastAI.destroy_by_label("batch-")
+Medlum.VastAI.destroy_by_label("batch-")
 ```
 
 ### Monitor Costs
 
 ```elixir
-alias Lumainus.VastAI.Client
+alias Medlum.VastAI.Client
 
 # Get current spend
 {:ok, user} = Client.get("/users/current/")

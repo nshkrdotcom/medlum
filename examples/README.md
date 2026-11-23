@@ -1,6 +1,6 @@
 # Examples
 
-This directory contains runnable samples that exercise the Lumainus HTTP API.
+This directory contains runnable samples that exercise the Medlum HTTP API.
 
 ## Upload the sample PDF
 

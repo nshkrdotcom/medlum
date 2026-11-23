@@ -85,7 +85,7 @@ Documents.queue_ingestion()
 ### KEEP - VastAI Infrastructure (v2 CloudBackend uses these)
 
 ```
-lib/lumainus/docling/vast_ai/
+lib/medlum/docling/vast_ai/
 ├── instance_manager.ex    # Manages Vast.ai instances - CloudBackend delegates here
 ├── activity_tracker.ex    # Tracks conversion activity for auto-shutdown
 ├── provisioning_state.ex  # PubSub state for provisioning UI
@@ -96,7 +96,7 @@ lib/lumainus/docling/vast_ai/
 ### KEEP - Settings Infrastructure (extend for v2)
 
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── settings.ex            # Context module - extend to support v2
 └── setting.ex             # Ecto schema - add v2 fields
 ```
@@ -104,7 +104,7 @@ lib/lumainus/docling/
 ### KEEP - Admin UIs (update for v2)
 
 ```
-lib/lumainus_web/live/admin/
+lib/medlum_web/live/admin/
 ├── docling_settings_live.ex  # Update to use v2 HealthManager
 └── vast_ai_live.ex           # Keep as-is (uses InstanceManager)
 ```
@@ -112,7 +112,7 @@ lib/lumainus_web/live/admin/
 ### REMOVE - Replaced by v2
 
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── http.ex                # → v2 Infrastructure.HTTP.Client
 ├── sse_consumer.ex        # → v2 Infrastructure.HTTP.SSEStream
 ├── queue.ex               # → v2 Service
@@ -124,19 +124,19 @@ lib/lumainus/docling/
     ├── remote.ex          # → v2 Backends.LocalBackend (was just different URL)
     └── vast_ai.ex         # → v2 Backends.CloudBackend
 
-lib/lumainus/
+lib/medlum/
 └── docling.ex             # → v2 Service (main facade)
 ```
 
 ### MODIFY - Integration Points
 
 ```
-lib/lumainus/
+lib/medlum/
 ├── documents.ex                    # queue_ingestion → Service.submit
 ├── documents/ingestion_processor.ex # Docling.enqueue → Service.submit
 └── application.ex                  # Remove v1 workers, keep v2 supervision
 
-lib/lumainus_web/live/
+lib/medlum_web/live/
 └── reports_live.ex                 # Subscribe to v2 Events
 ```
 
@@ -174,8 +174,8 @@ field(:v2_profile_backends, :map, default: %{
 The key change: `BackendRouter` reads URLs from DB settings instead of static config.
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
-  alias Lumainus.Docling.Settings
+defmodule Medlum.Conversion.Infrastructure.BackendRouter do
+  alias Medlum.Docling.Settings
 
   @doc """
   Get all backends configured for a profile.
@@ -237,8 +237,8 @@ Update to use v2 HealthManager for health status:
 
 ```elixir
 defp check_backend_health(backend) do
-  alias Lumainus.Conversion.Infrastructure.HealthManager
-  alias Lumainus.Conversion.Infrastructure.Resilience.CircuitBreaker
+  alias Medlum.Conversion.Infrastructure.HealthManager
+  alias Medlum.Conversion.Infrastructure.Resilience.CircuitBreaker
 
   health = HealthManager.status(backend)
   breaker = CircuitBreaker.state(backend)
@@ -276,10 +276,10 @@ Keep as-is. It manages Vast.ai instances via `InstanceManager`, which v2 `CloudB
 ### Documents Module
 
 ```elixir
-# lib/lumainus/documents.ex
+# lib/medlum/documents.ex
 
 def queue_ingestion(%DocumentUpload{} = upload, template, opts \\ []) do
-  alias Lumainus.Conversion.Service
+  alias Medlum.Conversion.Service
 
   # Determine profile based on backend preference
   profile = profile_from_opts(opts)
@@ -321,7 +321,7 @@ end
 
 ```elixir
 # Subscribe to v2 events
-alias Lumainus.Conversion.Events
+alias Medlum.Conversion.Events
 
 def handle_event("start_conversion", %{"upload_id" => id}, socket) do
   upload = get_upload(id)
@@ -366,16 +366,16 @@ end
 
 ```bash
 # Remove v1 conversion code
-rm lib/lumainus/docling.ex
-rm lib/lumainus/docling/http.ex
-rm lib/lumainus/docling/sse_consumer.ex
-rm lib/lumainus/docling/queue.ex
-rm lib/lumainus/docling/backend.ex
-rm lib/lumainus/docling/health_check_worker.ex
-rm -rf lib/lumainus/docling/backends/
+rm lib/medlum/docling.ex
+rm lib/medlum/docling/http.ex
+rm lib/medlum/docling/sse_consumer.ex
+rm lib/medlum/docling/queue.ex
+rm lib/medlum/docling/backend.ex
+rm lib/medlum/docling/health_check_worker.ex
+rm -rf lib/medlum/docling/backends/
 
 # Remove v1 tests
-rm -rf test/lumainus/docling/
+rm -rf test/medlum/docling/
 
 # Keep VastAI infrastructure
 # Keep settings
@@ -384,7 +384,7 @@ rm -rf test/lumainus/docling/
 
 ### Phase 3: Clean Up References
 
-1. Remove `alias Lumainus.Docling` from all files
+1. Remove `alias Medlum.Docling` from all files
 2. Update any remaining `Docling.*` calls
 3. Remove unused config keys from `config/config.exs`
 
@@ -399,21 +399,21 @@ All v2 core tests continue to pass.
 ### Integration Tests (New)
 
 ```elixir
-# test/lumainus/documents_integration_test.exs
+# test/medlum/documents_integration_test.exs
 describe "queue_ingestion/3 with v2" do
   test "submits to conversion service"
   test "creates ingestion job linked to conversion job"
   test "handles service unavailable gracefully"
 end
 
-# test/lumainus_web/live/reports_live_v2_test.exs
+# test/medlum_web/live/reports_live_v2_test.exs
 describe "conversion with v2 service" do
   test "receives progress events"
   test "handles completion"
   test "handles failure"
 end
 
-# test/lumainus_web/live/admin/docling_settings_v2_test.exs
+# test/medlum_web/live/admin/docling_settings_v2_test.exs
 describe "health display with v2 HealthManager" do
   test "shows health status from HealthManager"
   test "shows circuit breaker state"

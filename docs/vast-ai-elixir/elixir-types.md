@@ -3,7 +3,7 @@
 ## Core Types
 
 ```elixir
-defmodule Lumainus.VastAI.Types do
+defmodule Medlum.VastAI.Types do
   @moduledoc """
   Type specifications for Vast.ai API integration.
   """
@@ -30,7 +30,7 @@ end
 Returned from `GET /bundles/` (search offers):
 
 ```elixir
-defmodule Lumainus.VastAI.Offer do
+defmodule Medlum.VastAI.Offer do
   @moduledoc """
   GPU offer/bundle available for rent.
   """
@@ -113,7 +113,7 @@ end
 ## Instance Schema
 
 ```elixir
-defmodule Lumainus.VastAI.Instance do
+defmodule Medlum.VastAI.Instance do
   @moduledoc """
   A rented GPU instance.
   """
@@ -173,7 +173,7 @@ end
 ## Create Instance Request
 
 ```elixir
-defmodule Lumainus.VastAI.CreateInstanceRequest do
+defmodule Medlum.VastAI.CreateInstanceRequest do
   @moduledoc """
   Request body for creating an instance.
   """
@@ -217,7 +217,7 @@ end
 ## Search Query
 
 ```elixir
-defmodule Lumainus.VastAI.SearchQuery do
+defmodule Medlum.VastAI.SearchQuery do
   @moduledoc """
   Search query parameters for finding offers.
   """
@@ -292,7 +292,7 @@ end
 ## User Schema
 
 ```elixir
-defmodule Lumainus.VastAI.User do
+defmodule Medlum.VastAI.User do
   @moduledoc """
   User account information.
   """
@@ -314,7 +314,7 @@ end
 ## API Response Types
 
 ```elixir
-defmodule Lumainus.VastAI.Response do
+defmodule Medlum.VastAI.Response do
   @moduledoc """
   Common API response types.
   """
@@ -339,7 +339,7 @@ end
 ## Invoice Schema
 
 ```elixir
-defmodule Lumainus.VastAI.Invoice do
+defmodule Medlum.VastAI.Invoice do
   @type t :: %__MODULE__{
     id: pos_integer(),
     timestamp: float(),
@@ -357,7 +357,7 @@ end
 ## SSH Key Schema
 
 ```elixir
-defmodule Lumainus.VastAI.SSHKey do
+defmodule Medlum.VastAI.SSHKey do
   @type t :: %__MODULE__{
     id: pos_integer(),
     ssh_key: String.t(),
@@ -372,7 +372,7 @@ end
 ## Autoscaler Schema
 
 ```elixir
-defmodule Lumainus.VastAI.Autoscaler do
+defmodule Medlum.VastAI.Autoscaler do
   @type t :: %__MODULE__{
     id: pos_integer(),
     endpoint_name: String.t(),
@@ -396,7 +396,7 @@ end
 ## Machine Schema (Hosting)
 
 ```elixir
-defmodule Lumainus.VastAI.Machine do
+defmodule Medlum.VastAI.Machine do
   @type t :: %__MODULE__{
     id: pos_integer(),
     hostname: String.t(),

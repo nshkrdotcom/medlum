@@ -28,7 +28,7 @@ Missing parameters that Gemini API supports:
 
 ```elixir
 # priv/repo/migrations/20251205000100_add_llm_config_fields.exs
-defmodule Lumainus.Repo.Migrations.AddLlmConfigFields do
+defmodule Medlum.Repo.Migrations.AddLlmConfigFields do
   use Ecto.Migration
 
   def change do

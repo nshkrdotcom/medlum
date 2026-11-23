@@ -100,7 +100,7 @@ The v2 architecture follows **Clean Architecture** principles with strict layer 
 ## Module Structure
 
 ```
-lib/lumainus/conversion/
+lib/medlum/conversion/
 ├── conversion.ex                    # Public API (ConversionService)
 ├── job.ex                           # Job value object
 ├── job_status.ex                    # JobStatus value object
@@ -148,7 +148,7 @@ lib/lumainus/conversion/
 ### Job (Value Object)
 
 ```elixir
-defmodule Lumainus.Conversion.Job do
+defmodule Medlum.Conversion.Job do
   @moduledoc """
   Represents a conversion job. Immutable value object.
   """
@@ -209,7 +209,7 @@ end
 ### JobStatus (Value Object)
 
 ```elixir
-defmodule Lumainus.Conversion.JobStatus do
+defmodule Medlum.Conversion.JobStatus do
   @moduledoc """
   Normalized job status across all backends.
   """
@@ -287,7 +287,7 @@ end
 ### ProcessingProfile (Enum)
 
 ```elixir
-defmodule Lumainus.Conversion.ProcessingProfile do
+defmodule Medlum.Conversion.ProcessingProfile do
   @moduledoc """
   User-facing processing profiles. Hides all backend details.
   """
@@ -317,12 +317,12 @@ end
 ### ConversionPolicy (Business Rules)
 
 ```elixir
-defmodule Lumainus.Conversion.Policy do
+defmodule Medlum.Conversion.Policy do
   @moduledoc """
   Business rules for conversion operations.
   """
 
-  alias Lumainus.Conversion.{Job, ProcessingProfile}
+  alias Medlum.Conversion.{Job, ProcessingProfile}
 
   @max_file_size 100 * 1024 * 1024  # 100 MB
   @max_concurrent_jobs 10
@@ -384,15 +384,15 @@ end
 ### ConversionService
 
 ```elixir
-defmodule Lumainus.Conversion.Service do
+defmodule Medlum.Conversion.Service do
   @moduledoc """
   Main entry point for conversion operations.
   This is the ONLY module presentation layer should use.
   """
 
-  alias Lumainus.Conversion.{Job, JobStatus, ProcessingProfile, Policy}
-  alias Lumainus.Conversion.Infrastructure.BackendRouter
-  alias Lumainus.Conversion.Application.JobTracker
+  alias Medlum.Conversion.{Job, JobStatus, ProcessingProfile, Policy}
+  alias Medlum.Conversion.Infrastructure.BackendRouter
+  alias Medlum.Conversion.Application.JobTracker
 
   @type submit_opts :: [
     profile: ProcessingProfile.t(),
@@ -499,12 +499,12 @@ end
 ### Backend Behavior
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Backend do
+defmodule Medlum.Conversion.Infrastructure.Backend do
   @moduledoc """
   Contract for conversion backends.
   """
 
-  alias Lumainus.Conversion.{Job, JobStatus}
+  alias Medlum.Conversion.{Job, JobStatus}
 
   @type convert_result :: {:ok, map()} | {:error, term()}
   @type enqueue_result :: {:ok, String.t()} | {:error, term()}
@@ -537,14 +537,14 @@ end
 ### BackendRouter
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
+defmodule Medlum.Conversion.Infrastructure.BackendRouter do
   @moduledoc """
   Routes conversion requests to appropriate backends.
   Handles circuit breakers and failover.
   """
 
-  alias Lumainus.Conversion.{Job, JobStatus, ProcessingProfile}
-  alias Lumainus.Conversion.Infrastructure.{CircuitBreaker, HealthManager}
+  alias Medlum.Conversion.{Job, JobStatus, ProcessingProfile}
+  alias Medlum.Conversion.Infrastructure.{CircuitBreaker, HealthManager}
 
   @profile_backends %{
     standard: [:local_cpu, :local_docker_cpu],
@@ -611,11 +611,11 @@ defmodule Lumainus.Conversion.Infrastructure.BackendRouter do
     end)
   end
 
-  defp backend_module(:local_cpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:local_docker_cpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:local_gpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:local_docker_gpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:cloud), do: Lumainus.Conversion.Infrastructure.Backends.CloudBackend
+  defp backend_module(:local_cpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:local_docker_cpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:local_gpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:local_docker_gpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:cloud), do: Medlum.Conversion.Infrastructure.Backends.CloudBackend
 end
 ```
 
@@ -627,13 +627,13 @@ All infrastructure components are injected via configuration:
 
 ```elixir
 # config/config.exs
-config :lumainus, Lumainus.Conversion,
+config :medlum, Medlum.Conversion,
   # Backend implementations (can be swapped for testing)
-  backend_module: Lumainus.Conversion.Infrastructure.Backends.LocalBackend,
-  cloud_backend_module: Lumainus.Conversion.Infrastructure.Backends.CloudBackend,
+  backend_module: Medlum.Conversion.Infrastructure.Backends.LocalBackend,
+  cloud_backend_module: Medlum.Conversion.Infrastructure.Backends.CloudBackend,
 
   # HTTP client (can be mocked)
-  http_client: Lumainus.Conversion.Infrastructure.Http.Client,
+  http_client: Medlum.Conversion.Infrastructure.Http.Client,
 
   # Circuit breaker config
   circuit_breaker: [
@@ -650,9 +650,9 @@ config :lumainus, Lumainus.Conversion,
   ]
 
 # config/test.exs
-config :lumainus, Lumainus.Conversion,
-  backend_module: Lumainus.Conversion.Test.MockBackend,
-  http_client: Lumainus.Conversion.Test.MockHttpClient
+config :medlum, Medlum.Conversion,
+  backend_module: Medlum.Conversion.Test.MockBackend,
+  http_client: Medlum.Conversion.Test.MockHttpClient
 ```
 
 ---

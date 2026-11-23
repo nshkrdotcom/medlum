@@ -2,7 +2,7 @@
 
 ## Problem
 
-Lumainus relies entirely on gemini_ex's rate limiter. When that fails (streaming bypass), there's no fallback:
+Medlum relies entirely on gemini_ex's rate limiter. When that fails (streaming bypass), there's no fallback:
 
 - No circuit breaker
 - No local semaphore
@@ -30,9 +30,9 @@ Reports.run_sections()
 ### Application-Level Semaphore
 
 ```elixir
-# lib/lumainus/ai/concurrency_gate.ex
+# lib/medlum/ai/concurrency_gate.ex
 
-defmodule Lumainus.AI.ConcurrencyGate do
+defmodule Medlum.AI.ConcurrencyGate do
   @moduledoc """
   Application-level concurrency control for LLM operations.
 
@@ -214,7 +214,7 @@ end
 ### Integrate with SectionRunner
 
 ```elixir
-# lib/lumainus/ai/section_runner.ex
+# lib/medlum/ai/section_runner.ex
 
 defp invoke_llm_streaming(model_spec, prompt_text, schema, options, context) do
   ConcurrencyGate.with_permit(fn ->
@@ -226,11 +226,11 @@ end
 ### Add to Supervision Tree
 
 ```elixir
-# lib/lumainus/application.ex
+# lib/medlum/application.ex
 
 children = [
   # ... existing children
-  {Lumainus.AI.ConcurrencyGate, max_concurrent: 5, max_queue: 50},
+  {Medlum.AI.ConcurrencyGate, max_concurrent: 5, max_queue: 50},
 ]
 ```
 
@@ -247,7 +247,7 @@ children = [
 ```elixir
 # config/config.exs
 
-config :lumainus, Lumainus.AI.ConcurrencyGate,
+config :medlum, Medlum.AI.ConcurrencyGate,
   max_concurrent: 5,
   max_queue: 50,
   timeout_ms: 60_000
@@ -255,9 +255,9 @@ config :lumainus, Lumainus.AI.ConcurrencyGate,
 
 ## Files to Modify
 
-- `lib/lumainus/ai/concurrency_gate.ex` - New module
-- `lib/lumainus/application.ex` - Add to supervision
-- `lib/lumainus/ai/section_runner.ex` - Use gate
+- `lib/medlum/ai/concurrency_gate.ex` - New module
+- `lib/medlum/application.ex` - Add to supervision
+- `lib/medlum/ai/section_runner.ex` - Use gate
 - `config/config.exs` - Configuration
 
 ## Testing

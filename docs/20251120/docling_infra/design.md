@@ -4,7 +4,7 @@ _Date: 2025-11-20_
 
 ## Context
 
-Lumainus ingests clinical PDFs via a Phoenix LiveView app backed by a Python “Docling” service. The current development stack is a single Linode VM running:
+Medlum ingests clinical PDFs via a Phoenix LiveView app backed by a Python “Docling” service. The current development stack is a single Linode VM running:
 
 - Phoenix (LiveView, Oban) serving `/reports`
 - Docling FastAPI (Docling 2.62 + RapidOCR) bound to `127.0.0.1:8042`
@@ -39,7 +39,7 @@ Remaining problems:
 ### 1. Ingestion Flow (Phoenix)
 - When a PDF is uploaded, `document_upload` is inserted with `status=pending` and the card appears immediately.
 - Oban enqueue: insert an `ingestion_jobs` row with fields: `id`, `upload_id`, `state`, `progress`, `timeout_at`, `last_error`, `started_at`, `finished_at`.
-- Oban worker sends the PDF to Docling via HTTP but wraps the call in a new module `Lumainus.Docling.Queue` that maintains job state.
+- Oban worker sends the PDF to Docling via HTTP but wraps the call in a new module `Medlum.Docling.Queue` that maintains job state.
 - LiveView subscribes to `job_progress` via PubSub and updates document cards with stage/progress/countdown. On reconnect/resubscribe, it fetches the latest job state from the DB.
 
 ### 2. Docling Service Enhancements
@@ -66,7 +66,7 @@ Remaining problems:
 
 1. **Add ingestion_jobs table** (id, upload_id, state, progress, timeout_at, last_error, inserted_at, updated_at). Migrate existing Oban pipeline to populate it.
 2. **Refactor Oban worker** to update `ingestion_jobs` rows and always re-use stored PDFs. Provide a manual retry function.
-3. **Docling queue module** (`Lumainus.Docling.Queue`) that tracks job state and interacts with the Python service.
+3. **Docling queue module** (`Medlum.Docling.Queue`) that tracks job state and interacts with the Python service.
 4. **Python service queue**: implement a simple asyncio queue + worker pool, returning job_id + status endpoints. For short-term dev, keep `/convert` blocking but instrument queue/worker states.
 5. **LiveView UI**: ensure document cards stay mounted even on failure, display job state + countdown, and expose “Retry ingestion” action.
 6. **Logging/Monitoring**: forward docling logs to journald with structured JSON; add `scripts/logs_docling.sh` tailer.
@@ -107,7 +107,7 @@ Deliverables: migration, Ecto schemas, updated worker, Docling queue module, Pyt
 ## Operational notes (2025-11-20)
 
 - Docling now exposes `/jobs` + `/jobs/{id}/status` and runs an asyncio queue with `DOC_CONVERTER_WORKERS` workers (default `1`). The legacy `/convert` endpoint still blocks but submits through the queue internally.
-- Phoenix ships `Lumainus.Docling.Queue` to correlate job IDs, broadcast PubSub progress, and attach `timeout_at/last_error` to `ingestion_jobs`.
+- Phoenix ships `Medlum.Docling.Queue` to correlate job IDs, broadcast PubSub progress, and attach `timeout_at/last_error` to `ingestion_jobs`.
 - CLI helpers: `mix docling.queue [limit]` lists recent jobs, `mix docling.retry <job_id>` requeues a failed job using the stored PDF, and `scripts/logs_docling.sh` tails journald for the Docling unit.
 - Swap quick-start for the single-VM dev stack (tweak sizes as needed):
   ```bash

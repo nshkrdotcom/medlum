@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `CitationSanitizer` module provides robust validation and automatic repair of LLM-generated citations for the Lumainus reports system. It addresses common inconsistencies in citations returned by LLMs when generating medical reports.
+The `CitationSanitizer` module provides robust validation and automatic repair of LLM-generated citations for the Medlum reports system. It addresses common inconsistencies in citations returned by LLMs when generating medical reports.
 
 ## Problem Statement
 
@@ -176,15 +176,15 @@ The module includes comprehensive tests covering:
 
 Run tests with:
 ```bash
-mix test test/lumainus/ai/citation_sanitizer_test.exs
+mix test test/medlum/ai/citation_sanitizer_test.exs
 ```
 
 ## Files Modified
 
-1. **`lib/lumainus/ai/citation_sanitizer.ex`** (NEW)
+1. **`lib/medlum/ai/citation_sanitizer.ex`** (NEW)
    - Core sanitizer module with validation and repair logic
 
-2. **`lib/lumainus/ai/section_runner.ex`**
+2. **`lib/medlum/ai/section_runner.ex`**
    - Added `sanitize_citations/2` function
    - Added `build_sanitizer_document_map/1` function
    - Updated `persist_success/6` to sanitize citations
@@ -192,12 +192,12 @@ mix test test/lumainus/ai/citation_sanitizer_test.exs
    - Changed `document_payload/2` to accept sequence number
    - Removed hash-based mock_id generation
 
-3. **`lib/lumainus/reports/cache_manager.ex`**
+3. **`lib/medlum/reports/cache_manager.ex`**
    - Updated `build_document_payload/2` to accept sequence number
    - Changed mock_id generation to use sequence numbers
    - Removed unused `doc_label/1` function
 
-4. **`test/lumainus/ai/citation_sanitizer_test.exs`** (NEW)
+4. **`test/medlum/ai/citation_sanitizer_test.exs`** (NEW)
    - Comprehensive test suite with 24 test cases
 
 ## Benefits

@@ -41,7 +41,7 @@ The v2 architecture is designed for testability from the ground up:
 ### Backend Behavior
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Backend do
+defmodule Medlum.Conversion.Infrastructure.Backend do
   @moduledoc "Contract for conversion backends"
 
   @callback convert(binary(), Job.t()) :: {:ok, map()} | {:error, term()}
@@ -57,7 +57,7 @@ end
 ### HTTP Client Behavior
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.HttpClient do
+defmodule Medlum.Conversion.Infrastructure.HttpClient do
   @moduledoc "Contract for HTTP operations"
 
   @callback request(method :: atom(), url :: String.t(), opts :: keyword()) ::
@@ -71,7 +71,7 @@ end
 ### Health Manager Behavior
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.HealthChecker do
+defmodule Medlum.Conversion.Infrastructure.HealthChecker do
   @moduledoc "Contract for health checking"
 
   @callback healthy?(backend :: atom()) :: boolean()
@@ -87,11 +87,11 @@ end
 ```elixir
 # config/test.exs
 
-config :lumainus, Lumainus.Conversion,
+config :medlum, Medlum.Conversion,
   # Use mock backends in tests
-  backend_module: Lumainus.Conversion.Test.MockBackend,
-  http_client: Lumainus.Conversion.Test.MockHttpClient,
-  health_checker: Lumainus.Conversion.Test.MockHealthChecker,
+  backend_module: Medlum.Conversion.Test.MockBackend,
+  http_client: Medlum.Conversion.Test.MockHttpClient,
+  health_checker: Medlum.Conversion.Test.MockHealthChecker,
 
   # Disable background processes
   enable_health_checks: false,
@@ -109,12 +109,12 @@ config :lumainus, Lumainus.Conversion,
 ### Mock Backend
 
 ```elixir
-defmodule Lumainus.Conversion.Test.MockBackend do
+defmodule Medlum.Conversion.Test.MockBackend do
   @moduledoc """
   Configurable mock backend for testing.
   """
 
-  @behaviour Lumainus.Conversion.Infrastructure.Backend
+  @behaviour Medlum.Conversion.Infrastructure.Backend
 
   use Agent
 
@@ -213,12 +213,12 @@ end
 ### Mock HTTP Client
 
 ```elixir
-defmodule Lumainus.Conversion.Test.MockHttpClient do
+defmodule Medlum.Conversion.Test.MockHttpClient do
   @moduledoc """
   Mock HTTP client with request recording.
   """
 
-  @behaviour Lumainus.Conversion.Infrastructure.HttpClient
+  @behaviour Medlum.Conversion.Infrastructure.HttpClient
 
   use Agent
 
@@ -301,11 +301,11 @@ end
 ### Service Tests
 
 ```elixir
-defmodule Lumainus.Conversion.ServiceTest do
+defmodule Medlum.Conversion.ServiceTest do
   use ExUnit.Case, async: true
 
-  alias Lumainus.Conversion.Service
-  alias Lumainus.Conversion.Test.MockBackend
+  alias Medlum.Conversion.Service
+  alias Medlum.Conversion.Test.MockBackend
 
   setup do
     start_supervised!(MockBackend)
@@ -396,10 +396,10 @@ end
 ### Circuit Breaker Tests
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.CircuitBreakerTest do
+defmodule Medlum.Conversion.Infrastructure.CircuitBreakerTest do
   use ExUnit.Case, async: true
 
-  alias Lumainus.Conversion.Infrastructure.CircuitBreaker
+  alias Medlum.Conversion.Infrastructure.CircuitBreaker
 
   setup do
     # Start circuit breaker for test backend
@@ -484,10 +484,10 @@ end
 ### Retry Policy Tests
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.RetryPolicyTest do
+defmodule Medlum.Conversion.Infrastructure.RetryPolicyTest do
   use ExUnit.Case, async: true
 
-  alias Lumainus.Conversion.Infrastructure.RetryPolicy
+  alias Medlum.Conversion.Infrastructure.RetryPolicy
 
   describe "with_retry/2" do
     test "returns success without retry" do
@@ -572,11 +572,11 @@ end
 ### Circuit Breaker State Machine
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.CircuitBreakerPropertyTest do
+defmodule Medlum.Conversion.Infrastructure.CircuitBreakerPropertyTest do
   use ExUnit.Case
   use PropCheck
 
-  alias Lumainus.Conversion.Infrastructure.CircuitBreaker
+  alias Medlum.Conversion.Infrastructure.CircuitBreaker
 
   property "circuit breaker state machine is consistent" do
     forall commands <- commands(__MODULE__) do
@@ -666,11 +666,11 @@ end
 ## Integration Tests
 
 ```elixir
-defmodule Lumainus.Conversion.IntegrationTest do
+defmodule Medlum.Conversion.IntegrationTest do
   use ExUnit.Case
 
-  alias Lumainus.Conversion.Service
-  alias Lumainus.Conversion.Test.{MockBackend, MockHttpClient}
+  alias Medlum.Conversion.Service
+  alias Medlum.Conversion.Test.{MockBackend, MockHttpClient}
 
   @moduletag :integration
 
@@ -731,7 +731,7 @@ end
 ## Test Helpers
 
 ```elixir
-defmodule Lumainus.Conversion.Test.Helpers do
+defmodule Medlum.Conversion.Test.Helpers do
   @moduledoc """
   Test helpers for conversion tests.
   """
@@ -749,7 +749,7 @@ defmodule Lumainus.Conversion.Test.Helpers do
 
   @doc "Create a test job"
   def test_job(attrs \\ %{}) do
-    Lumainus.Conversion.Job.new(
+    Medlum.Conversion.Job.new(
       Map.merge(%{
         profile: :standard,
         filename: "test.pdf",

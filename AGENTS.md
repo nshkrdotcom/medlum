@@ -1,14 +1,14 @@
-# AI Agents Guide - Lumainus Project
+# AI Agents Guide - Medlum Project
 
 **Last Updated:** November 29, 2025 (Reports latest-run preload optimization, test migration timeout fix)
-**Project:** Lumainus - Traceable AI Intelligence Platform
+**Project:** Medlum - Traceable AI Intelligence Platform
 **Tech Stack:** Elixir, Phoenix 1.8, LiveView, Tailwind 4, DaisyUI 5
 
 ---
 
 ## Project Overview
 
-Lumainus is a **self-aware LLM runtime** and **advanced medical reporting platform** built with Phoenix LiveView. The core mission is providing **fully traceable, auditable AI intelligence** for healthcare applications.
+Medlum is a **self-aware LLM runtime** and **advanced medical reporting platform** built with Phoenix LiveView. The core mission is providing **fully traceable, auditable AI intelligence** for healthcare applications.
 
 **Brand Tagline:**
 *"Every token has a traceable decision path. Every claim has attributable evidence. Every response has measurable confidence."*
@@ -25,15 +25,15 @@ Lumainus is a **self-aware LLM runtime** and **advanced medical reporting platfo
 ## Project Structure
 
 ```
-lumainus/
+medlum/
 ├── lib/
-│   ├── lumainus/              # Core business logic
+│   ├── medlum/              # Core business logic
 │   │   ├── accounts/          # User auth, roles, invitations
 │   │   │   ├── user.ex        # User schema (guest, doctor, admin, system_administrator)
 │   │   │   └── invitation.ex  # Invitation system
 │   │   └── repo.ex            # Database repository
 │   │
-│   └── lumainus_web/          # Web interface (Phoenix)
+│   └── medlum_web/          # Web interface (Phoenix)
 │       ├── components/        # Reusable components
 │       │   └── layouts/       # Layout templates
 │       │       ├── root.html.heex      # HTML shell (favicon, meta tags)
@@ -66,7 +66,7 @@ lumainus/
 │   │
 │   └── static/                # Static assets (compiled)
 │       ├── images/            # SVG logos, icons, patterns
-│       │   ├── lumainus-logo-enhanced.svg    # Main logo (animated)
+│       │   ├── medlum-logo-enhanced.svg    # Main logo (animated)
 │       │   ├── icon-*.svg                    # Feature icons
 │       │   └── patterns/                     # Background patterns
 │       └── favicon.ico/.svg   # Favicons
@@ -86,13 +86,13 @@ lumainus/
 
 ## Codebase Review Snapshot (Nov 16, 2025)
 
-- `lib/lumainus/accounts/` owns users, invitations, session tokens, and `scope.ex`; everything that calls into contexts must pass a `Lumainus.Accounts.Scope` (see `lib/lumainus/accounts/scope.ex`) so role-aware queries stay centralized.
-- `lib/lumainus_web/user_auth.ex` wires the plugs (`fetch_current_scope_for_user/2`, `require_*_role/2`, etc.) and handles remember-me cookies + session reissue logic; all LiveView mounts rely on the `current_scope` assign from this module.
-- Authentication-facing LiveViews live in `lib/lumainus_web/live/user_live/` (login, registration, settings) and already follow `Layouts.app`; admin tooling resides in `lib/lumainus_web/live/admin/invitations_live.ex` and exercises `Lumainus.Accounts` end-to-end.
-- `/reports` (`lib/lumainus_web/live/reports_live.ex`) now pulls from the real ingestion pipeline (PDF uploads + GeminiEx-powered markdown generation via the LLM facade). Use the `/prompts` editor to tweak prompts for each section or for the ingestion step.
+- `lib/medlum/accounts/` owns users, invitations, session tokens, and `scope.ex`; everything that calls into contexts must pass a `Medlum.Accounts.Scope` (see `lib/medlum/accounts/scope.ex`) so role-aware queries stay centralized.
+- `lib/medlum_web/user_auth.ex` wires the plugs (`fetch_current_scope_for_user/2`, `require_*_role/2`, etc.) and handles remember-me cookies + session reissue logic; all LiveView mounts rely on the `current_scope` assign from this module.
+- Authentication-facing LiveViews live in `lib/medlum_web/live/user_live/` (login, registration, settings) and already follow `Layouts.app`; admin tooling resides in `lib/medlum_web/live/admin/invitations_live.ex` and exercises `Medlum.Accounts` end-to-end.
+- `/reports` (`lib/medlum_web/live/reports_live.ex`) now pulls from the real ingestion pipeline (PDF uploads + GeminiEx-powered markdown generation via the LLM facade). Use the `/prompts` editor to tweak prompts for each section or for the ingestion step.
 - `/reports` performance: the bottleneck was preloading `llm_invocations.prompt_text/response_text` (~48MB for 13 runs). Latest section runs now preload a **shallow** LlmInvocation (id/provider/model/status/usage/req_duration_ms only). Do not add prompt/response/response_object to these preloads, and avoid reinstating ad hoc timing logs.
 - Tailwind 4 lives in `assets/css/app.css` with the `@import "tailwindcss" source(none)` + `@source` directives; DaisyUI themes are registered inline so new components should stay compatible with this file rather than adding ad-hoc CSS frameworks.
-- Tests are split between `test/lumainus_web` (contexts) and `test/lumainus_web_web/{controllers,live}` (router/auth/LiveView exercises). Add regression coverage next to whichever module you touch (ex: LiveView tests in `test/lumainus_web_web/live/*_test.exs`).
+- Tests are split between `test/medlum_web` (contexts) and `test/medlum_web_web/{controllers,live}` (router/auth/LiveView exercises). Add regression coverage next to whichever module you touch (ex: LiveView tests in `test/medlum_web_web/live/*_test.exs`).
 - Conversion resilience uses the Hex `retry` library—do not reimplement backoff/jitter; only wrap idempotent operations (health/status/SSE reconnect).
 
 ---
@@ -185,7 +185,7 @@ lumainus/
 ### When Editing LiveViews (`.ex`)
 
 **Always:**
-1. **Import Layouts** - `alias LumainusWeb.Layouts`
+1. **Import Layouts** - `alias MedlumWeb.Layouts`
 2. **Use `to_form/2`** - Never pass changesets directly to templates
 3. **Return socket** - All `handle_*` callbacks return `{:noreply, socket}`
 4. **Use streams** - For collections (not regular lists)
@@ -193,9 +193,9 @@ lumainus/
 
 **Example:**
 ```elixir
-defmodule LumainusWeb.MyLive do
-  use LumainusWeb, :live_view
-  alias LumainusWeb.Layouts
+defmodule MedlumWeb.MyLive do
+  use MedlumWeb, :live_view
+  alias MedlumWeb.Layouts
 
   def mount(_params, _session, socket) do
     form = to_form(%{}, as: :my_form)
@@ -219,11 +219,11 @@ end
 
 **Example:**
 ```elixir
-scope "/", LumainusWeb do
+scope "/", MedlumWeb do
   pipe_through [:browser, :require_authenticated_user]
 
   live_session :require_authenticated_user,
-    on_mount: [{LumainusWeb.UserAuth, :require_authenticated}] do
+    on_mount: [{MedlumWeb.UserAuth, :require_authenticated}] do
     live "/dashboard", DashboardLive, :index
     # Add more authenticated routes here
   end
@@ -239,7 +239,7 @@ end
 **For Public Pages:**
 ```bash
 # 1. Create the LiveView module
-# lib/lumainus_web/live/my_page_live.ex
+# lib/medlum_web/live/my_page_live.ex
 
 # 2. Add route to router.ex (in :current_user scope)
 live "/my-page", MyPageLive, :index
@@ -414,7 +414,7 @@ Use Tailwind spacing scale, but prefer **larger gaps** for calm aesthetic:
 ### Logo Variants
 
 **Primary Logo:**
-- `lumainus-logo-enhanced.svg` - Animated, multi-layer effects
+- `medlum-logo-enhanced.svg` - Animated, multi-layer effects
 - Use for: Homepage, login page, main branding
 - Size: 120px - 200px typically
 
@@ -485,7 +485,7 @@ Usage: 32px - 48px, can be tinted with CSS filters
 
 **Structure:**
 ```heex
-<div class="lumainus-sanctuary">
+<div class="medlum-sanctuary">
   <!-- Soft background shapes -->
   <!-- Floating logo (centerpiece) -->
   <!-- Brand name (elegant typography) -->
@@ -513,7 +513,7 @@ Usage: 32px - 48px, can be tinted with CSS filters
 ```elixir
 # Standalone page, not wrapped in Layouts.app
 # Embedded <style> tags for page-specific CSS
-# Hide menu: body:has(.lumainus-login-page) > ul.menu { display: none; }
+# Hide menu: body:has(.medlum-login-page) > ul.menu { display: none; }
 ```
 
 ### Dashboard Pages (Future)
@@ -533,7 +533,7 @@ Usage: 32px - 48px, can be tinted with CSS filters
 **Key Requirements:**
 - Initialize assigns just like `ReportsLive.mount/3` (`documents`, `report`, `selected_document`, `document_view_mode`) so the sidebar + detail pane stay synchronized.
 - Document selection is handled through `"select_document"`, `"show_source"`, and `"close_document"` events; keep the payload keys (`"doc-id"`, `"mode"`) stable because tests/assertions expect these atoms.
-- Inline CSS at the top of `render/1` (see `lib/lumainus_web/live/reports_live.ex:54+`) intentionally builds the clinical chart aesthetic; edit the existing selectors instead of scattering new style tags elsewhere.
+- Inline CSS at the top of `render/1` (see `lib/medlum_web/live/reports_live.ex:54+`) intentionally builds the clinical chart aesthetic; edit the existing selectors instead of scattering new style tags elsewhere.
 - When changing report sections, update the prompt templates via `/prompts` and ensure the corresponding ingestion+LLM schema matches the UI expectations.
 - Provenance badges pull from stored `DocumentUpload` records; make sure ingestion jobs capture the metadata (`label`, `summary`, `provider`) you expect the UI to surface.
 - Per-user Docling backend selector (“Processing speed: Standard / Fast”). Preference is stored on the user record (`users.docling_backend`, default `"local"`). Disable Fast when remote health fails; fallback to Standard without breaking uploads.
@@ -585,7 +585,7 @@ mix run priv/repo/seeds.exs
 # 2. Visit login page
 open http://localhost:4000/users/log-in
 
-# 3. Enter: admin@lumainus.local
+# 3. Enter: admin@medlumai.local
 
 # 4. Check mailbox for magic link
 open http://localhost:4000/dev/mailbox
@@ -595,7 +595,7 @@ open http://localhost:4000/dev/mailbox
 
 ### Testing Concurrency & HTTP
 
-- Prefer `Supertester` isolation (or `Lumainus.Conversion.TestCase`) for OTP-heavy tests; avoid `Process.sleep/1`—use monitors, telemetry, or supervised processes instead.
+- Prefer `Supertester` isolation (or `Medlum.Conversion.TestCase`) for OTP-heavy tests; avoid `Process.sleep/1`—use monitors, telemetry, or supervised processes instead.
 - For Bypass-based HTTP/SSE tests, ensure expectations are consumed (choose `stub` vs `expect` appropriately) and clean up streams/processes via `on_exit`.
 - Use the Hex `retry` library for backoff/jitter—do not implement custom sleep loops.
 - Start required pools (e.g., Finch) inside tests when isolating; keep them supervised and unlinked to avoid registry leaks.
@@ -674,8 +674,8 @@ open http://localhost:4000/dev/mailbox
 - `docs/` - HIPAA, FDA, compliance documentation
 
 ### Internal Docs
-- `docs/20251116/001_LUMAINUS_claude.md` - AI architecture vision
-- Design concepts documented in `LUMAINUS_LOGIN_REDESIGN.md`
+- `docs/20251116/001_MEDLUM_claude.md` - AI architecture vision
+- Design concepts documented in `MEDLUM_LOGIN_REDESIGN.md`
 
 ---
 
@@ -722,7 +722,7 @@ When working with this codebase:
 - Ask user for clarification on design decisions
 
 **Last Updated:** November 23, 2025
-**Maintainer:** AI Agents working on Lumainus project
+**Maintainer:** AI Agents working on Medlum project
 
 ---
 
@@ -758,7 +758,7 @@ Users choose between "Local" and "Cloud" in `/reports`. The choice is stored on 
 
 ```elixir
 # config/config.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   default_mode: :local,
   active_local_backend: :docker_cpu,
   native_cpu_url: "http://127.0.0.1:8040",
@@ -779,10 +779,10 @@ config :lumainus, :docling,
 | `scripts/docling-compose.sh` | Docker Compose management (interactive menu) |
 | `scripts/docling-gpu.sh` | Docker image management (build/run/push) |
 | `scripts/setup_docling_service.sh` | Native Python setup |
-| `lib/lumainus/docling.ex` | Backend resolution logic |
-| `lib/lumainus/docling/setting.ex` | Schema (5 URLs + settings) |
-| `lib/lumainus/docling/settings.ex` | Persistence layer |
-| `lib/lumainus_web/live/admin/docling_settings_live.ex` | Admin UI |
+| `lib/medlum/docling.ex` | Backend resolution logic |
+| `lib/medlum/docling/setting.ex` | Schema (5 URLs + settings) |
+| `lib/medlum/docling/settings.ex` | Persistence layer |
+| `lib/medlum_web/live/admin/docling_settings_live.ex` | Admin UI |
 | `docker-compose.yml` | Docker service definitions |
 
 ### Running Backends
@@ -814,13 +814,13 @@ Run `mix ecto.migrate` to apply the expansion migration.
 ### Agent Notes
 
 - **Port source of truth**: `scripts/docling-ports.env` - always source this in new scripts
-- **Backend resolution**: `Lumainus.Docling.backend_name_from_opts/1` handles mode → backend mapping
-- **URL lookup**: `Lumainus.Docling.url_for_backend/1` returns the URL for any backend type
+- **Backend resolution**: `Medlum.Docling.backend_name_from_opts/1` handles mode → backend mapping
+- **URL lookup**: `Medlum.Docling.url_for_backend/1` returns the URL for any backend type
 - **Health checks**: Admin UI at `/admin/docling` shows health for all 5 backends
 - **User choice**: Stored as `"local"` or `"cloud"` on `users.docling_backend`
 - **Tests**: Use Bypass mocks; set `prefer_env_overrides: true` in test config
 - **URL safety**: Must use `https://` unless localhost/127.0.0.1
-- **Progress latency debugging**: Enable `[docling-progress-debug]` logging by setting `config :lumainus, :docling, debug_progress_log: true`
+- **Progress latency debugging**: Enable `[docling-progress-debug]` logging by setting `config :medlum, :docling, debug_progress_log: true`
 
 ---
 
@@ -850,10 +850,10 @@ Backends (LocalBackend/CloudBackend)
 
 | File | Purpose |
 |------|---------|
-| `lib/lumainus/conversion/infrastructure/http/sse_stream.ex` | SSE client with reconnection, heartbeat |
-| `lib/lumainus/conversion/infrastructure/http/client.ex` | HTTP client (enqueue, status, health, cancel) |
-| `lib/lumainus/conversion/backends/local_backend.ex` | Local backend using SSEStream.await |
-| `lib/lumainus/conversion/backends/cloud_backend.ex` | Cloud backend using SSEStream.await |
+| `lib/medlum/conversion/infrastructure/http/sse_stream.ex` | SSE client with reconnection, heartbeat |
+| `lib/medlum/conversion/infrastructure/http/client.ex` | HTTP client (enqueue, status, health, cancel) |
+| `lib/medlum/conversion/backends/local_backend.ex` | Local backend using SSEStream.await |
+| `lib/medlum/conversion/backends/cloud_backend.ex` | Cloud backend using SSEStream.await |
 | `docling_service/app/main.py` | FastAPI service with SSE endpoint |
 
 ### SSEStream Features
@@ -898,7 +898,7 @@ The `--force-recreate` flag ensures:
 
 ### Key Code
 
-`lib/lumainus/docling/docker_manager.ex`:
+`lib/medlum/docling/docker_manager.ex`:
 - **Starts on Phoenix boot** via Application supervisor
 - **Stops container on Phoenix shutdown**
 - **Monitors health** and restarts if container dies
@@ -917,7 +917,7 @@ The `--force-recreate` flag ensures:
 The project includes a forked version of the Docling library:
 
 ```
-lumainus/
+medlum/
 ├── docling/                    # Forked docling library
 │   └── docling/
 │       └── pipeline/
@@ -943,7 +943,7 @@ If you change files in `docling/docling/pipeline/`:
 ./scripts/docling-gpu.sh build-base   # ~10 minutes
 ```
 
-This rebuilds `ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest` with the forked docling code.
+This rebuilds `ghcr.io/nshkrdotcom/medlum-docling-gpu:latest` with the forked docling code.
 
 ### Dockerfile Structure
 
@@ -999,7 +999,7 @@ config :gemini_ex, :rate_limiter,
 
 ### Structured Errors
 
-The `Lumainus.LLM` module handles gemini_ex structured errors:
+The `Medlum.LLM` module handles gemini_ex structured errors:
 
 - `{:error, {:rate_limited, retry_at, details}}` → Formatted with retry timing info
 - `{:error, {:transient_failure, attempts, original_error}}` → Formatted with attempt count
@@ -1024,8 +1024,8 @@ If reports still fail with 429s:
 | File | Purpose |
 |------|---------|
 | `config/config.exs` | Global rate limiter configuration |
-| `lib/lumainus/llm.ex` | Gemini client facade with error handling |
-| `lib/lumainus/ai/section_runner.ex` | Section generation that uses LLM client |
+| `lib/medlum/llm.ex` | Gemini client facade with error handling |
+| `lib/medlum/ai/section_runner.ex` | Section generation that uses LLM client |
 
 ### Agent Notes
 

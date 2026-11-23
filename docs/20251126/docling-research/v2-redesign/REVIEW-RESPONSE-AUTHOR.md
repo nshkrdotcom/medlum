@@ -29,7 +29,7 @@ The review raises valid concerns. We agree with several blocking issues and prop
 **Resolution:**
 ```elixir
 # Revised JobStatus struct - preserve provenance
-defmodule Lumainus.Conversion.JobStatus do
+defmodule Medlum.Conversion.JobStatus do
   @type t :: %__MODULE__{
     # ... existing fields ...
 
@@ -70,7 +70,7 @@ end
 
 2. **Make JobTracker wrap existing IngestionJob persistence:**
 ```elixir
-defmodule Lumainus.Conversion.Application.JobTracker do
+defmodule Medlum.Conversion.Application.JobTracker do
   # Delegate to Documents.IngestionJob for persistence
   # GenServer only holds in-flight job refs, not ground truth
 
@@ -188,10 +188,10 @@ Never wrap enqueue/convert in RetryPolicy - they are not idempotent.
 1. **Reduce metric cardinality:**
 ```elixir
 # BAD - high cardinality
-counter("lumainus.conversion.job.submitted.count", tags: [:profile, :tenant_id])
+counter("medlum.conversion.job.submitted.count", tags: [:profile, :tenant_id])
 
 # GOOD - bounded cardinality
-counter("lumainus.conversion.job.submitted.count", tags: [:profile, :backend_type])
+counter("medlum.conversion.job.submitted.count", tags: [:profile, :backend_type])
 # backend_type: :local | :cloud (not the 5 specific backends)
 
 # Job IDs and tenant IDs go in traces/logs, NOT metrics
@@ -220,7 +220,7 @@ end
 
 def emit_progress(job_id, progress) do
   if rem(progress, @progress_sample_rate) == 0 do
-    :telemetry.execute([:lumainus, :conversion, :job, :progress], ...)
+    :telemetry.execute([:medlum, :conversion, :job, :progress], ...)
   end
 end
 ```
@@ -258,7 +258,7 @@ end
 
   # Preserved for audit (hidden from user UI)
   _backend: :vast_ai,
-  _backend_endpoint: "https://docling.lumainus.com",
+  _backend_endpoint: "https://docling.medlumai.com",
   _instance_id: 12345
 }
 ```
@@ -395,7 +395,7 @@ end
 
 **Our Response:** This is a reasonable alternative. However:
 
-1. The current code ALREADY has behaviors (`Lumainus.Docling.Backend`) — v2 is building on this
+1. The current code ALREADY has behaviors (`Medlum.Docling.Backend`) — v2 is building on this
 2. Adding circuit breaker at HTTP layer alone doesn't give backend-level isolation
 3. The existing test coverage uses Bypass well; we can build on this
 

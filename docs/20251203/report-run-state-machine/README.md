@@ -78,10 +78,10 @@ end
 
 ### 2. Centralized State Reconciler
 
-Create `Lumainus.Reports.RunReconciler` module:
+Create `Medlum.Reports.RunReconciler` module:
 
 ```elixir
-defmodule Lumainus.Reports.RunReconciler do
+defmodule Medlum.Reports.RunReconciler do
   @moduledoc """
   Atomic state reconciliation for report runs.
 
@@ -90,8 +90,8 @@ defmodule Lumainus.Reports.RunReconciler do
   """
 
   import Ecto.Query
-  alias Lumainus.Repo
-  alias Lumainus.Reports.{ReportRun, ReportSectionRun}
+  alias Medlum.Repo
+  alias Medlum.Reports.{ReportRun, ReportSectionRun}
 
   @doc """
   Atomically check and finalize a report run if all sections are done.
@@ -203,10 +203,10 @@ end
 
 ### 3. Periodic Staleness Checker (Oban Cron)
 
-Create `Lumainus.Reports.StaleRunWorker`:
+Create `Medlum.Reports.StaleRunWorker`:
 
 ```elixir
-defmodule Lumainus.Reports.StaleRunWorker do
+defmodule Medlum.Reports.StaleRunWorker do
   @moduledoc """
   Oban cron worker that detects and fixes stale report runs.
 
@@ -219,8 +219,8 @@ defmodule Lumainus.Reports.StaleRunWorker do
   use Oban.Worker, queue: :maintenance, max_attempts: 1
 
   import Ecto.Query
-  alias Lumainus.Repo
-  alias Lumainus.Reports.{ReportRun, ReportSectionRun, RunReconciler}
+  alias Medlum.Repo
+  alias Medlum.Reports.{ReportRun, ReportSectionRun, RunReconciler}
 
   @stale_activity_minutes 10
 
@@ -287,8 +287,8 @@ end
 ```elixir
 {Oban.Plugins.Cron,
  crontab: [
-   {"*/15 * * * *", Lumainus.Documents.IngestionCleanupWorker},
-   {"*/5 * * * *", Lumainus.Reports.StaleRunWorker}  # NEW
+   {"*/15 * * * *", Medlum.Documents.IngestionCleanupWorker},
+   {"*/5 * * * *", Medlum.Reports.StaleRunWorker}  # NEW
  ]}
 ```
 
@@ -297,10 +297,10 @@ end
 Replace distributed `finalize_run_state` with atomic reconciler:
 
 ```elixir
-defmodule Lumainus.Reports.SectionRunWorker do
+defmodule Medlum.Reports.SectionRunWorker do
   # ... existing code ...
 
-  alias Lumainus.Reports.RunReconciler
+  alias Medlum.Reports.RunReconciler
 
   @impl true
   def perform(%Oban.Job{args: %{"section_run_id" => section_run_id}}) do
@@ -384,7 +384,7 @@ end
 ## Migration
 
 ```elixir
-defmodule Lumainus.Repo.Migrations.AddReportRunTimeoutFields do
+defmodule Medlum.Repo.Migrations.AddReportRunTimeoutFields do
   use Ecto.Migration
 
   def change do
@@ -403,7 +403,7 @@ end
 ### Backfill Migration
 
 ```elixir
-defmodule Lumainus.Repo.Migrations.BackfillReportRunTimeouts do
+defmodule Medlum.Repo.Migrations.BackfillReportRunTimeouts do
   use Ecto.Migration
 
   def up do
@@ -507,7 +507,7 @@ end
 Add to `config/config.exs` (optional, for tuning):
 
 ```elixir
-config :lumainus, :report_runs,
+config :medlum, :report_runs,
   default_timeout_minutes: 30,
   stale_activity_minutes: 10,
   staleness_check_interval: "*/5 * * * *"

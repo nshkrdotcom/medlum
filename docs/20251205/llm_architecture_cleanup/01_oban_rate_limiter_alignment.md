@@ -82,7 +82,7 @@ queues: [
 # Current strategy: Let Oban spawn workers freely, rate limiter gates API calls.
 # If you see 429s, reduce reports queue or increase max_concurrency_per_model.
 
-config :lumainus, Oban,
+config :medlum, Oban,
   queues: [
     ingestion: 5,
     # reports: Should align with gemini_ex max_concurrency_per_model

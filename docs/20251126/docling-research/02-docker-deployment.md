@@ -7,7 +7,7 @@
 
 ## Overview
 
-The Lumainus project implements a sophisticated Docling PDF-to-Markdown conversion system with **5 standardized backends** organized into two user-facing deployment modes:
+The Medlum project implements a sophisticated Docling PDF-to-Markdown conversion system with **5 standardized backends** organized into two user-facing deployment modes:
 - **Local Mode** (free): 4 backends running on the host or in Docker
 - **Cloud Mode** ($$$): Vast.ai GPU instances
 
@@ -18,7 +18,7 @@ All backends are standardized on ports **8040-8044** with a unified Elixir API l
 ## Directory Structure
 
 ```
-lumainus/
+medlum/
 ├── docling/                          # Fork of Docling library (Python)
 │   ├── Dockerfile                    # Base image definition
 │   ├── docling/                      # Python source
@@ -82,7 +82,7 @@ Each backend uses the same FastAPI service code (`docling_service/app/main.py`).
 FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 # Install: FastAPI, uvicorn, local docling fork
 # Download models by initializing DocumentConverter
-# Result: ghcr.io/nshkrdotcom/lumainus-docling-base:latest
+# Result: ghcr.io/nshkrdotcom/medlum-docling-base:latest
 ```
 
 - **Frequency:** Rebuild ~monthly when Docling or PyTorch versions change
@@ -92,7 +92,7 @@ FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 #### 2. App Image: `Dockerfile.gpu` (~1.5GB delta, ~2 min rebuild)
 
 ```dockerfile
-FROM ghcr.io/nshkrdotcom/lumainus-docling-base:latest
+FROM ghcr.io/nshkrdotcom/medlum-docling-base:latest
 # Copy only: docling_service/app (FastAPI code)
 # CMD: uvicorn app.main:app --port ${PORT}
 ```
@@ -108,7 +108,7 @@ FROM ghcr.io/nshkrdotcom/lumainus-docling-base:latest
 ```yaml
 services:
   docling-cpu:  # CPU container, port 8042
-    image: ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest
+    image: ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
     environment:
       - CUDA_VISIBLE_DEVICES=  # Disable GPU
       - PORT=8042
@@ -117,7 +117,7 @@ services:
       reservations: { memory: 2G }
 
   docling-gpu:  # GPU container, port 8043 (requires nvidia-docker)
-    image: ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest
+    image: ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
     profiles: [gpu]  # Only started with --profile gpu
     environment:
       - CUDA_VISIBLE_DEVICES=0
@@ -230,8 +230,8 @@ CLEANUP
 
 **Configuration:**
 ```bash
-BASE_IMAGE_NAME=ghcr.io/nshkrdotcom/lumainus-docling-base
-FULL_IMAGE=ghcr.io/nshkrdotcom/lumainus-docling-gpu:latest
+BASE_IMAGE_NAME=ghcr.io/nshkrdotcom/medlum-docling-base
+FULL_IMAGE=ghcr.io/nshkrdotcom/medlum-docling-gpu:latest
 ```
 
 ### 5. `docling-vast.sh` - Vast.ai Cloud GPU Provisioning
@@ -264,7 +264,7 @@ DEFAULT_MAX_PRICE="0.25"          # $/hr
 DEFAULT_DISK_GB="16"
 DEFAULT_GEOLOCATION="US,CA"
 DEFAULT_GPU_TYPE="RTX_3090"
-DEFAULT_LABEL="docling-lumainus"
+DEFAULT_LABEL="docling-medlum"
 ```
 
 ### 6. `vast_ai_cleanup.sh` - Idle GPU Instance Killer
@@ -390,7 +390,7 @@ Runs on Vast.ai instance at startup to set up automatic HTTPS.
 
 ### Elixir Vast.ai Modules
 
-**Location:** `lib/lumainus/docling/vast_ai/`
+**Location:** `lib/medlum/docling/vast_ai/`
 
 #### Instance Manager (`instance_manager.ex`)
 - `provision_with_offers/3` - Create instance from offer
@@ -404,7 +404,7 @@ Runs on Vast.ai instance at startup to set up automatic HTTPS.
 - Destroys idle instances after configurable timeout
 - **Elixir config:**
   ```elixir
-  config :lumainus, :vast_ai_auto_shutdown,
+  config :medlum, :vast_ai_auto_shutdown,
     enabled: true,
     check_interval_minutes: 5,
     idle_timeout_minutes: 30
@@ -417,7 +417,7 @@ Runs on Vast.ai instance at startup to set up automatic HTTPS.
 ### Quick Start: Local Docker CPU
 
 ```bash
-cd lumainus/
+cd medlum/
 
 # 1. Build images locally
 ./scripts/docling-gpu.sh build

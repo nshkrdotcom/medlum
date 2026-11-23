@@ -29,7 +29,7 @@ After reviewing both the backend and frontend designs, here's the consolidated i
 │         │                                                 │                 │
 │         │                                                 ▼                 │
 │         │                                  ┌──────────────────────────────┐│
-│         │                                  │    Lumainus.LLM              ││
+│         │                                  │    Medlum.LLM              ││
 │         │                                  │    stream_generate/5         ││
 │         │                                  └─────────────┬────────────────┘│
 │         │                                                 │                 │
@@ -73,7 +73,7 @@ After reviewing both the backend and frontend designs, here's the consolidated i
 **Goal:** Add streaming capability without breaking existing functionality.
 
 #### Step 1.1: LLM Module Extension
-**File:** `lib/lumainus/llm.ex`
+**File:** `lib/medlum/llm.ex`
 
 ```elixir
 # Add new function (don't modify existing)
@@ -88,7 +88,7 @@ def stream_generate(model_spec, prompt_text, schema, subscriber_pid, opts \\ [])
 - [ ] Add `build_stream_request_body/2`
 
 #### Step 1.2: SectionRunner Streaming
-**File:** `lib/lumainus/ai/section_runner.ex`
+**File:** `lib/medlum/ai/section_runner.ex`
 
 ```elixir
 # Add new function (parallel to existing run_section/5)
@@ -102,14 +102,14 @@ def run_section_streaming(scope, section_run, patient, documents, opts \\ [])
 - [ ] Add `broadcast_chunk/3` for PubSub
 
 #### Step 1.3: Worker Support
-**File:** `lib/lumainus/reports/section_run_worker.ex`
+**File:** `lib/medlum/reports/section_run_worker.ex`
 
 **Tasks:**
 - [ ] Add `stream?` flag check in `perform/1`
 - [ ] Route to `run_section_streaming/5` when `stream: true`
 
 #### Step 1.4: Reports Context
-**File:** `lib/lumainus/reports.ex`
+**File:** `lib/medlum/reports.ex`
 
 **Tasks:**
 - [ ] Add `stream` option to `run_sections/6`
@@ -123,14 +123,14 @@ def run_section_streaming(scope, section_run, patient, documents, opts \\ [])
 **Goal:** Add socket assigns and handle_info without changing template.
 
 #### Step 2.1: Socket Assigns
-**File:** `lib/lumainus_web/live/reports_live.ex`
+**File:** `lib/medlum_web/live/reports_live.ex`
 
 **Tasks:**
 - [ ] Add `:streaming_content` assign in `load_workspace/1` (around line 762)
 - [ ] Initialize as empty map: `%{}`
 
 #### Step 2.2: Handle Info Clauses
-**File:** `lib/lumainus_web/live/reports_live.ex`
+**File:** `lib/medlum_web/live/reports_live.ex`
 
 **Tasks:**
 - [ ] Add `handle_info({:llm_chunk, ...}, socket)` clause
@@ -145,7 +145,7 @@ def run_section_streaming(scope, section_run, patient, documents, opts \\ [])
 **Goal:** Display streaming content with visual polish.
 
 #### Step 3.1: Template Changes
-**File:** `lib/lumainus_web/live/reports_live.ex` (lines 4256-4310)
+**File:** `lib/medlum_web/live/reports_live.ex` (lines 4256-4310)
 
 **Tasks:**
 - [ ] Add conditional for streaming content display
@@ -154,7 +154,7 @@ def run_section_streaming(scope, section_run, patient, documents, opts \\ [])
 - [ ] Add `phx-hook="StreamingScroll"` for auto-scroll
 
 #### Step 3.2: CSS Styling
-**File:** `lib/lumainus_web/live/reports_live.ex` (style block)
+**File:** `lib/medlum_web/live/reports_live.ex` (style block)
 
 **Tasks:**
 - [ ] Add `.section-streaming` styles
@@ -181,7 +181,7 @@ def run_section_streaming(scope, section_run, patient, documents, opts \\ [])
 **Goal:** Connect backend to frontend and enable streaming.
 
 #### Step 4.1: Enable Streaming in UI
-**File:** `lib/lumainus_web/live/reports_live.ex`
+**File:** `lib/medlum_web/live/reports_live.ex`
 
 **Tasks:**
 - [ ] Modify `run_sections/2` to pass `stream: true`
@@ -191,7 +191,7 @@ def run_section_streaming(scope, section_run, patient, documents, opts \\ [])
 **File:** `config/config.exs`
 
 ```elixir
-config :lumainus, :features,
+config :medlum, :features,
   llm_streaming: true
 ```
 
@@ -201,11 +201,11 @@ config :lumainus, :features,
 
 | File | Changes |
 |------|---------|
-| `lib/lumainus/llm.ex` | Add `stream_generate/5` + helpers (~100 lines) |
-| `lib/lumainus/ai/section_runner.ex` | Add `run_section_streaming/5` + handlers (~80 lines) |
-| `lib/lumainus/reports/section_run_worker.ex` | Add stream flag routing (~5 lines) |
-| `lib/lumainus/reports.ex` | Add stream option passthrough (~10 lines) |
-| `lib/lumainus_web/live/reports_live.ex` | Add assigns, handle_info, template, CSS (~150 lines) |
+| `lib/medlum/llm.ex` | Add `stream_generate/5` + helpers (~100 lines) |
+| `lib/medlum/ai/section_runner.ex` | Add `run_section_streaming/5` + handlers (~80 lines) |
+| `lib/medlum/reports/section_run_worker.ex` | Add stream flag routing (~5 lines) |
+| `lib/medlum/reports.ex` | Add stream option passthrough (~10 lines) |
+| `lib/medlum_web/live/reports_live.ex` | Add assigns, handle_info, template, CSS (~150 lines) |
 | `assets/js/app.js` | Add StreamingScroll hook (~30 lines) |
 
 **Total estimated new code:** ~375 lines

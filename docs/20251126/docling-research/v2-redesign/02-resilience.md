@@ -47,7 +47,7 @@ Prevent repeated calls to a failing backend. Fast-fail when a backend is known t
 ### Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.CircuitBreaker do
+defmodule Medlum.Conversion.Infrastructure.CircuitBreaker do
   @moduledoc """
   Per-backend circuit breaker implementation.
   """
@@ -55,7 +55,7 @@ defmodule Lumainus.Conversion.Infrastructure.CircuitBreaker do
   use GenServer
   require Logger
 
-  alias Lumainus.Conversion.Infrastructure.Telemetry
+  alias Medlum.Conversion.Infrastructure.Telemetry
 
   @type state :: :closed | :open | :half_open
 
@@ -121,7 +121,7 @@ defmodule Lumainus.Conversion.Infrastructure.CircuitBreaker do
 
   @impl true
   def init(opts) do
-    config = Application.get_env(:lumainus, :conversion_circuit_breaker, [])
+    config = Application.get_env(:medlum, :conversion_circuit_breaker, [])
 
     state = %__MODULE__{
       backend: opts[:backend],
@@ -215,7 +215,7 @@ defmodule Lumainus.Conversion.Infrastructure.CircuitBreaker do
   # Private
 
   defp via(backend) do
-    {:via, Registry, {Lumainus.Conversion.Registry, {:circuit_breaker, backend}}}
+    {:via, Registry, {Medlum.Conversion.Registry, {:circuit_breaker, backend}}}
   end
 
   defp get_state(backend) do
@@ -294,7 +294,7 @@ Automatically retry transient failures with increasing delays to avoid thunderin
 
 ```elixir
 # Retry configuration
-config :lumainus, :conversion_retry,
+config :medlum, :conversion_retry,
   max_attempts: 3,
   base_delay_ms: 1_000,
   max_delay_ms: 30_000,
@@ -305,13 +305,13 @@ config :lumainus, :conversion_retry,
 ### Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.RetryPolicy do
+defmodule Medlum.Conversion.Infrastructure.RetryPolicy do
   @moduledoc """
   Exponential backoff retry policy with jitter.
   """
 
   require Logger
-  alias Lumainus.Conversion.Infrastructure.Telemetry
+  alias Medlum.Conversion.Infrastructure.Telemetry
 
   @type opts :: [
     max_attempts: pos_integer(),
@@ -410,7 +410,7 @@ defmodule Lumainus.Conversion.Infrastructure.RetryPolicy do
   defp default_retryable?(_), do: false
 
   defp merge_config(opts) do
-    defaults = Application.get_env(:lumainus, :conversion_retry, [])
+    defaults = Application.get_env(:medlum, :conversion_retry, [])
 
     %{
       max_attempts: opts[:max_attempts] || defaults[:max_attempts] || 3,
@@ -435,7 +435,7 @@ Efficiently manage HTTP connections to backends with proper limits and lifecycle
 
 ```elixir
 # Finch connection pool configuration
-config :lumainus, Lumainus.Conversion.ConnectionPool,
+config :medlum, Medlum.Conversion.ConnectionPool,
   pools: %{
     # Local backends share a pool
     local: [
@@ -459,7 +459,7 @@ config :lumainus, Lumainus.Conversion.ConnectionPool,
 ### Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.ConnectionPool do
+defmodule Medlum.Conversion.Infrastructure.ConnectionPool do
   @moduledoc """
   HTTP connection pool management for conversion backends.
   """
@@ -468,7 +468,7 @@ defmodule Lumainus.Conversion.Infrastructure.ConnectionPool do
   Start the connection pools as part of application supervision tree.
   """
   def child_spec(_opts) do
-    pools = Application.get_env(:lumainus, __MODULE__, [])[:pools] || default_pools()
+    pools = Application.get_env(:medlum, __MODULE__, [])[:pools] || default_pools()
 
     children = Enum.map(pools, fn {name, opts} ->
       {Finch, [name: pool_name(name)] ++ opts}
@@ -523,7 +523,7 @@ Route requests to healthy backends, avoiding backends that are degraded or faili
 ### Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.HealthManager do
+defmodule Medlum.Conversion.Infrastructure.HealthManager do
   @moduledoc """
   Manages health state for all backends.
   Provides health-aware backend selection.
@@ -532,7 +532,7 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
   use GenServer
   require Logger
 
-  alias Lumainus.Conversion.Infrastructure.Telemetry
+  alias Medlum.Conversion.Infrastructure.Telemetry
 
   @check_interval_ms 30_000  # 30 seconds
   @unhealthy_threshold_ms 90_000  # 90 seconds without healthy check
@@ -708,11 +708,11 @@ defmodule Lumainus.Conversion.Infrastructure.HealthManager do
     end
   end
 
-  defp backend_module(:local_cpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:local_docker_cpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:local_gpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:local_docker_gpu), do: Lumainus.Conversion.Infrastructure.Backends.LocalBackend
-  defp backend_module(:cloud), do: Lumainus.Conversion.Infrastructure.Backends.CloudBackend
+  defp backend_module(:local_cpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:local_docker_cpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:local_gpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:local_docker_gpu), do: Medlum.Conversion.Infrastructure.Backends.LocalBackend
+  defp backend_module(:cloud), do: Medlum.Conversion.Infrastructure.Backends.CloudBackend
 end
 ```
 
@@ -727,7 +727,7 @@ Maintain SSE connections with automatic reconnection on failure.
 ### Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.SSEStream do
+defmodule Medlum.Conversion.Infrastructure.SSEStream do
   @moduledoc """
   SSE stream consumer with automatic reconnection.
   """
@@ -735,7 +735,7 @@ defmodule Lumainus.Conversion.Infrastructure.SSEStream do
   use GenServer
   require Logger
 
-  alias Lumainus.Conversion.Infrastructure.{ConnectionPool, Telemetry}
+  alias Medlum.Conversion.Infrastructure.{ConnectionPool, Telemetry}
 
   @reconnect_delays [1_000, 2_000, 5_000, 10_000, 30_000]  # Escalating delays
   @heartbeat_timeout_ms 60_000  # Expect heartbeat within 60s
@@ -956,7 +956,7 @@ Intelligent timeout management based on context (file size, backend type, operat
 ### Implementation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.TimeoutPolicy do
+defmodule Medlum.Conversion.Infrastructure.TimeoutPolicy do
   @moduledoc """
   Dynamic timeout calculation based on context.
   """
@@ -1012,24 +1012,24 @@ end
 ```elixir
 # config/config.exs
 
-config :lumainus, :conversion_circuit_breaker,
+config :medlum, :conversion_circuit_breaker,
   threshold: 5,                  # Failures before opening
   timeout_ms: 30_000,           # Time in open state
   half_open_max_calls: 3        # Successful calls to close
 
-config :lumainus, :conversion_retry,
+config :medlum, :conversion_retry,
   max_attempts: 3,
   base_delay_ms: 1_000,
   max_delay_ms: 30_000,
   jitter_factor: 0.2
 
-config :lumainus, Lumainus.Conversion.ConnectionPool,
+config :medlum, Medlum.Conversion.ConnectionPool,
   pools: %{
     local: [size: 50, count: 4],
     cloud: [size: 25, count: 2]
   }
 
-config :lumainus, :conversion_health,
+config :medlum, :conversion_health,
   check_interval_ms: 30_000,
   unhealthy_threshold_ms: 90_000
 ```

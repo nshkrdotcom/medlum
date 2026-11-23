@@ -44,7 +44,7 @@ This document analyzes the current ingestion queue system, identifies issues wit
 | Component | Setting | Value | Location |
 |-----------|---------|-------|----------|
 | Python Service | `_conversion_timeout` | 1200s (20 min) | `docling_service/app/main.py:46` |
-| Elixir Default | `Docling.timeout()` | 1,200,000ms (20 min) | `lib/lumainus/docling.ex:138` |
+| Elixir Default | `Docling.timeout()` | 1,200,000ms (20 min) | `lib/medlum/docling.ex:138` |
 | Config Override | `request_timeout` | 1,200,000ms (20 min) | `config/config.exs:29` |
 | Oban Worker | `max_attempts` | 5 | `docling_ingestion_worker.ex:6` |
 
@@ -147,15 +147,15 @@ When timeout occurs:
 ### 1. Unified Timeout Management
 
 ```elixir
-# New module: lib/lumainus/documents/ingestion_config.ex
-defmodule Lumainus.Documents.IngestionConfig do
+# New module: lib/medlum/documents/ingestion_config.ex
+defmodule Medlum.Documents.IngestionConfig do
   @moduledoc """
   Centralized configuration for ingestion timeouts and limits.
   """
 
   # Single source of truth for all timeouts
   def conversion_timeout_ms do
-    Application.get_env(:lumainus, :ingestion, [])
+    Application.get_env(:medlum, :ingestion, [])
     |> Keyword.get(:conversion_timeout_ms, 1_200_000)  # 20 min
   end
 
@@ -221,13 +221,13 @@ field(:error_history, {:array, :map}, default: [])
 ### 4. Improved Worker with Circuit Breaker
 
 ```elixir
-defmodule Lumainus.Documents.DoclingIngestionWorker do
+defmodule Medlum.Documents.DoclingIngestionWorker do
   use Oban.Worker,
     queue: :ingestion,
     max_attempts: 3,
     priority: 1
 
-  alias Lumainus.Documents.{IngestionProcessor, IngestionConfig, IngestionJob}
+  alias Medlum.Documents.{IngestionProcessor, IngestionConfig, IngestionJob}
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"ingestion_job_id" => job_id}, attempt: attempt}) do
@@ -319,10 +319,10 @@ end
 ### 6. Cleanup Worker
 
 ```elixir
-defmodule Lumainus.Documents.IngestionCleanupWorker do
+defmodule Medlum.Documents.IngestionCleanupWorker do
   use Oban.Worker, queue: :maintenance, max_attempts: 1
 
-  alias Lumainus.Documents.{IngestionJob, IngestionConfig}
+  alias Medlum.Documents.{IngestionJob, IngestionConfig}
 
   @impl Oban.Worker
   def perform(_job) do
@@ -402,7 +402,7 @@ end
 ### 7. Self-Healing Mechanisms
 
 ```elixir
-defmodule Lumainus.Documents.IngestionHealthChecker do
+defmodule Medlum.Documents.IngestionHealthChecker do
   use GenServer
 
   @check_interval_ms 60_000  # 1 minute
@@ -495,8 +495,8 @@ end
 ### 1. Unit Tests - Isolated Components
 
 ```elixir
-# test/lumainus/documents/ingestion_config_test.exs
-defmodule Lumainus.Documents.IngestionConfigTest do
+# test/medlum/documents/ingestion_config_test.exs
+defmodule Medlum.Documents.IngestionConfigTest do
   use ExUnit.Case
 
   test "conversion_timeout_ms returns configured value" do
@@ -514,12 +514,12 @@ end
 ### 2. Integration Tests - Database Flow
 
 ```elixir
-# test/lumainus/documents/ingestion_job_lifecycle_test.exs
-defmodule Lumainus.Documents.IngestionJobLifecycleTest do
-  use Lumainus.DataCase
+# test/medlum/documents/ingestion_job_lifecycle_test.exs
+defmodule Medlum.Documents.IngestionJobLifecycleTest do
+  use Medlum.DataCase
 
-  alias Lumainus.Documents
-  alias Lumainus.Documents.{IngestionJob, DocumentUpload}
+  alias Medlum.Documents
+  alias Medlum.Documents.{IngestionJob, DocumentUpload}
 
   describe "job lifecycle" do
     setup do
@@ -578,14 +578,14 @@ end
 ### 3. Integration Tests - Full Pipeline with Real PDF
 
 ```elixir
-# test/lumainus/documents/ingestion_integration_test.exs
-defmodule Lumainus.Documents.IngestionIntegrationTest do
-  use Lumainus.DataCase, async: false
+# test/medlum/documents/ingestion_integration_test.exs
+defmodule Medlum.Documents.IngestionIntegrationTest do
+  use Medlum.DataCase, async: false
 
   @moduletag :integration
   @moduletag timeout: 300_000  # 5 min timeout for real conversion
 
-  alias Lumainus.Documents
+  alias Medlum.Documents
 
   setup do
     # Ensure Docling service is running
@@ -632,11 +632,11 @@ defmodule Lumainus.Documents.IngestionIntegrationTest do
     @tag :slow
     test "handles timeout gracefully", ctx do
       # Use a very short timeout to trigger timeout
-      original_timeout = Application.get_env(:lumainus, :ingestion)[:conversion_timeout_ms]
-      Application.put_env(:lumainus, :ingestion, conversion_timeout_ms: 1_000)  # 1 second
+      original_timeout = Application.get_env(:medlum, :ingestion)[:conversion_timeout_ms]
+      Application.put_env(:medlum, :ingestion, conversion_timeout_ms: 1_000)  # 1 second
 
       on_exit(fn ->
-        Application.put_env(:lumainus, :ingestion, conversion_timeout_ms: original_timeout)
+        Application.put_env(:medlum, :ingestion, conversion_timeout_ms: original_timeout)
       end)
 
       pdf_path = Path.join(__DIR__, "../fixtures/medium_test.pdf")
@@ -716,12 +716,12 @@ end
 ### 4. Property-Based Tests
 
 ```elixir
-# test/lumainus/documents/ingestion_properties_test.exs
-defmodule Lumainus.Documents.IngestionPropertiesTest do
+# test/medlum/documents/ingestion_properties_test.exs
+defmodule Medlum.Documents.IngestionPropertiesTest do
   use ExUnit.Case
   use ExUnitProperties
 
-  alias Lumainus.Documents.IngestionConfig
+  alias Medlum.Documents.IngestionConfig
 
   property "retry backoff is always positive and bounded" do
     check all attempt <- integer(1..100) do
@@ -736,9 +736,9 @@ end
 ### 5. Load/Stress Tests
 
 ```elixir
-# test/lumainus/documents/ingestion_load_test.exs
-defmodule Lumainus.Documents.IngestionLoadTest do
-  use Lumainus.DataCase, async: false
+# test/medlum/documents/ingestion_load_test.exs
+defmodule Medlum.Documents.IngestionLoadTest do
+  use Medlum.DataCase, async: false
 
   @moduletag :load
   @moduletag timeout: 600_000  # 10 min
@@ -848,7 +848,7 @@ end
 
 ```elixir
 # config/config.exs
-config :lumainus, :ingestion,
+config :medlum, :ingestion,
   conversion_timeout_ms: 1_200_000,     # 20 minutes
   max_retries: 3,
   stale_job_threshold_minutes: 60,

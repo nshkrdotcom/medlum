@@ -19,7 +19,7 @@ The v2 architecture implements comprehensive observability using Elixir's `:tele
 
 ### Event Naming Convention
 
-All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
+All events follow the pattern: `[:medlum, :conversion, <component>, <action>]`
 
 ### Event Catalog
 
@@ -27,32 +27,32 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 
 ```elixir
 # Job submitted
-[:lumainus, :conversion, :job, :submitted]
+[:medlum, :conversion, :job, :submitted]
   measurements: %{byte_size: integer}
   metadata: %{job_id: string, profile: atom, tenant_id: string}
 
 # Job started processing
-[:lumainus, :conversion, :job, :started]
+[:medlum, :conversion, :job, :started]
   measurements: %{queue_time_ms: integer}
   metadata: %{job_id: string, backend: atom}
 
 # Job progress update
-[:lumainus, :conversion, :job, :progress]
+[:medlum, :conversion, :job, :progress]
   measurements: %{progress: integer, pages_done: integer, pages_total: integer}
   metadata: %{job_id: string, backend: atom}
 
 # Job completed
-[:lumainus, :conversion, :job, :completed]
+[:medlum, :conversion, :job, :completed]
   measurements: %{duration_ms: integer, pages_total: integer}
   metadata: %{job_id: string, backend: atom, profile: atom}
 
 # Job failed
-[:lumainus, :conversion, :job, :failed]
+[:medlum, :conversion, :job, :failed]
   measurements: %{duration_ms: integer}
   metadata: %{job_id: string, backend: atom, error: string, error_type: atom}
 
 # Job cancelled
-[:lumainus, :conversion, :job, :cancelled]
+[:medlum, :conversion, :job, :cancelled]
   measurements: %{duration_ms: integer}
   metadata: %{job_id: string, backend: atom, reason: atom}
 ```
@@ -61,17 +61,17 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 
 ```elixir
 # HTTP request start
-[:lumainus, :conversion, :http, :request_start]
+[:medlum, :conversion, :http, :request_start]
   measurements: %{}
   metadata: %{method: atom, path: string, backend: atom}
 
 # HTTP request complete
-[:lumainus, :conversion, :http, :request_complete]
+[:medlum, :conversion, :http, :request_complete]
   measurements: %{duration_ms: integer, response_size: integer}
   metadata: %{method: atom, path: string, backend: atom, status: integer}
 
 # HTTP request error
-[:lumainus, :conversion, :http, :request_error]
+[:medlum, :conversion, :http, :request_error]
   measurements: %{duration_ms: integer}
   metadata: %{method: atom, path: string, backend: atom, error: term}
 ```
@@ -80,22 +80,22 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 
 ```elixir
 # Circuit opened
-[:lumainus, :conversion, :circuit, :opened]
+[:medlum, :conversion, :circuit, :opened]
   measurements: %{failure_count: integer}
   metadata: %{backend: atom}
 
 # Circuit closed
-[:lumainus, :conversion, :circuit, :closed]
+[:medlum, :conversion, :circuit, :closed]
   measurements: %{}
   metadata: %{backend: atom}
 
 # Circuit half-open
-[:lumainus, :conversion, :circuit, :half_open]
+[:medlum, :conversion, :circuit, :half_open]
   measurements: %{}
   metadata: %{backend: atom}
 
 # Request rejected by circuit
-[:lumainus, :conversion, :circuit, :rejected]
+[:medlum, :conversion, :circuit, :rejected]
   measurements: %{}
   metadata: %{backend: atom}
 ```
@@ -104,17 +104,17 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 
 ```elixir
 # Retry scheduled
-[:lumainus, :conversion, :retry, :scheduled]
+[:medlum, :conversion, :retry, :scheduled]
   measurements: %{attempt: integer, delay_ms: integer}
   metadata: %{backend: atom, error: term}
 
 # Retry succeeded
-[:lumainus, :conversion, :retry, :succeeded]
+[:medlum, :conversion, :retry, :succeeded]
   measurements: %{attempt: integer}
   metadata: %{backend: atom}
 
 # Retry exhausted
-[:lumainus, :conversion, :retry, :exhausted]
+[:medlum, :conversion, :retry, :exhausted]
   measurements: %{attempt: integer}
   metadata: %{backend: atom, error: term}
 ```
@@ -123,17 +123,17 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 
 ```elixir
 # Health check performed
-[:lumainus, :conversion, :health, :checked]
+[:medlum, :conversion, :health, :checked]
   measurements: %{latency_ms: integer}
   metadata: %{backend: atom, status: atom}
 
 # Backend became unhealthy
-[:lumainus, :conversion, :health, :unhealthy]
+[:medlum, :conversion, :health, :unhealthy]
   measurements: %{}
   metadata: %{backend: atom, error: term}
 
 # Backend recovered
-[:lumainus, :conversion, :health, :recovered]
+[:medlum, :conversion, :health, :recovered]
   measurements: %{downtime_ms: integer}
   metadata: %{backend: atom}
 ```
@@ -142,22 +142,22 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 
 ```elixir
 # SSE connected
-[:lumainus, :conversion, :sse, :connected]
+[:medlum, :conversion, :sse, :connected]
   measurements: %{}
   metadata: %{job_id: string, backend: atom}
 
 # SSE reconnected
-[:lumainus, :conversion, :sse, :reconnected]
+[:medlum, :conversion, :sse, :reconnected]
   measurements: %{reconnect_count: integer}
   metadata: %{job_id: string, backend: atom}
 
 # SSE error
-[:lumainus, :conversion, :sse, :error]
+[:medlum, :conversion, :sse, :error]
   measurements: %{}
   metadata: %{job_id: string, backend: atom, error: term}
 
 # SSE heartbeat timeout
-[:lumainus, :conversion, :sse, :heartbeat_timeout]
+[:medlum, :conversion, :sse, :heartbeat_timeout]
   measurements: %{elapsed_ms: integer}
   metadata: %{job_id: string, backend: atom}
 ```
@@ -167,7 +167,7 @@ All events follow the pattern: `[:lumainus, :conversion, <component>, <action>]`
 ## Telemetry Emitter Module
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Telemetry do
+defmodule Medlum.Conversion.Infrastructure.Telemetry do
   @moduledoc """
   Centralized telemetry event emission for conversion system.
   """
@@ -176,7 +176,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def job_submitted(job) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :submitted],
+      [:medlum, :conversion, :job, :submitted],
       %{byte_size: job.byte_size},
       %{
         job_id: job.id,
@@ -189,7 +189,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def job_started(job, backend, queue_time_ms) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :started],
+      [:medlum, :conversion, :job, :started],
       %{queue_time_ms: queue_time_ms},
       %{job_id: job.id, backend: backend}
     )
@@ -197,7 +197,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def job_progress(job_id, backend, progress, pages_done, pages_total) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :progress],
+      [:medlum, :conversion, :job, :progress],
       %{progress: progress, pages_done: pages_done, pages_total: pages_total},
       %{job_id: job_id, backend: backend}
     )
@@ -205,7 +205,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def job_completed(job, backend, duration_ms, pages_total) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :completed],
+      [:medlum, :conversion, :job, :completed],
       %{duration_ms: duration_ms, pages_total: pages_total},
       %{job_id: job.id, backend: backend, profile: job.profile}
     )
@@ -213,7 +213,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def job_failed(job, backend, duration_ms, error) do
     :telemetry.execute(
-      [:lumainus, :conversion, :job, :failed],
+      [:medlum, :conversion, :job, :failed],
       %{duration_ms: duration_ms},
       %{
         job_id: job.id,
@@ -230,7 +230,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
     start_time = System.monotonic_time()
 
     :telemetry.execute(
-      [:lumainus, :conversion, :http, :request_start],
+      [:medlum, :conversion, :http, :request_start],
       %{},
       %{method: method, path: path, backend: backend, start_time: start_time}
     )
@@ -242,7 +242,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
     duration = System.monotonic_time() - start_time
 
     :telemetry.execute(
-      [:lumainus, :conversion, :http, :request_complete],
+      [:medlum, :conversion, :http, :request_complete],
       %{
         duration_ms: System.convert_time_unit(duration, :native, :millisecond),
         response_size: response_size
@@ -255,7 +255,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
     duration = System.monotonic_time() - start_time
 
     :telemetry.execute(
-      [:lumainus, :conversion, :http, :request_error],
+      [:medlum, :conversion, :http, :request_error],
       %{duration_ms: System.convert_time_unit(duration, :native, :millisecond)},
       %{method: method, path: path, backend: backend, error: inspect(error)}
     )
@@ -265,7 +265,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def circuit_opened(backend, failure_count) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :opened],
+      [:medlum, :conversion, :circuit, :opened],
       %{failure_count: failure_count},
       %{backend: backend}
     )
@@ -273,7 +273,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def circuit_closed(backend) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :closed],
+      [:medlum, :conversion, :circuit, :closed],
       %{},
       %{backend: backend}
     )
@@ -281,7 +281,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def circuit_half_open(backend) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :half_open],
+      [:medlum, :conversion, :circuit, :half_open],
       %{},
       %{backend: backend}
     )
@@ -289,7 +289,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def circuit_rejected(backend) do
     :telemetry.execute(
-      [:lumainus, :conversion, :circuit, :rejected],
+      [:medlum, :conversion, :circuit, :rejected],
       %{},
       %{backend: backend}
     )
@@ -299,7 +299,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def health_recorded(backend, status, details) do
     :telemetry.execute(
-      [:lumainus, :conversion, :health, :checked],
+      [:medlum, :conversion, :health, :checked],
       %{latency_ms: details[:latency_ms] || 0},
       %{backend: backend, status: status}
     )
@@ -309,7 +309,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def retry_scheduled(attempt, delay_ms, error) do
     :telemetry.execute(
-      [:lumainus, :conversion, :retry, :scheduled],
+      [:medlum, :conversion, :retry, :scheduled],
       %{attempt: attempt, delay_ms: delay_ms},
       %{error: inspect(error)}
     )
@@ -317,7 +317,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def retry_succeeded(attempt) do
     :telemetry.execute(
-      [:lumainus, :conversion, :retry, :succeeded],
+      [:medlum, :conversion, :retry, :succeeded],
       %{attempt: attempt},
       %{}
     )
@@ -325,7 +325,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def retry_exhausted(attempt, error) do
     :telemetry.execute(
-      [:lumainus, :conversion, :retry, :exhausted],
+      [:medlum, :conversion, :retry, :exhausted],
       %{attempt: attempt},
       %{error: inspect(error)}
     )
@@ -335,7 +335,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def sse_connected(job_id, backend) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :connected],
+      [:medlum, :conversion, :sse, :connected],
       %{},
       %{job_id: job_id, backend: backend}
     )
@@ -343,7 +343,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def sse_error(job_id, error) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :error],
+      [:medlum, :conversion, :sse, :error],
       %{},
       %{job_id: job_id, error: inspect(error)}
     )
@@ -351,7 +351,7 @@ defmodule Lumainus.Conversion.Infrastructure.Telemetry do
 
   def sse_heartbeat_timeout(job_id) do
     :telemetry.execute(
-      [:lumainus, :conversion, :sse, :heartbeat_timeout],
+      [:medlum, :conversion, :sse, :heartbeat_timeout],
       %{},
       %{job_id: job_id}
     )
@@ -374,7 +374,7 @@ end
 ## Metrics Definitions
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Metrics do
+defmodule Medlum.Conversion.Infrastructure.Metrics do
   @moduledoc """
   Telemetry metrics definitions for Prometheus export.
   """
@@ -384,78 +384,78 @@ defmodule Lumainus.Conversion.Infrastructure.Metrics do
   def metrics do
     [
       # Job metrics
-      counter("lumainus.conversion.job.submitted.count",
+      counter("medlum.conversion.job.submitted.count",
         tags: [:profile, :tenant_id]
       ),
-      counter("lumainus.conversion.job.completed.count",
+      counter("medlum.conversion.job.completed.count",
         tags: [:profile, :backend]
       ),
-      counter("lumainus.conversion.job.failed.count",
+      counter("medlum.conversion.job.failed.count",
         tags: [:profile, :backend, :error_type]
       ),
 
-      distribution("lumainus.conversion.job.duration_ms",
-        event_name: [:lumainus, :conversion, :job, :completed],
+      distribution("medlum.conversion.job.duration_ms",
+        event_name: [:medlum, :conversion, :job, :completed],
         measurement: :duration_ms,
         tags: [:profile, :backend],
         reporter_options: [buckets: [1000, 5000, 10000, 30000, 60000, 120000, 300000, 600000]]
       ),
 
-      distribution("lumainus.conversion.job.queue_time_ms",
-        event_name: [:lumainus, :conversion, :job, :started],
+      distribution("medlum.conversion.job.queue_time_ms",
+        event_name: [:medlum, :conversion, :job, :started],
         measurement: :queue_time_ms,
         tags: [:backend],
         reporter_options: [buckets: [100, 500, 1000, 5000, 10000, 30000]]
       ),
 
-      last_value("lumainus.conversion.job.byte_size",
-        event_name: [:lumainus, :conversion, :job, :submitted],
+      last_value("medlum.conversion.job.byte_size",
+        event_name: [:medlum, :conversion, :job, :submitted],
         measurement: :byte_size,
         tags: [:profile]
       ),
 
       # HTTP metrics
-      distribution("lumainus.conversion.http.duration_ms",
-        event_name: [:lumainus, :conversion, :http, :request_complete],
+      distribution("medlum.conversion.http.duration_ms",
+        event_name: [:medlum, :conversion, :http, :request_complete],
         measurement: :duration_ms,
         tags: [:backend, :method, :status],
         reporter_options: [buckets: [10, 50, 100, 500, 1000, 5000, 10000]]
       ),
 
-      counter("lumainus.conversion.http.errors.count",
-        event_name: [:lumainus, :conversion, :http, :request_error],
+      counter("medlum.conversion.http.errors.count",
+        event_name: [:medlum, :conversion, :http, :request_error],
         tags: [:backend, :method]
       ),
 
       # Circuit breaker metrics
-      counter("lumainus.conversion.circuit.opened.count",
+      counter("medlum.conversion.circuit.opened.count",
         tags: [:backend]
       ),
-      counter("lumainus.conversion.circuit.rejected.count",
+      counter("medlum.conversion.circuit.rejected.count",
         tags: [:backend]
       ),
 
       # Retry metrics
-      counter("lumainus.conversion.retry.count",
-        event_name: [:lumainus, :conversion, :retry, :scheduled],
+      counter("medlum.conversion.retry.count",
+        event_name: [:medlum, :conversion, :retry, :scheduled],
         tags: []
       ),
-      counter("lumainus.conversion.retry.exhausted.count",
+      counter("medlum.conversion.retry.exhausted.count",
         tags: []
       ),
 
       # Health metrics
-      last_value("lumainus.conversion.health.latency_ms",
-        event_name: [:lumainus, :conversion, :health, :checked],
+      last_value("medlum.conversion.health.latency_ms",
+        event_name: [:medlum, :conversion, :health, :checked],
         measurement: :latency_ms,
         tags: [:backend, :status]
       ),
 
       # SSE metrics
-      counter("lumainus.conversion.sse.errors.count",
+      counter("medlum.conversion.sse.errors.count",
         tags: [:backend]
       ),
-      counter("lumainus.conversion.sse.reconnects.count",
+      counter("medlum.conversion.sse.reconnects.count",
         tags: [:backend]
       )
     ]
@@ -470,7 +470,7 @@ end
 ### Span Creation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Span do
+defmodule Medlum.Conversion.Infrastructure.Span do
   @moduledoc """
   Distributed tracing spans for conversion operations.
   """
@@ -512,7 +512,7 @@ defmodule Lumainus.Conversion.Infrastructure.Span do
     duration = System.monotonic_time() - start_time
 
     :telemetry.execute(
-      [:lumainus, :conversion, :span, :complete],
+      [:medlum, :conversion, :span, :complete],
       %{
         duration_ms: System.convert_time_unit(duration, :native, :millisecond)
       },
@@ -532,7 +532,7 @@ end
 ### Correlation ID Propagation
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.Context do
+defmodule Medlum.Conversion.Infrastructure.Context do
   @moduledoc """
   Request context with correlation ID for tracing.
   """
@@ -588,13 +588,13 @@ end
 ## Structured Logging
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.StructuredLogger do
+defmodule Medlum.Conversion.Infrastructure.StructuredLogger do
   @moduledoc """
   Structured logging with automatic context injection.
   """
 
   require Logger
-  alias Lumainus.Conversion.Infrastructure.Context
+  alias Medlum.Conversion.Infrastructure.Context
 
   @doc "Log with context"
   def log(level, message, extra \\ %{}) do
@@ -626,7 +626,7 @@ end
 ## Telemetry Handlers
 
 ```elixir
-defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
+defmodule Medlum.Conversion.Infrastructure.TelemetryHandler do
   @moduledoc """
   Attaches telemetry handlers for logging and alerting.
   """
@@ -635,13 +635,13 @@ defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
 
   def attach do
     events = [
-      [:lumainus, :conversion, :job, :submitted],
-      [:lumainus, :conversion, :job, :completed],
-      [:lumainus, :conversion, :job, :failed],
-      [:lumainus, :conversion, :circuit, :opened],
-      [:lumainus, :conversion, :circuit, :rejected],
-      [:lumainus, :conversion, :health, :checked],
-      [:lumainus, :conversion, :retry, :exhausted]
+      [:medlum, :conversion, :job, :submitted],
+      [:medlum, :conversion, :job, :completed],
+      [:medlum, :conversion, :job, :failed],
+      [:medlum, :conversion, :circuit, :opened],
+      [:medlum, :conversion, :circuit, :rejected],
+      [:medlum, :conversion, :health, :checked],
+      [:medlum, :conversion, :retry, :exhausted]
     ]
 
     :telemetry.attach_many(
@@ -652,7 +652,7 @@ defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
     )
   end
 
-  def handle_event([:lumainus, :conversion, :job, :submitted], measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :job, :submitted], measurements, metadata, _config) do
     Logger.info("Job submitted",
       job_id: metadata.job_id,
       profile: metadata.profile,
@@ -660,7 +660,7 @@ defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
     )
   end
 
-  def handle_event([:lumainus, :conversion, :job, :completed], measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :job, :completed], measurements, metadata, _config) do
     Logger.info("Job completed",
       job_id: metadata.job_id,
       backend: metadata.backend,
@@ -669,7 +669,7 @@ defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
     )
   end
 
-  def handle_event([:lumainus, :conversion, :job, :failed], measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :job, :failed], measurements, metadata, _config) do
     Logger.error("Job failed",
       job_id: metadata.job_id,
       backend: metadata.backend,
@@ -679,20 +679,20 @@ defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
     )
   end
 
-  def handle_event([:lumainus, :conversion, :circuit, :opened], measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :circuit, :opened], measurements, metadata, _config) do
     Logger.warning("Circuit breaker opened",
       backend: metadata.backend,
       failure_count: measurements.failure_count
     )
   end
 
-  def handle_event([:lumainus, :conversion, :circuit, :rejected], _measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :circuit, :rejected], _measurements, metadata, _config) do
     Logger.warning("Request rejected by circuit breaker",
       backend: metadata.backend
     )
   end
 
-  def handle_event([:lumainus, :conversion, :health, :checked], measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :health, :checked], measurements, metadata, _config) do
     if metadata.status == :unhealthy do
       Logger.warning("Backend unhealthy",
         backend: metadata.backend,
@@ -701,7 +701,7 @@ defmodule Lumainus.Conversion.Infrastructure.TelemetryHandler do
     end
   end
 
-  def handle_event([:lumainus, :conversion, :retry, :exhausted], measurements, metadata, _config) do
+  def handle_event([:medlum, :conversion, :retry, :exhausted], measurements, metadata, _config) do
     Logger.error("Retries exhausted",
       attempt: measurements.attempt,
       error: metadata.error
@@ -717,14 +717,14 @@ end
 ```elixir
 # config/config.exs
 
-config :lumainus, LumainusWeb.Telemetry,
-  metrics: Lumainus.Conversion.Infrastructure.Metrics.metrics()
+config :medlum, MedlumWeb.Telemetry,
+  metrics: Medlum.Conversion.Infrastructure.Metrics.metrics()
 
 # In application.ex
 def start(_type, _args) do
   children = [
     # ... other children ...
-    {TelemetryMetricsPrometheus, metrics: Lumainus.Conversion.Infrastructure.Metrics.metrics()}
+    {TelemetryMetricsPrometheus, metrics: Medlum.Conversion.Infrastructure.Metrics.metrics()}
   ]
 end
 ```
@@ -737,47 +737,47 @@ end
 
 ```promql
 # Jobs per minute by profile
-rate(lumainus_conversion_job_completed_count[1m]) by (profile)
+rate(medlum_conversion_job_completed_count[1m]) by (profile)
 
 # Jobs per minute by backend
-rate(lumainus_conversion_job_completed_count[1m]) by (backend)
+rate(medlum_conversion_job_completed_count[1m]) by (backend)
 ```
 
 ### Error Rate
 
 ```promql
 # Error rate by backend
-rate(lumainus_conversion_job_failed_count[5m]) by (backend)
+rate(medlum_conversion_job_failed_count[5m]) by (backend)
 /
-(rate(lumainus_conversion_job_completed_count[5m]) by (backend)
-+ rate(lumainus_conversion_job_failed_count[5m]) by (backend))
+(rate(medlum_conversion_job_completed_count[5m]) by (backend)
++ rate(medlum_conversion_job_failed_count[5m]) by (backend))
 ```
 
 ### Latency Percentiles
 
 ```promql
 # P95 conversion duration by profile
-histogram_quantile(0.95, rate(lumainus_conversion_job_duration_ms_bucket[5m])) by (profile)
+histogram_quantile(0.95, rate(medlum_conversion_job_duration_ms_bucket[5m])) by (profile)
 
 # P99 HTTP latency by backend
-histogram_quantile(0.99, rate(lumainus_conversion_http_duration_ms_bucket[5m])) by (backend)
+histogram_quantile(0.99, rate(medlum_conversion_http_duration_ms_bucket[5m])) by (backend)
 ```
 
 ### Circuit Breaker Status
 
 ```promql
 # Circuit breaker openings per hour
-increase(lumainus_conversion_circuit_opened_count[1h]) by (backend)
+increase(medlum_conversion_circuit_opened_count[1h]) by (backend)
 
 # Rejections due to open circuit
-rate(lumainus_conversion_circuit_rejected_count[5m]) by (backend)
+rate(medlum_conversion_circuit_rejected_count[5m]) by (backend)
 ```
 
 ### Health Status
 
 ```promql
 # Backend health latency
-lumainus_conversion_health_latency_ms by (backend, status)
+medlum_conversion_health_latency_ms by (backend, status)
 ```
 
 ---
@@ -791,8 +791,8 @@ groups:
     rules:
       - alert: HighConversionErrorRate
         expr: |
-          rate(lumainus_conversion_job_failed_count[5m])
-          / (rate(lumainus_conversion_job_completed_count[5m]) + rate(lumainus_conversion_job_failed_count[5m]))
+          rate(medlum_conversion_job_failed_count[5m])
+          / (rate(medlum_conversion_job_completed_count[5m]) + rate(medlum_conversion_job_failed_count[5m]))
           > 0.1
         for: 5m
         labels:
@@ -802,7 +802,7 @@ groups:
           description: "Error rate is {{ $value | humanizePercentage }}"
 
       - alert: CircuitBreakerOpen
-        expr: increase(lumainus_conversion_circuit_opened_count[5m]) > 0
+        expr: increase(medlum_conversion_circuit_opened_count[5m]) > 0
         for: 1m
         labels:
           severity: critical
@@ -810,7 +810,7 @@ groups:
           summary: "Circuit breaker opened for {{ $labels.backend }}"
 
       - alert: BackendUnhealthy
-        expr: lumainus_conversion_health_latency_ms{status="unhealthy"} > 0
+        expr: medlum_conversion_health_latency_ms{status="unhealthy"} > 0
         for: 2m
         labels:
           severity: warning
@@ -818,7 +818,7 @@ groups:
           summary: "Backend {{ $labels.backend }} is unhealthy"
 
       - alert: HighConversionLatency
-        expr: histogram_quantile(0.95, rate(lumainus_conversion_job_duration_ms_bucket[5m])) > 600000
+        expr: histogram_quantile(0.95, rate(medlum_conversion_job_duration_ms_bucket[5m])) > 600000
         for: 10m
         labels:
           severity: warning

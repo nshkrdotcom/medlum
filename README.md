@@ -1,4 +1,4 @@
-# Lumainus
+# Medlum
 
 Advanced Medical Reporting & Analytics Platform built with Phoenix LiveView.
 
@@ -47,7 +47,7 @@ mix run priv/repo/seeds.exs
 ```
 
 This creates a system administrator account with:
-- **Email:** `admin@lumainus.local`
+- **Email:** `admin@medlumai.local`
 - **Role:** `system_administrator`
 
 ### 3. Start the Server
@@ -65,7 +65,7 @@ Server will be available at:
 ## First Login
 
 1. Visit http://localhost:4000/users/log-in
-2. Enter email: `admin@lumainus.local`
+2. Enter email: `admin@medlumai.local`
 3. Check the dev mailbox: http://localhost:4000/dev/mailbox
 4. Click the magic link in the email
 5. You'll be logged in as system administrator
@@ -129,7 +129,7 @@ iex -S mix phx.server
 
 ### Docling Backend Architecture
 
-Lumainus supports **5 Docling backends** organized into two user-facing modes:
+Medlum supports **5 Docling backends** organized into two user-facing modes:
 
 #### Port Assignments (Standardized)
 
@@ -152,7 +152,7 @@ Users choose between "Local" and "Cloud" in `/reports`. The active local backend
 
 ```elixir
 # config/config.exs
-config :lumainus, :docling,
+config :medlum, :docling,
   default_mode: :local,
   active_local_backend: :docker_cpu,
   native_cpu_url: "http://127.0.0.1:8040",
@@ -236,7 +236,7 @@ This adds the expanded backend fields to `docling_settings`.
 - Tests use Bypass mocks; no external Docling needed
 - URL safety: must use `https://` unless localhost/127.0.0.1
 - Progress broadcasts emit immediately on page movement, debounced otherwise
-- Debug logging: set `config :lumainus, :docling, debug_progress_log: true`
+- Debug logging: set `config :medlum, :docling, debug_progress_log: true`
 
 ### Database Commands
 
@@ -307,7 +307,7 @@ The Tidewave integration allows AI agents to:
 
 ```bash
 # Database
-DATABASE_URL=ecto://postgres:postgres@localhost/lumainus_dev
+DATABASE_URL=ecto://postgres:postgres@localhost/medlum_dev
 
 # Server
 PORT=4000
@@ -322,19 +322,19 @@ GEMINI_API_KEY=<your-google-generative-ai-key>
 
 ### Development Domain
 
-To use `lumainus.test` instead of `localhost`:
+To use `medlum.test` instead of `localhost`:
 
 1. Add to Windows hosts file (`C:\Windows\System32\drivers\etc\hosts`):
    ```
-   172.24.75.206 lumainus.test
+   172.24.75.206 medlum.test
    ```
 
 2. Already configured in `config/dev.exs`:
    ```elixir
-   url: [host: "lumainus.test", port: 4000]
+   url: [host: "medlum.test", port: 4000]
    ```
 
-3. Access at: http://lumainus.test:4000
+3. Access at: http://medlum.test:4000
 
 ## Production Deployment
 
@@ -349,14 +349,14 @@ Key steps:
 ## Architecture
 
 ```
-lumainus/
+medlum/
 ├── assets/          # Frontend assets (JS, CSS)
 ├── config/          # Application configuration
 ├── lib/
-│   ├── lumainus/          # Core domain logic
+│   ├── medlum/          # Core domain logic
 │   │   ├── accounts/      # User authentication & authorization
 │   │   └── repo.ex        # Database repository
-│   └── lumainus_web/      # Web interface
+│   └── medlum_web/      # Web interface
 │       ├── components/    # Reusable LiveView components
 │       ├── controllers/   # HTTP controllers
 │       ├── live/          # LiveView modules
@@ -403,7 +403,7 @@ mix phx.gen.live Context Schema table_name field:type
 
 ### Creating New User Roles
 
-Edit `lib/lumainus/accounts/user.ex` to add new roles to the enum.
+Edit `lib/medlum/accounts/user.ex` to add new roles to the enum.
 
 ### Sending Invitation Email
 

@@ -56,7 +56,7 @@ SectionRunWorker.perform/1
 ### Single Entry Point with Mode Parameter
 
 ```elixir
-# lib/lumainus/ai/section_runner.ex
+# lib/medlum/ai/section_runner.ex
 
 @doc """
 Run a section through the LLM.
@@ -78,7 +78,7 @@ end
 
 defp execute_with_rate_limit(context, mode, opts) do
   # Both modes go through the same gate
-  Lumainus.AI.RateLimitedExecutor.execute(
+  Medlum.AI.RateLimitedExecutor.execute(
     context.model_spec,
     fn -> do_execute(context, mode, opts) end,
     opts
@@ -99,9 +99,9 @@ end
 ### New Rate Limited Executor Module
 
 ```elixir
-# lib/lumainus/ai/rate_limited_executor.ex
+# lib/medlum/ai/rate_limited_executor.ex
 
-defmodule Lumainus.AI.RateLimitedExecutor do
+defmodule Medlum.AI.RateLimitedExecutor do
   @moduledoc """
   Application-level rate limiting wrapper for LLM calls.
 
@@ -109,7 +109,7 @@ defmodule Lumainus.AI.RateLimitedExecutor do
   Works in conjunction with gemini_ex rate limiter.
   """
 
-  alias Lumainus.AI.Telemetry
+  alias Medlum.AI.Telemetry
 
   def execute(model_spec, fun, opts \\ []) do
     start_time = System.monotonic_time()
@@ -152,7 +152,7 @@ end
 
 ### Phase 1: Add New Module
 
-1. Create `Lumainus.AI.RateLimitedExecutor`
+1. Create `Medlum.AI.RateLimitedExecutor`
 2. Create unified `run_section/5` that accepts mode option
 3. Keep old functions as deprecated wrappers
 
@@ -170,10 +170,10 @@ end
 
 ## Files to Modify
 
-- `lib/lumainus/ai/section_runner.ex` - Unified entry point
-- `lib/lumainus/ai/rate_limited_executor.ex` - New module
-- `lib/lumainus/reports/section_run_worker.ex` - Use new API
-- `lib/lumainus/reports.ex` - Pass mode in job args
+- `lib/medlum/ai/section_runner.ex` - Unified entry point
+- `lib/medlum/ai/rate_limited_executor.ex` - New module
+- `lib/medlum/reports/section_run_worker.ex` - Use new API
+- `lib/medlum/reports.ex` - Pass mode in job args
 
 ## Testing
 

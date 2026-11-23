@@ -138,7 +138,7 @@ This limits updates to **maximum 101 events** (0%, 1%, 2%, ... 100%) regardless 
 Track per-stage progress to avoid redundant updates:
 
 ```elixir
-defmodule Lumainus.Documents.ProgressTracker do
+defmodule Medlum.Documents.ProgressTracker do
   @stage_weights %{
     1 => 0.05,   # Upload & Prepare
     2 => 0.25,   # OCR
@@ -169,7 +169,7 @@ end
 
 ### IngestionProcessor Updates
 
-Modify `lib/lumainus/documents/ingestion_processor.ex`:
+Modify `lib/medlum/documents/ingestion_processor.ex`:
 
 ```elixir
 defp maybe_track_progress(job, %{"state" => "running"} = status) do
@@ -261,10 +261,10 @@ end
 
 ### LiveView Component
 
-Create `lib/lumainus_web/components/progress_stages.ex`:
+Create `lib/medlum_web/components/progress_stages.ex`:
 
 ```elixir
-defmodule LumainusWeb.Components.ProgressStages do
+defmodule MedlumWeb.Components.ProgressStages do
   use Phoenix.Component
 
   @stages [
@@ -365,12 +365,12 @@ end
 
 ### Usage in ReportsLive
 
-Update `lib/lumainus_web/live/reports_live.ex`:
+Update `lib/medlum_web/live/reports_live.ex`:
 
 ```elixir
-defmodule LumainusWeb.ReportsLive do
-  use LumainusWeb, :live_view
-  import LumainusWeb.Components.ProgressStages
+defmodule MedlumWeb.ReportsLive do
+  use MedlumWeb, :live_view
+  import MedlumWeb.Components.ProgressStages
 
   # ... existing code ...
 
@@ -416,12 +416,12 @@ end
 
 ### Broadcasting Updates
 
-In `lib/lumainus/documents.ex`, ensure progress updates broadcast:
+In `lib/medlum/documents.ex`, ensure progress updates broadcast:
 
 ```elixir
 defp notify_job_progress(job, event) do
   Phoenix.PubSub.broadcast(
-    Lumainus.PubSub,
+    Medlum.PubSub,
     "ingestion:#{job.upload.tenant_id}",
     {:ingestion_progress, %{
       upload_id: job.upload.id,
@@ -439,7 +439,7 @@ end
 def mount(_params, session, socket) do
   if connected?(socket) do
     Phoenix.PubSub.subscribe(
-      Lumainus.PubSub,
+      Medlum.PubSub,
       "ingestion:#{socket.assigns.current_tenant.id}"
     )
   end
@@ -486,7 +486,7 @@ end
 Based on observed processing rates:
 
 ```elixir
-defmodule Lumainus.Documents.ProgressEstimator do
+defmodule Medlum.Documents.ProgressEstimator do
   @avg_page_time_ms 500  # Average time per page in ms
 
   def estimate_remaining(pages_done, pages_total, elapsed_ms) do

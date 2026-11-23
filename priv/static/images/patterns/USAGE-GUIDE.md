@@ -89,7 +89,7 @@
 ### HeEx Template Example
 
 ```elixir
-# lib/lumainus_web/controllers/page_html/login.html.heex
+# lib/medlum_web/controllers/page_html/login.html.heex
 
 <div class="relative min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
   <!-- Background pattern -->

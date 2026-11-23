@@ -40,7 +40,7 @@ end
 
 ```elixir
 # Config example
-config :lumainus, :vast_ai,
+config :medlum, :vast_ai,
   api_key: System.get_env("VAST_API_KEY")
 ```
 

@@ -48,7 +48,7 @@ The 11 report section **identifiers and clinical focus** remain hard-coded becau
 - They represent a specific clinical workflow (Cardiology Intake)
 - Changing them would break existing tenant data
 
-These move to `lib/lumainus/reports/blueprints.ex` (see ADR-003).
+These move to `lib/medlum/reports/blueprints.ex` (see ADR-003).
 
 ## Consequences
 

@@ -11,20 +11,20 @@ Implement a robust state machine for report runs that handles race conditions, t
 Before starting, read these files to understand the current implementation:
 
 ### Design Document (READ FIRST)
-- `/home/home/p/g/n/lumainus/docs/20251203/report-run-state-machine/README.md` - Complete design spec with code examples
+- `docs/20251203/report-run-state-machine/README.md` - Complete design spec with code examples
 
 ### Current Implementation
-- `/home/home/p/g/n/lumainus/lib/lumainus/reports/report_run.ex` - ReportRun schema
-- `/home/home/p/g/n/lumainus/lib/lumainus/reports/report_section_run.ex` - ReportSectionRun schema
-- `/home/home/p/g/n/lumainus/lib/lumainus/reports/section_run_worker.ex` - Current Oban worker with race condition
-- `/home/home/p/g/n/lumainus/lib/lumainus/reports.ex` - Reports context, especially `run_sections/6` function (around line 237)
+- `lib/medlum/reports/report_run.ex` - ReportRun schema
+- `lib/medlum/reports/report_section_run.ex` - ReportSectionRun schema
+- `lib/medlum/reports/section_run_worker.ex` - Current Oban worker with race condition
+- `lib/medlum/reports.ex` - Reports context, especially `run_sections/6` function (around line 237)
 
 ### Configuration
-- `/home/home/p/g/n/lumainus/config/config.exs` - Oban crontab config (around line 126)
+- `config/config.exs` - Oban crontab config (around line 126)
 
 ### Existing Patterns to Follow
-- `/home/home/p/g/n/lumainus/lib/lumainus/documents/ingestion_cleanup_worker.ex` - Example Oban cron worker pattern
-- `/home/home/p/g/n/lumainus/lib/lumainus/conversion/job.ex` - Example of timeout_at pattern in schema
+- `lib/medlum/documents/ingestion_cleanup_worker.ex` - Example Oban cron worker pattern
+- `lib/medlum/conversion/job.ex` - Example of timeout_at pattern in schema
 
 ---
 
@@ -51,7 +51,7 @@ Backfill existing data:
 
 ### Task 3: Update ReportRun Schema
 
-**File:** `/home/home/p/g/n/lumainus/lib/lumainus/reports/report_run.ex`
+**File:** `lib/medlum/reports/report_run.ex`
 
 Add fields:
 ```elixir
@@ -63,8 +63,8 @@ Update changeset to cast these fields.
 
 ### Task 4: Create RunReconciler Module (TDD)
 
-**File:** `/home/home/p/g/n/lumainus/lib/lumainus/reports/run_reconciler.ex`
-**Test:** `/home/home/p/g/n/lumainus/test/lumainus/reports/run_reconciler_test.exs`
+**File:** `lib/medlum/reports/run_reconciler.ex`
+**Test:** `test/medlum/reports/run_reconciler_test.exs`
 
 Write tests FIRST for:
 
@@ -95,8 +95,8 @@ Implementation must:
 
 ### Task 5: Create StaleRunWorker (TDD)
 
-**File:** `/home/home/p/g/n/lumainus/lib/lumainus/reports/stale_run_worker.ex`
-**Test:** `/home/home/p/g/n/lumainus/test/lumainus/reports/stale_run_worker_test.exs`
+**File:** `lib/medlum/reports/stale_run_worker.ex`
+**Test:** `test/medlum/reports/stale_run_worker_test.exs`
 
 Write tests FIRST for:
 
@@ -117,26 +117,26 @@ Implementation:
 
 ### Task 6: Add to Oban Crontab
 
-**File:** `/home/home/p/g/n/lumainus/config/config.exs`
+**File:** `config/config.exs`
 
 Add to existing crontab:
 ```elixir
-{"*/5 * * * *", Lumainus.Reports.StaleRunWorker}
+{"*/5 * * * *", Medlum.Reports.StaleRunWorker}
 ```
 
 ### Task 7: Update SectionRunWorker
 
-**File:** `/home/home/p/g/n/lumainus/lib/lumainus/reports/section_run_worker.ex`
+**File:** `lib/medlum/reports/section_run_worker.ex`
 
 Changes:
 1. Remove `finalize_run_state/2` function entirely
 2. Replace call with `RunReconciler.maybe_finalize(report_run.id)`
 3. Update `ensure_run_running/1` to also set `last_activity_at: now`
-4. Add `alias Lumainus.Reports.RunReconciler`
+4. Add `alias Medlum.Reports.RunReconciler`
 
 ### Task 8: Update Reports.run_sections/6
 
-**File:** `/home/home/p/g/n/lumainus/lib/lumainus/reports.ex`
+**File:** `lib/medlum/reports.ex`
 
 In `run_sections/6` (around line 248-260), update run creation:
 
@@ -168,9 +168,9 @@ After implementation, verify:
 
 2. **All tests pass:**
    ```bash
-   mix test test/lumainus/reports/run_reconciler_test.exs
-   mix test test/lumainus/reports/stale_run_worker_test.exs
-   mix test test/lumainus/reports/
+   mix test test/medlum/reports/run_reconciler_test.exs
+   mix test test/medlum/reports/stale_run_worker_test.exs
+   mix test test/medlum/reports/
    ```
 
 3. **No compilation warnings:**

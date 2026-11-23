@@ -1,7 +1,7 @@
-# Gemini Use-Case Model Mapping (Lumainus)
+# Gemini Use-Case Model Mapping (Medlum)
 
 ## Context
-- Lumainus currently overrides models when using cached context; this scattered string usage leads to drift and surprises (e.g., cache forcing `gemini-2.5-flash`).
+- Medlum currently overrides models when using cached context; this scattered string usage leads to drift and surprises (e.g., cache forcing `gemini-2.5-flash`).
 - We want a single source of truth for model selection based on use case, backed by gemini_ex’s model registry.
 
 ## Use Cases → Models (via gemini_ex atoms)
@@ -9,7 +9,7 @@
 - `:report_section` → `:pro_3_preview` (main section generation)
 - `:quick_analysis` → `:flash_2_5` (fast/cheap path)
 
-Resolve to model strings with `Gemini.Config.get_model/1` so updates flow from gemini_ex without touching Lumainus code.
+Resolve to model strings with `Gemini.Config.get_model/1` so updates flow from gemini_ex without touching Medlum code.
 
 ## Plan
 1) Persist use-case keys (strings) in DB instead of raw model strings (e.g., cache_settings.model = "cache_context").

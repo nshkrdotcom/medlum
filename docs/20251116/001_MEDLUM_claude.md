@@ -1,4 +1,4 @@
-# Lumainus - Self-Aware LLM Runtime
+# Medlum - Self-Aware LLM Runtime
 
 **Tagline**: "Every token has a traceable decision path. Every claim has attributable evidence. Every response has measurable confidence."
 
@@ -25,7 +25,7 @@ Turn the LLM from a black-box oracle into a **fully instrumented, auditable reas
 
 **We have**: 
 ```elixir
-defmodule Lumainus.Core do
+defmodule Medlum.Core do
   def traced_generate(prompt, opts \\ []) do
     trace_id = UUID.generate()
     
@@ -66,7 +66,7 @@ Every single token gets:
 **Not** a single LLM call. Every response goes through:
 
 ```elixir
-defmodule Lumainus.Pipeline do
+defmodule Medlum.Pipeline do
   def process_query(user_query) do
     trace_id = start_pipeline_trace(user_query)
     
@@ -126,7 +126,7 @@ end
 **The Killer Feature** - for every claim in the output, trace it back:
 
 ```elixir
-defmodule Lumainus.Attribution do
+defmodule Medlum.Attribution do
   def build_claim_graph(response, trace_id) do
     # Parse response into atomic claims
     claims = ClaimExtractor.parse(response.text)
@@ -162,7 +162,7 @@ end
 ### Layer 4: Real-Time Health Monitoring
 
 ```elixir
-defmodule Lumainus.HealthMonitor do
+defmodule Medlum.HealthMonitor do
   use GenServer
   
   def init(_) do
@@ -208,7 +208,7 @@ defmodule Lumainus.HealthMonitor do
 end
 ```
 
-## Demo App: "Lumainus Chat" - The Transparent Research Assistant
+## Demo App: "Medlum Chat" - The Transparent Research Assistant
 
 ### UI Layout
 
@@ -303,10 +303,10 @@ Frontend (LiveView)
 └─ Health metrics dashboard
 
 Backend (Elixir/OTP)
-├─ Lumainus.Core (instrumented LLM calls)
-├─ Lumainus.Pipeline (multi-agent critics)
-├─ Lumainus.Attribution (causal graphs)
-├─ Lumainus.HealthMonitor (drift detection)
+├─ Medlum.Core (instrumented LLM calls)
+├─ Medlum.Pipeline (multi-agent critics)
+├─ Medlum.Attribution (causal graphs)
+├─ Medlum.HealthMonitor (drift detection)
 └─ Crucible Framework
     ├─ crucible_trace (decision logging)
     ├─ crucible_bench (statistical validation)
@@ -324,7 +324,7 @@ Data Layer
 
 **Traditional LLM**: "Here's an answer" (trust me)
 
-**Lumainus**: "Here's an answer, here's how I decided it, here's the evidence, here's my confidence bounds, here's the full trace, here's how I compare to my baseline behavior, and here's a real-time health check showing I'm not drifting"
+**Medlum**: "Here's an answer, here's how I decided it, here's the evidence, here's my confidence bounds, here's the full trace, here's how I compare to my baseline behavior, and here's a real-time health check showing I'm not drifting"
 
 It's the difference between a black-box AI and a **collaborator you can actually trust and audit**.
 

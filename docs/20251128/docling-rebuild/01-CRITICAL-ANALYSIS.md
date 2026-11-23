@@ -1,4 +1,4 @@
-# Critical Analysis: Lumainus Docling System
+# Critical Analysis: Medlum Docling System
 
 **Date:** November 28, 2025
 **Status:** SYSTEM FUNDAMENTALLY BROKEN
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The Lumainus Docling/PDF processing system is **architecturally broken at multiple levels**. After comprehensive multi-agent analysis, we've identified:
+The Medlum Docling/PDF processing system is **architecturally broken at multiple levels**. After comprehensive multi-agent analysis, we've identified:
 
 - **5 redundant backends** when 2 would suffice
 - **Dead code paths** (v2 profile system is defined but never implemented)
@@ -33,7 +33,7 @@ The v2 conversion system documentation (`V2_CONVERSION_SYSTEM_TECHNICAL_REFERENC
 ### What Actually Exists
 **NONE OF THESE MODULES EXIST.**
 
-The schema in `lib/lumainus/docling/setting.ex` (lines 54-60) defines:
+The schema in `lib/medlum/docling/setting.ex` (lines 54-60) defines:
 ```elixir
 field(:v2_profile_backends, :map,
   default: %{
@@ -55,10 +55,10 @@ This field is **STORED but NEVER USED**. The `resolve_docling_backend/1` functio
 ## Part 2: Ingestion System Has Dead Message Channel
 
 ### The Fatal Flaw
-`lib/lumainus/documents.ex` broadcasts job progress to PubSub:
+`lib/medlum/documents.ex` broadcasts job progress to PubSub:
 ```elixir
 PubSub.broadcast(
-  LumainusWeb.PubSub,
+  MedlumWeb.PubSub,
   "ingestion-job:#{job_id}",
   {:job_progress, record_set_id, payload}
 )

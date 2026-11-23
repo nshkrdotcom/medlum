@@ -1,14 +1,14 @@
 # Docling Integration Research - Executive Summary
 
 **Date:** November 26, 2025
-**Project:** Lumainus Medical Reporting Platform
+**Project:** Medlum Medical Reporting Platform
 **Focus:** Docling PDF-to-Markdown Integration Analysis
 
 ---
 
 ## Overview
 
-This research documents the Docling integration within the Lumainus medical reporting platform, analyzing the architecture, deployment infrastructure, and potential for extraction as a standalone service.
+This research documents the Docling integration within the Medlum medical reporting platform, analyzing the architecture, deployment infrastructure, and potential for extraction as a standalone service.
 
 ## Document Index
 
@@ -48,13 +48,13 @@ The Docling integration supports **5 standardized backends** on ports 8040-8044:
 |        Phoenix LiveView (Web UI)         |
 |    ReportsLive, DoclingSettingsLive      |
 +------------------------------------------+
-|       Lumainus.Docling (Facade)          |
+|       Medlum.Docling (Facade)          |
 |    Unified API, Backend Resolution       |
 +------------------------------------------+
 |           Backend Modules                |
 |  Local | Remote | VastAI (Backends/)     |
 +------------------------------------------+
-|        Lumainus.Docling.HTTP             |
+|        Medlum.Docling.HTTP             |
 |    Shared HTTP Client, SSE, Polling      |
 +------------------------------------------+
 |          Docling Services                |
@@ -67,7 +67,7 @@ The Docling integration supports **5 standardized backends** on ports 8040-8044:
 
 ### Key Components
 
-1. **Elixir Facade** (`lib/lumainus/docling.ex`)
+1. **Elixir Facade** (`lib/medlum/docling.ex`)
    - Unified API: `convert/2`, `enqueue/2`, `await/2`, `health/1`
    - Backend resolution and configuration
    - 600+ lines of production code
@@ -115,10 +115,10 @@ The Docling integration supports **5 standardized backends** on ports 8040-8044:
 
 ### Challenges for Extraction
 
-1. **Deep Lumainus Integration**
+1. **Deep Medlum Integration**
    - Database schemas tied to multi-tenant model
-   - PubSub channels use Lumainus-specific topics
-   - Configuration merging uses Lumainus settings
+   - PubSub channels use Medlum-specific topics
+   - Configuration merging uses Medlum settings
 
 2. **Cross-Cutting Concerns**
    - Vast.ai provisioning intertwined with settings
@@ -166,7 +166,7 @@ This research provides comprehensive documentation. Consider:
 
 ### Elixir Source
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── docling.ex              # Main facade
 ├── setting.ex              # DB schema
 ├── settings.ex             # Settings service
@@ -206,7 +206,7 @@ scripts/
 
 ### Tests
 ```
-test/lumainus/docling/
+test/medlum/docling/
 ├── docling_test.exs
 ├── http_test.exs
 ├── health_check_worker_test.exs

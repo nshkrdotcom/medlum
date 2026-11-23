@@ -25,13 +25,13 @@ The user should NOT:
 
 ## Page: `/upload` (New LiveView)
 
-### File: `lib/lumainus_web/live/upload_live.ex`
+### File: `lib/medlum_web/live/upload_live.ex`
 
 ```elixir
-defmodule LumainusWeb.UploadLive do
-  use LumainusWeb, :live_view
-  alias Lumainus.Documents
-  alias Lumainus.Backends.Router
+defmodule MedlumWeb.UploadLive do
+  use MedlumWeb, :live_view
+  alias Medlum.Documents
+  alias Medlum.Backends.Router
 
   @max_file_size_mb 100
   @accepted_types ~w(.pdf)
@@ -40,7 +40,7 @@ defmodule LumainusWeb.UploadLive do
   def mount(_params, session, socket) do
     if connected?(socket) do
       # Subscribe to job progress updates
-      Phoenix.PubSub.subscribe(LumainusWeb.PubSub, "docling:status")
+      Phoenix.PubSub.subscribe(MedlumWeb.PubSub, "docling:status")
     end
 
     socket =
@@ -212,7 +212,7 @@ defmodule LumainusWeb.UploadLive do
       case process_upload(socket, entry, binary) do
         {:ok, job_id, socket} ->
           # Subscribe to this job's progress
-          Phoenix.PubSub.subscribe(LumainusWeb.PubSub, "job:#{job_id}")
+          Phoenix.PubSub.subscribe(MedlumWeb.PubSub, "job:#{job_id}")
           {:ok, socket}
 
         {:error, reason, socket} ->
@@ -319,18 +319,18 @@ end
 
 ## Backend Integration: Job Progress Broadcasting
 
-### File: `lib/lumainus/documents/processor.ex` (Simplified)
+### File: `lib/medlum/documents/processor.ex` (Simplified)
 
 ```elixir
-defmodule Lumainus.Documents.Processor do
+defmodule Medlum.Documents.Processor do
   @moduledoc """
   Processes documents via Docling.
   Broadcasts progress to LiveView via PubSub.
   """
   require Logger
 
-  alias Lumainus.Backends.Router
-  alias Lumainus.Documents
+  alias Medlum.Backends.Router
+  alias Medlum.Documents
 
   @stages [
     {0, "Queued for processing..."},
@@ -443,7 +443,7 @@ defmodule Lumainus.Documents.Processor do
 
   defp broadcast_progress(job_id, progress, message) do
     Phoenix.PubSub.broadcast(
-      LumainusWeb.PubSub,
+      MedlumWeb.PubSub,
       "job:#{job_id}",
       {:job_progress, job_id, %{progress: progress, message: message}}
     )
@@ -451,7 +451,7 @@ defmodule Lumainus.Documents.Processor do
 
   defp broadcast_complete(job_id, result) do
     Phoenix.PubSub.broadcast(
-      LumainusWeb.PubSub,
+      MedlumWeb.PubSub,
       "job:#{job_id}",
       {:job_complete, job_id, result}
     )
@@ -459,7 +459,7 @@ defmodule Lumainus.Documents.Processor do
 
   defp broadcast_failed(job_id, error) do
     Phoenix.PubSub.broadcast(
-      LumainusWeb.PubSub,
+      MedlumWeb.PubSub,
       "job:#{job_id}",
       {:job_failed, job_id, error}
     )
@@ -791,8 +791,8 @@ D. Network error during upload
 
 ### Router
 ```elixir
-# lib/lumainus_web/router.ex
-scope "/", LumainusWeb do
+# lib/medlum_web/router.ex
+scope "/", MedlumWeb do
   pipe_through [:browser, :require_authenticated_user]
 
   live "/upload", UploadLive, :index
@@ -810,13 +810,13 @@ end
 
 ### Oban Worker
 ```elixir
-# lib/lumainus/workers/document_worker.ex
-defmodule Lumainus.Workers.DocumentWorker do
+# lib/medlum/workers/document_worker.ex
+defmodule Medlum.Workers.DocumentWorker do
   use Oban.Worker, queue: :documents, max_attempts: 3
 
   @impl true
   def perform(%{args: %{"job_id" => job_id}}) do
-    Lumainus.Documents.Processor.process(job_id)
+    Medlum.Documents.Processor.process(job_id)
   end
 end
 ```

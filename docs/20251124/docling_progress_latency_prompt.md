@@ -8,11 +8,11 @@ Make the Phoenix LiveView progress display update in near lockstep with Docling 
 ## Quick Enable: Progress Debug Logs
 - Set `:debug_progress_log` in `config/dev.exs` or at runtime to `true`:
   ```elixir
-  config :lumainus, :docling, debug_progress_log: true
+  config :medlum, :docling, debug_progress_log: true
   ```
   or in IEx:
   ```elixir
-  Application.put_env(:lumainus, :docling, Keyword.put(Application.get_env(:lumainus, :docling, []), :debug_progress_log, true))
+  Application.put_env(:medlum, :docling, Keyword.put(Application.get_env(:medlum, :docling, []), :debug_progress_log, true))
   ```
 - Run ingestion. Phoenix console will emit lines like:
   ```
@@ -31,7 +31,7 @@ Make the Phoenix LiveView progress display update in near lockstep with Docling 
    - Confirm events are flushed with `\n\n` and not buffered by server/proxy.
    - If buffering suspected, consider forcing line buffering or adding `yield`/`await asyncio.sleep(0)` in the SSE generator.
 5) Confirm Phoenix side:
-   - `Lumainus.Docling.SSEConsumer` and `Docling.Queue.receive_sse_events/5` process every `:data` chunk immediately.
+   - `Medlum.Docling.SSEConsumer` and `Docling.Queue.receive_sse_events/5` process every `:data` chunk immediately.
    - `ProgressTracker.should_emit?/4` now emits on every page movement (no debounce on page count; only 50ms debounce when progress is flat).
 6) If still laggy, instrument SSE Consumer to timestamp each chunk arrival and compare with `docling-progress-debug`.
 

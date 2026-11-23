@@ -1,15 +1,15 @@
-# Lumainus Login Page Redesign - Complete
+# Medlum Login Page Redesign - Complete
 
 ## 🎨 World-Class Login Experience Delivered
 
-A complete redesign of the Lumainus login page transforming it from a basic form into a **world-class medical AI waiting room** experience that embodies calm, professionalism, and cutting-edge technology.
+A complete redesign of the Medlum login page transforming it from a basic form into a **world-class medical AI waiting room** experience that embodies calm, professionalism, and cutting-edge technology.
 
 ---
 
 ## 🚀 What Was Created
 
 ### 1. **Enhanced Logo SVG** ✨
-**File:** `priv/static/images/lumainus-logo-enhanced.svg`
+**File:** `priv/static/images/medlum-logo-enhanced.svg`
 
 **Features:**
 - Multi-stop advanced gradients (4+ color stops for depth)
@@ -71,7 +71,7 @@ A complete redesign of the Lumainus login page transforming it from a basic form
 ---
 
 ### 3. **World-Class Login Page** 🏥
-**File:** `lib/lumainus_web/live/user_live/login.ex`
+**File:** `lib/medlum_web/live/user_live/login.ex`
 
 **Design Philosophy: "The Medical AI Waiting Room"**
 
@@ -88,7 +88,7 @@ A complete redesign of the Lumainus login page transforming it from a basic form
 - Floating animation (gentle vertical movement)
 - Drop shadow glow effect
 - Brand name with gradient text
-- Tagline showcasing Lumainus' core values
+- Tagline showcasing Medlum' core values
 
 **Glass Morphism Login Card:**
 - Frosted glass effect (backdrop-filter: blur(20px))
@@ -198,10 +198,10 @@ A complete redesign of the Lumainus login page transforming it from a basic form
 ## 🏗️ Technical Implementation
 
 ### Files Modified
-- `lib/lumainus_web/live/user_live/login.ex` - Complete page redesign
+- `lib/medlum_web/live/user_live/login.ex` - Complete page redesign
 
 ### Files Created
-- `priv/static/images/lumainus-logo-enhanced.svg` - Enhanced logo
+- `priv/static/images/medlum-logo-enhanced.svg` - Enhanced logo
 - `priv/static/images/patterns/*.svg` - 9 pattern files
 - `priv/static/images/patterns/README.md` - Pattern documentation
 - `priv/static/images/patterns/USAGE-GUIDE.md` - Implementation guide
@@ -284,7 +284,7 @@ A complete redesign of the Lumainus login page transforming it from a basic form
 
 1. **Start the Phoenix server:**
    ```bash
-   cd /path/to/lumainus
+   cd /path/to/medlum
    mix phx.server
    ```
 
@@ -296,7 +296,7 @@ A complete redesign of the Lumainus login page transforming it from a basic form
 3. **What you'll see:**
    - Stunning animated background with neural network patterns
    - Floating, glowing enhanced logo
-   - Brand tagline showcasing Lumainus values
+   - Brand tagline showcasing Medlum values
    - Premium glass-morphism login card
    - Smooth animations and micro-interactions
    - Professional "medical AI waiting room" experience
@@ -395,7 +395,7 @@ A complete redesign of the Lumainus login page transforming it from a basic form
 ### Why This Design?
 
 **Medical AI Context:**
-Lumainus is a self-aware LLM runtime for medical applications. The login page needed to convey:
+Medlum is a self-aware LLM runtime for medical applications. The login page needed to convey:
 - **Trust** - Users are working with medical data
 - **Transparency** - AI decision-making is visible and traceable
 - **Sophistication** - Cutting-edge technology
@@ -449,7 +449,7 @@ Like a world-class medical facility's waiting room:
 - Browser cache may need clearing
 
 **Updating Logo:**
-- Replace `lumainus-logo-enhanced.svg`
+- Replace `medlum-logo-enhanced.svg`
 - Maintains all animations automatically
 - SVG viewBox determines final size
 
@@ -480,14 +480,14 @@ Like a world-class medical facility's waiting room:
 
 ## 🎉 Summary
 
-The Lumainus login page has been transformed from a basic authentication form into a **world-class medical AI waiting room experience**. Every element has been carefully crafted to convey calm, professionalism, transparency, and cutting-edge technology.
+The Medlum login page has been transformed from a basic authentication form into a **world-class medical AI waiting room experience**. Every element has been carefully crafted to convey calm, professionalism, transparency, and cutting-edge technology.
 
-**The result:** A memorable first impression that embodies Lumainus' core values of traceable AI intelligence where "every token has a traceable decision path, every claim has attributable evidence, and every response has measurable confidence."
+**The result:** A memorable first impression that embodies Medlum' core values of traceable AI intelligence where "every token has a traceable decision path, every claim has attributable evidence, and every response has measurable confidence."
 
 **Status:** ✅ **Complete and Production-Ready**
 
 ---
 
 *Generated: November 16, 2025*
-*Project: Lumainus - Self-Aware LLM Runtime*
+*Project: Medlum - Self-Aware LLM Runtime*
 *Designer: Claude Code Agent Team*

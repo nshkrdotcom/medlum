@@ -44,9 +44,9 @@ Reports.run_sections(scope, patient, record_set, template, section_ids, stream: 
 ### Option Type with Validation
 
 ```elixir
-# lib/lumainus/reports/types.ex
+# lib/medlum/reports/types.ex
 
-defmodule Lumainus.Reports.Types do
+defmodule Medlum.Reports.Types do
   @moduledoc """
   Type definitions and validation for Reports module.
   """
@@ -101,7 +101,7 @@ end
 ### Update Reports.run_sections
 
 ```elixir
-# lib/lumainus/reports.ex
+# lib/medlum/reports.ex
 
 @doc """
 Run sections for a report.
@@ -150,13 +150,13 @@ end
 ### Telemetry for Mode Selection
 
 ```elixir
-# lib/lumainus/reports.ex
+# lib/medlum/reports.ex
 
 defp do_run_sections(scope, patient, record_set, template, section_ids, opts) do
   mode = Keyword.get(opts, :mode, :batch)
 
   :telemetry.execute(
-    [:lumainus, :reports, :run_sections, :start],
+    [:medlum, :reports, :run_sections, :start],
     %{section_count: length(section_ids)},
     %{
       mode: mode,
@@ -209,9 +209,9 @@ end
 
 ## Files to Modify
 
-- `lib/lumainus/reports/types.ex` - New module
-- `lib/lumainus/reports.ex` - Use validation, update docs
-- `lib/lumainus/reports/section_run_worker.ex` - Read `:mode` instead of `:stream`
+- `lib/medlum/reports/types.ex` - New module
+- `lib/medlum/reports.ex` - Use validation, update docs
+- `lib/medlum/reports/section_run_worker.ex` - Read `:mode` instead of `:stream`
 
 ## Testing
 

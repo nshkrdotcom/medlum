@@ -45,7 +45,7 @@ Desired state:
 
 ### What Stays Hard-Coded
 
-The 11 section **identifiers** move to `lib/lumainus/reports/blueprints.ex`:
+The 11 section **identifiers** move to `lib/medlum/reports/blueprints.ex`:
 
 1. chief-complaint
 2. history-present-illness
@@ -66,19 +66,19 @@ These define the structure referenced in code and migrations. Their prompts, sch
 ### New Files
 
 ```
-lib/lumainus/reports/blueprints.ex          # Hard-coded section definitions
-lib/lumainus/reports/schema_validator.ex    # JSON Schema validation
-lib/lumainus_web/live/admin/llm_config_live.ex  # New config UI
+lib/medlum/reports/blueprints.ex          # Hard-coded section definitions
+lib/medlum/reports/schema_validator.ex    # JSON Schema validation
+lib/medlum_web/live/admin/llm_config_live.ex  # New config UI
 ```
 
 ### Modified Files
 
 ```
-lib/lumainus/reports.ex                     # Remove blueprints, use Blueprints module
-lib/lumainus/reports/report_section_template.ex  # Add new schema fields
-lib/lumainus/ai.ex                          # Pass new per-section overrides to LLM
-lib/lumainus/ai/section_runner.ex           # Read new fields, use DB system_prompt
-lib/lumainus/llm.ex                         # Pass new parameters to Gemini
+lib/medlum/reports.ex                     # Remove blueprints, use Blueprints module
+lib/medlum/reports/report_section_template.ex  # Add new schema fields
+lib/medlum/ai.ex                          # Pass new per-section overrides to LLM
+lib/medlum/ai/section_runner.ex           # Read new fields, use DB system_prompt
+lib/medlum/llm.ex                         # Pass new parameters to Gemini
 config/config.exs                           # Update default values
 ```
 

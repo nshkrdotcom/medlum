@@ -1,13 +1,13 @@
 # Docling Elixir Core Integration
 
 **Date:** November 26, 2025
-**Component:** `lib/lumainus/docling/`
+**Component:** `lib/medlum/docling/`
 
 ---
 
 ## Executive Summary
 
-The Lumainus project implements a sophisticated, multi-backend Docling PDF-to-Markdown conversion system with a unified Elixir API that abstracts 5 different deployment targets. The architecture uses a facade pattern with backend-specific implementations, allowing seamless switching between local (CPU/GPU) and cloud (Vast.ai) backends.
+The Medlum project implements a sophisticated, multi-backend Docling PDF-to-Markdown conversion system with a unified Elixir API that abstracts 5 different deployment targets. The architecture uses a facade pattern with backend-specific implementations, allowing seamless switching between local (CPU/GPU) and cloud (Vast.ai) backends.
 
 ---
 
@@ -16,7 +16,7 @@ The Lumainus project implements a sophisticated, multi-backend Docling PDF-to-Ma
 ### Directory Layout
 
 ```
-lib/lumainus/docling/
+lib/medlum/docling/
 ├── docling.ex                    # Main facade module
 ├── setting.ex                    # Ecto schema for DB persistence
 ├── settings.ex                   # Settings service layer
@@ -42,7 +42,7 @@ lib/lumainus/docling/
 
 ## 2. Core Architecture: Facade Pattern with Multi-Backend Support
 
-### Main Module: `Lumainus.Docling`
+### Main Module: `Medlum.Docling`
 
 **Purpose**: Unified API that abstracts backend selection and configuration.
 
@@ -50,27 +50,27 @@ lib/lumainus/docling/
 
 ```elixir
 @backend_modules %{
-  native_cpu: Lumainus.Docling.Backends.Local,
-  native_gpu: Lumainus.Docling.Backends.Local,
-  docker_cpu: Lumainus.Docling.Backends.Local,
-  docker_gpu: Lumainus.Docling.Backends.Local,
-  vast_ai: Lumainus.Docling.Backends.VastAI,
+  native_cpu: Medlum.Docling.Backends.Local,
+  native_gpu: Medlum.Docling.Backends.Local,
+  docker_cpu: Medlum.Docling.Backends.Local,
+  docker_gpu: Medlum.Docling.Backends.Local,
+  vast_ai: Medlum.Docling.Backends.VastAI,
   # Legacy aliases
-  local: Lumainus.Docling.Backends.Local,
-  remote: Lumainus.Docling.Backends.Remote,
-  fast: Lumainus.Docling.Backends.Remote
+  local: Medlum.Docling.Backends.Local,
+  remote: Medlum.Docling.Backends.Remote,
+  fast: Medlum.Docling.Backends.Remote
 }
 ```
 
 ### Backend Types Classification
 
 - **Local Backends (4)**: `native_cpu`, `native_gpu`, `docker_cpu`, `docker_gpu`
-  - All map to `Lumainus.Docling.Backends.Local`
+  - All map to `Medlum.Docling.Backends.Local`
   - Different ports: 8040, 8041, 8042, 8043
   - Selectable via admin setting `active_local_backend`
 
 - **Cloud Backends (1)**: `vast_ai`
-  - Maps to `Lumainus.Docling.Backends.VastAI`
+  - Maps to `Medlum.Docling.Backends.VastAI`
   - Port 8044
   - Auto-provisioning with cost optimization
 
@@ -160,13 +160,13 @@ The system implements a sophisticated config merging strategy with three sources
 
 ### Function: `config/0`
 
-Located in `Lumainus.Docling`, this function:
-1. Fetches environment config from `:lumainus, :docling` application env
+Located in `Medlum.Docling`, this function:
+1. Fetches environment config from `:medlum, :docling` application env
 2. Checks `prefer_env_overrides` flag
 3. If true: returns env config with defaults
 4. If false: merges DB config with env defaults
 
-### Database Schema: `Lumainus.Docling.Setting`
+### Database Schema: `Medlum.Docling.Setting`
 
 **Fields**:
 ```elixir
@@ -205,7 +205,7 @@ singleton: :boolean (default: true)
 
 ## 5. Backend Protocol & Implementation Pattern
 
-### Behavior: `Lumainus.Docling.Backend`
+### Behavior: `Medlum.Docling.Backend`
 
 **Required Callbacks**:
 ```elixir
@@ -268,7 +268,7 @@ singleton: :boolean (default: true)
 
 ## 6. HTTP Client and Communication Layer
 
-### Module: `Lumainus.Docling.HTTP`
+### Module: `Medlum.Docling.HTTP`
 
 **Purpose**: Centralized HTTP handling for all backends
 
@@ -308,7 +308,7 @@ prefer_sse? = true (default)
 
 **SSE Consumer** (`SSEConsumer.ex`):
 - Subscribes to `/jobs/:id/stream` endpoint
-- Supervised task via `Lumainus.TaskSupervisor`
+- Supervised task via `Medlum.TaskSupervisor`
 - Sends messages:
   - `{:sse_event, job_id, event_map}` - Progress update
   - `{:sse_done, job_id, :completed | :failed}` - Terminal state
@@ -319,7 +319,7 @@ prefer_sse? = true (default)
 
 ## 7. Async Job Management
 
-### Module: `Lumainus.Docling.Queue`
+### Module: `Medlum.Docling.Queue`
 
 **Purpose**: Optional async job queueing with two modes
 
@@ -349,14 +349,14 @@ prefer_sse? = true (default)
 
 ### Schemas & Workers
 
-**Schema**: `Lumainus.Docling.HealthCheck`
+**Schema**: `Medlum.Docling.HealthCheck`
 ```elixir
 status: :string           # "healthy" | "unreachable"
 details: :map            # Response body or error info
 responded_at: :utc_datetime
 ```
 
-**Worker**: `Lumainus.Docling.HealthCheckWorker`
+**Worker**: `Medlum.Docling.HealthCheckWorker`
 - Oban-based cron job
 - Runs every 5 minutes (configured via cron: `"*/5 * * * *"`)
 - Calls `Docling.health()` and persists result
@@ -366,7 +366,7 @@ responded_at: :utc_datetime
 
 ## 9. Vast.ai-Specific Components
 
-Located in `lib/lumainus/docling/vast_ai/`:
+Located in `lib/medlum/docling/vast_ai/`:
 
 ### Instance Manager (`instance_manager.ex`)
 - Maintains singleton GPU instance lifecycle
@@ -393,7 +393,7 @@ Located in `lib/lumainus/docling/vast_ai/`:
 ## 10. Configuration in config/config.exs
 
 ```elixir
-config :lumainus, :docling,
+config :medlum, :docling,
   # User default mode
   default_mode: :local,
 
@@ -424,17 +424,17 @@ config :lumainus, :docling,
 ## 11. Key Design Patterns
 
 ### 1. **Behavior-Based Polymorphism**
-- `Lumainus.Docling.Backend` behavior defines contract
+- `Medlum.Docling.Backend` behavior defines contract
 - Multiple implementations (Local, Remote, VastAI)
 - Runtime dispatch via `backend_module/1`
 
 ### 2. **Facade Pattern**
-- `Lumainus.Docling` hides backend complexity
+- `Medlum.Docling` hides backend complexity
 - Transparent backend switching via config/opts
 - Unified API regardless of backend
 
 ### 3. **Singleton Configuration Pattern**
-- `Lumainus.Docling.Settings.fetch_or_init()` ensures single record
+- `Medlum.Docling.Settings.fetch_or_init()` ensures single record
 - Database unique constraint on `:singleton` field
 - Supports both env overrides and DB persistence
 
@@ -460,7 +460,7 @@ User.convert(binary, backend: :docker_cpu)
   v
 Docling.convert/2
   ├─ backend_name_from_opts/1 -> :docker_cpu
-  ├─ backend_module/1 -> Lumainus.Docling.Backends.Local
+  ├─ backend_module/1 -> Medlum.Docling.Backends.Local
   v
 Backends.Local.convert/2
   v

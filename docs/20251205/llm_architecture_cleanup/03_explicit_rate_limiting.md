@@ -38,7 +38,7 @@ SectionRunner
 ### Make Rate Limiting Explicit in Client Interface
 
 ```elixir
-# lib/lumainus/llm/client.ex
+# lib/medlum/llm/client.ex
 
 @callback generate_object(model_spec, prompt, schema, opts) ::
   {:ok, response} | {:error, term()} | {:rate_limited, retry_after, details}
@@ -53,7 +53,7 @@ SectionRunner
 ### SectionRunner Handles Rate Limiting Explicitly
 
 ```elixir
-# lib/lumainus/ai/section_runner.ex
+# lib/medlum/ai/section_runner.ex
 
 defp invoke_llm(model_spec, prompt_text, schema, options) do
   client = AI.client()
@@ -87,7 +87,7 @@ end
 ### Update LLM Module to Return Rate Limit Info
 
 ```elixir
-# lib/lumainus/llm.ex
+# lib/medlum/llm.ex
 
 def generate_object(model_spec, prompt_text, schema, opts \\ []) do
   case do_generate(provider, model, prompt_text, schema, opts) do
@@ -146,10 +146,10 @@ end
 
 ## Files to Modify
 
-- `lib/lumainus/llm/client.ex` - Extended interface
-- `lib/lumainus/llm.ex` - Implement new methods
-- `lib/lumainus/llm/mock_client.ex` - Mock implementation
-- `lib/lumainus/ai/section_runner.ex` - Handle rate limits
+- `lib/medlum/llm/client.ex` - Extended interface
+- `lib/medlum/llm.ex` - Implement new methods
+- `lib/medlum/llm/mock_client.ex` - Mock implementation
+- `lib/medlum/ai/section_runner.ex` - Handle rate limits
 
 ## Testing
 

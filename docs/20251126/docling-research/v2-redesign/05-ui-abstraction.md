@@ -77,13 +77,13 @@ The UI has **ZERO knowledge** of:
 ### Profile Selector
 
 ```elixir
-defmodule LumainusWeb.Components.Conversion do
+defmodule MedlumWeb.Components.Conversion do
   @moduledoc """
   Conversion-related UI components with no backend knowledge.
   """
 
   use Phoenix.Component
-  alias Lumainus.Conversion.ProcessingProfile
+  alias Medlum.Conversion.ProcessingProfile
 
   @doc """
   Profile selection component.
@@ -238,7 +238,7 @@ end
 ### Before
 
 ```elixir
-defmodule LumainusWeb.ReportsLive do
+defmodule MedlumWeb.ReportsLive do
   # 1900+ lines with backend details throughout
 
   def mount(_params, _session, socket) do
@@ -266,15 +266,15 @@ end
 ### After
 
 ```elixir
-defmodule LumainusWeb.ReportsLive do
+defmodule MedlumWeb.ReportsLive do
   @moduledoc """
   Reports LiveView with no conversion backend knowledge.
   """
 
-  use LumainusWeb, :live_view
+  use MedlumWeb, :live_view
 
-  alias Lumainus.Conversion.Service, as: ConversionService
-  alias LumainusWeb.Components.Conversion
+  alias Medlum.Conversion.Service, as: ConversionService
+  alias MedlumWeb.Components.Conversion
 
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -435,13 +435,13 @@ The document metadata stores only whether enhanced processing was used (boolean)
 Backend configuration is **ONLY** in admin UI:
 
 ```elixir
-defmodule LumainusWeb.Admin.ConversionSettingsLive do
+defmodule MedlumWeb.Admin.ConversionSettingsLive do
   @moduledoc """
   Admin-only view for conversion infrastructure configuration.
   Users never see this.
   """
 
-  use LumainusWeb, :live_view
+  use MedlumWeb, :live_view
 
   # This is where backend URLs, ports, health status belong
   # Completely separate from user-facing ReportsLive
@@ -471,7 +471,7 @@ end
 The ConversionService broadcasts user-friendly events:
 
 ```elixir
-defmodule Lumainus.Conversion.Events do
+defmodule Medlum.Conversion.Events do
   @moduledoc """
   User-facing conversion events.
   """
@@ -479,7 +479,7 @@ defmodule Lumainus.Conversion.Events do
   @doc "Broadcast profile availability change"
   def profiles_changed(profiles) do
     Phoenix.PubSub.broadcast(
-      Lumainus.PubSub,
+      Medlum.PubSub,
       "conversion:profiles",
       {:conversion_profiles_changed, profiles}
     )
@@ -489,7 +489,7 @@ defmodule Lumainus.Conversion.Events do
   def job_progress(job_id, status) do
     # Status is JobStatus struct - already user-friendly
     Phoenix.PubSub.broadcast(
-      Lumainus.PubSub,
+      Medlum.PubSub,
       "conversion:job:#{job_id}",
       {:conversion_job_progress, job_id, status}
     )
@@ -498,7 +498,7 @@ defmodule Lumainus.Conversion.Events do
   @doc "Broadcast job completion"
   def job_completed(job_id, result) do
     Phoenix.PubSub.broadcast(
-      Lumainus.PubSub,
+      Medlum.PubSub,
       "conversion:job:#{job_id}",
       {:conversion_job_completed, job_id, result}
     )
@@ -508,7 +508,7 @@ defmodule Lumainus.Conversion.Events do
   def job_failed(job_id, error) do
     # Error is humanized, not raw backend error
     Phoenix.PubSub.broadcast(
-      Lumainus.PubSub,
+      Medlum.PubSub,
       "conversion:job:#{job_id}",
       {:conversion_job_failed, job_id, error}
     )
@@ -523,11 +523,11 @@ end
 def mount(_params, _session, socket) do
   if connected?(socket) do
     # Subscribe to profile changes
-    Phoenix.PubSub.subscribe(Lumainus.PubSub, "conversion:profiles")
+    Phoenix.PubSub.subscribe(Medlum.PubSub, "conversion:profiles")
 
     # Subscribe to specific job updates
     for job_id <- active_job_ids(socket) do
-      Phoenix.PubSub.subscribe(Lumainus.PubSub, "conversion:job:#{job_id}")
+      Phoenix.PubSub.subscribe(Medlum.PubSub, "conversion:job:#{job_id}")
     end
   end
 end
@@ -540,7 +540,7 @@ end
 ### Schema
 
 ```elixir
-defmodule Lumainus.Accounts.User do
+defmodule Medlum.Accounts.User do
   schema "users" do
     # ...existing fields...
 
@@ -556,7 +556,7 @@ end
 ### Migration
 
 ```elixir
-defmodule Lumainus.Repo.Migrations.SimplifyUserProcessingPreference do
+defmodule Medlum.Repo.Migrations.SimplifyUserProcessingPreference do
   use Ecto.Migration
 
   def up do
