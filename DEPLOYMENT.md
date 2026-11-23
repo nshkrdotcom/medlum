@@ -11,9 +11,10 @@ Deployment to dev.medlumai.com (production environment, no releases).
 
 ## Renaming an Existing Installation
 
-Schedule downtime and stop the old application and Docling Compose project. Back up
-PostgreSQL and `.env.prod`, then move the checkout and service configuration to the
-paths below. Update the server checkout's `origin` and preserve the database contents
+Schedule downtime and stop the old application. Run `docker compose down` from the
+previous checkout and configuration before switching to the renamed Compose project.
+Both projects use the same container names. Back up PostgreSQL and `.env.prod`,
+then move the server checkout and service configuration to the paths below. Update the server checkout's `origin` and preserve the database contents
 and runtime secrets. If you rename the database or role, update `DATABASE_URL` to match.
 Run `MIX_ENV=prod mix ecto.migrate` against the existing database before starting
 Medlum so queued Oban jobs use the new module names. Users will sign in again because
