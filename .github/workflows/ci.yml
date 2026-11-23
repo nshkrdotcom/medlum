@@ -14,7 +14,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     services:
       postgres:
@@ -34,8 +34,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27.1"
-          elixir-version: "1.17.3"
+          otp-version: "29.1.2"
+          elixir-version: "1.20.5"
 
       - name: Restore deps cache
         uses: actions/cache@v4
@@ -49,9 +49,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: _build
-          key: build-medlum-${{ runner.os }}-${{ hashFiles('mix.exs', 'mix.lock') }}
+          key: build-medlum-${{ runner.os }}-otp29.1.2-elixir1.20.5-${{ hashFiles('mix.exs', 'mix.lock') }}
           restore-keys: |
-            build-medlum-${{ runner.os }}-
+            build-medlum-${{ runner.os }}-otp29.1.2-elixir1.20.5-
 
       - name: Install dependencies
         run: mix deps.get
